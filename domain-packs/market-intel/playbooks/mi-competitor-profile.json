@@ -1,0 +1,38 @@
+{
+  "id": "mi-competitor-profile",
+  "title": "Rakip Profili (Ürün + ICP + Fiyat + Farklar)",
+  "defaultPersona": "pazar-arastirmaci",
+  "steps": [
+    {
+      "id": "research",
+      "agent": "Researcher",
+      "goal": "Seçilen rakip için ürün, hedef müşteri, fiyatlandırma ve konumlandırma hakkında kaynaklı bilgi topla.",
+      "output": "Markdown: Rakip özeti, Ürün/Özellikler, ICP, Fiyatlandırma, Dağıtım kanalları, Güçlü/Zayıf yönler, Kaynaklar (en az 10 URL)"
+    },
+    {
+      "id": "analysis",
+      "agent": "Analyst",
+      "goal": "Rakibin farklılaştığı noktaları ve boşlukları çıkar.",
+      "output": "Tablo: iddia | kanıt URL | alıntı/kısa kanıt | güven(0-1) | not"
+    },
+    {
+      "id": "write",
+      "agent": "Writer",
+      "goal": "Rakip profil raporunu üret.",
+      "output": "Markdown: Özet, ICP, Ürün, Fiyat, Differentiators, Risks, Open Questions, Kaynaklar"
+    },
+    {
+      "id": "verify",
+      "agent": "Verifier",
+      "goal": "Kritik iddiaların URL ile kanıtlandığını ve raporun izlenebilir olduğunu doğrula.",
+      "output": "Denetim: PASS/FAIL + düzeltme listesi"
+    },
+    {
+      "id": "edit",
+      "agent": "Editor",
+      "goal": "Formatı netleştir ve tekrarları azalt.",
+      "output": "Final rapor"
+    }
+  ]
+}
+

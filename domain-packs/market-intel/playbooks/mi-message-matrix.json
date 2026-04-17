@@ -1,0 +1,38 @@
+{
+  "id": "mi-message-matrix",
+  "title": "Mesaj Matrisi (Persona × Value Prop × Proof)",
+  "defaultPersona": "urun-yoneticisi",
+  "steps": [
+    {
+      "id": "research",
+      "agent": "Researcher",
+      "goal": "Hedef personayı ve acı noktalarını kaynaklı sinyallerle çıkar.",
+      "output": "Liste: persona | pain | kanıt URL (en az 6)"
+    },
+    {
+      "id": "analysis",
+      "agent": "Analyst",
+      "goal": "Value prop ve proof point'leri tasarla.",
+      "output": "Tablo: persona | value prop | proof (URL) | objection | cevap"
+    },
+    {
+      "id": "write",
+      "agent": "Writer",
+      "goal": "Mesaj matrisini raporla.",
+      "output": "Markdown: Özet, Mesaj Matrisi tablosu, Kullanım önerileri, Kaynaklar"
+    },
+    {
+      "id": "verify",
+      "agent": "Verifier",
+      "goal": "Proof point'lerin URL ile desteklendiğini doğrula.",
+      "output": "Denetim: PASS/FAIL"
+    },
+    {
+      "id": "edit",
+      "agent": "Editor",
+      "goal": "Dili sadeleştir.",
+      "output": "Final çıktı"
+    }
+  ]
+}
+

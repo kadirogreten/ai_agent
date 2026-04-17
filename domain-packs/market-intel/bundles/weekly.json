@@ -1,0 +1,10 @@
+{
+  "id": "weekly",
+  "title": "Market Intel Weekly Bundle",
+  "playbooks": [
+    "mi-weekly-brief",
+    "mi-competitor-profile",
+    "mi-competitor-pricing-compare"
+  ]
+}
+

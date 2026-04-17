@@ -1,0 +1,38 @@
+{
+  "id": "mi-regulation-risk",
+  "title": "Regülasyon ve Risk Notu (Uyum + Güvenlik)",
+  "defaultPersona": "pazar-arastirmaci",
+  "steps": [
+    {
+      "id": "research",
+      "agent": "Researcher",
+      "goal": "İlgili regülasyon, standart ve risk başlıklarını kaynaklı topla.",
+      "output": "Liste: başlık | kısa açıklama | ülke/bölge | kaynak URL (en az 8)"
+    },
+    {
+      "id": "analysis",
+      "agent": "Analyst",
+      "goal": "Riskleri etki/olasılık ile puanla ve azaltma önerileri çıkar.",
+      "output": "Tablo: risk | etki(1-5) | olasılık(1-5) | azaltma | kaynak URL"
+    },
+    {
+      "id": "write",
+      "agent": "Writer",
+      "goal": "Risk ve uyum notunu yaz.",
+      "output": "Markdown: Özet, Regülasyonlar, Risk Matrisi, Öneriler, Kaynaklar"
+    },
+    {
+      "id": "verify",
+      "agent": "Verifier",
+      "goal": "Risklerin kaynaklı olduğunu doğrula.",
+      "output": "Denetim: PASS/FAIL"
+    },
+    {
+      "id": "edit",
+      "agent": "Editor",
+      "goal": "Formatı finalle.",
+      "output": "Final not"
+    }
+  ]
+}
+

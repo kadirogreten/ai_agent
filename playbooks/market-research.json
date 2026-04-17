@@ -1,0 +1,38 @@
+{
+  "id": "market-research",
+  "title": "Pazar Araştırması (1 sayfa özet + kaynakça)",
+  "defaultPersona": "pazar-arastirmaci",
+  "steps": [
+    {
+      "id": "research",
+      "agent": "Researcher",
+      "goal": "Konuyla ilgili ana kaynakları ve bulguları topla.",
+      "output": "Kaynakça + 10-15 madde bulgu + her bulguya kaynak referansı"
+    },
+    {
+      "id": "analysis",
+      "agent": "Analyst",
+      "goal": "Bulgulardan çıkarımlar üret ve iddiaları sınıflandır.",
+      "output": "İddia tablosu: iddia | kanıt | güven(0-1) | risk"
+    },
+    {
+      "id": "write",
+      "agent": "Writer",
+      "goal": "1 sayfa özet + kısa detay raporu yaz.",
+      "output": "Markdown: Özet, Ana Bulgular, Öneriler, Riskler, Kaynakça"
+    },
+    {
+      "id": "verify",
+      "agent": "Verifier",
+      "goal": "Kaynak, çelişki ve belirsizlik kontrolü yap.",
+      "output": "Denetim raporu: sorunlar + düzeltme önerileri + PASS/FAIL"
+    },
+    {
+      "id": "edit",
+      "agent": "Editor",
+      "goal": "Dili sadeleştir ve formatı finalle.",
+      "output": "Final Markdown rapor"
+    }
+  ]
+}
+

@@ -1,0 +1,5 @@
+agentarmy.local.json
+runs/
+bin/
+obj/
+knowledge/**/facts.jsonl

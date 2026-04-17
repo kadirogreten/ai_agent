@@ -1,0 +1,38 @@
+{
+  "id": "mi-market-sizing",
+  "title": "Pazar Büyüklüğü ve CAGR (Kaynaklı)",
+  "defaultPersona": "pazar-arastirmaci",
+  "steps": [
+    {
+      "id": "research",
+      "agent": "Researcher",
+      "goal": "Pazar büyüklüğü, CAGR ve segmentasyon iddialarını birden çok kaynaktan topla.",
+      "output": "Tablo: metrik | değer | yıl aralığı | kaynak URL | not (en az 5 URL)"
+    },
+    {
+      "id": "analysis",
+      "agent": "Analyst",
+      "goal": "Kaynaklar arası farklılıkları ve metodoloji farklarını açıkla.",
+      "output": "Markdown: Farklılıklar, olası nedenler, hangi sayı hangi koşulda kullanılmalı"
+    },
+    {
+      "id": "write",
+      "agent": "Writer",
+      "goal": "Kaynaklı market sizing notu yaz.",
+      "output": "Markdown: Özet, Metrik Tablosu, Yorum, Belirsizlikler, Kaynaklar"
+    },
+    {
+      "id": "verify",
+      "agent": "Verifier",
+      "goal": "Sayısal iddiaların URL ile kanıtlandığını doğrula.",
+      "output": "Denetim: PASS/FAIL"
+    },
+    {
+      "id": "edit",
+      "agent": "Editor",
+      "goal": "Formatı finalle.",
+      "output": "Final not"
+    }
+  ]
+}
+

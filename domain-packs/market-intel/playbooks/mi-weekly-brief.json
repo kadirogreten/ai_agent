@@ -1,0 +1,38 @@
+{
+  "id": "mi-weekly-brief",
+  "title": "Haftalık Brief (Haberler + Ürün güncellemeleri)",
+  "defaultPersona": "pazar-arastirmaci",
+  "steps": [
+    {
+      "id": "research",
+      "agent": "Researcher",
+      "goal": "Son 7 günde alandaki önemli haber ve ürün güncellemelerini kaynaklı şekilde topla.",
+      "output": "Liste: başlık | 2 cümle özet | tarih | kaynak URL (en az 10)"
+    },
+    {
+      "id": "analysis",
+      "agent": "Analyst",
+      "goal": "Bu sinyallerin etkisini ve olası aksiyonları çıkar.",
+      "output": "Tablo: sinyal | etki | önerilen aksiyon | gerekçe | kaynak URL"
+    },
+    {
+      "id": "write",
+      "agent": "Writer",
+      "goal": "Haftalık brief'i yaz.",
+      "output": "Markdown: Özet, En önemli 10 sinyal, Aksiyon önerileri, Kaynaklar"
+    },
+    {
+      "id": "verify",
+      "agent": "Verifier",
+      "goal": "Her sinyalin URL ile desteklendiğini doğrula.",
+      "output": "Denetim: PASS/FAIL"
+    },
+    {
+      "id": "edit",
+      "agent": "Editor",
+      "goal": "Formatı finalle.",
+      "output": "Final brief"
+    }
+  ]
+}
+
