@@ -7,6 +7,29 @@ Bu doküman iki şeyi birlikte verir:
 
 > Not: 4–5. basamaklar bugün için ağırlıklı olarak **vizyon + güvenlik/yönetişim çerçevesi** şeklinde ele alınır; 1–3. basamaklar ise pratikte uygulanabilir “ürün tasarımı”dır.
 
+## Proje Durumu (Bu Repo ile Eşleşme)
+
+Aşağıdaki tablo, bu dokümanda anlatılan mimarinin repo içindeki karşılıklarını ve şu anki olgunluk seviyemizi gösterir.
+
+| Başlık | Dokümandaki hedef | Repo’daki karşılık | Durum |
+|---|---|---|---|
+| LLM katmanı | Zeka motoru | `src/AgentArmy.Cli/Llm/OpenAiResponsesClient.cs`, `--model` | ✅ |
+| Rol bazlı ajanlar | Research/Analyze/Write/Edit/Verify/Operate | `src/AgentArmy.Cli/Agents/AgentsCatalog.cs` | ✅ |
+| Playbook orkestrasyonu | Adım adım iş akışı | `src/AgentArmy.Cli/Runtime/Orchestrator.cs`, `playbooks/`, `domain-packs/.../playbooks/` | ✅ |
+| Çoklu çalışma (bundle) | Birden fazla akışı otomatik yürütme | `bundle` komutu + `domain-packs/.../bundles/*.json` | ✅ |
+| Quality Gates | Denetimsiz final yok | `Verifier` + `domain-packs/market-intel/rubrics/verifier.md` | ✅ (Market Intel) |
+| Web kaynaklı grounding | Kaynaklı araştırma | `--web true` + `web_search` | ✅ |
+| Domain politikası | Güvenilir kaynaklara yönlendirme | `domain-packs/market-intel/allowed-domains.txt` (soft policy + tool fallback) | ⚠️ |
+| Paylaşılan bellek | Facts/Decisions/Work ayrımı | run çıktıları: `facts.md`, `decisions.md`, `work.md` | ✅ |
+| Kalıcı bilgi deposu | Reusable facts store | `facts.json` + `knowledge/market-intel/facts.jsonl` | ✅ (Market Intel) |
+| Risk/izin enforcement | R0–R3’e göre otomatik dur/kısıt | CLI’da `--risk` var, enforcement sınırlı | ⚠️ |
+| CEO ajan (dinamik parçalama) | İstekten görev parçalama | Şu an statik playbook; dinamik CEO yok | ❌ |
+| Contrarian | Karşı görüş / hata avcısı | Henüz ajan/step yok | ❌ |
+
+**Yorum:** 1–3 basamak için doğru yoldayız. En kritik kazançlar: `web_search` ile kaynaklı araştırma, rubrikli `Verifier`, ve `facts` çıkarımı ile kalıcı hafıza.
+
+---
+
 ---
 
 ## Piramit Görseli (Basit)
