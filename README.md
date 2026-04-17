@@ -80,10 +80,10 @@ Model seçimi:
 - Varsayılan model: `gpt-4.1`
 
 - Manuel kurulum:
-  - `agentarmy.local.example.json` dosyasını `agentarmy.local.json` olarak kopyalayıp `openAI.apiKey` alanını doldur.
+  - `config-examples/agentarmy.local.example.json` dosyasını `agentarmy.local.json` olarak kopyalayıp `openAI.apiKey` alanını doldur.
 
 Çıktılar `runs/` altında oluşturulur.
 
 ## Doküman
 
-- [ai-ajan-ordusu-piramit.md](file:///Users/kadirogreten/Desktop/Source/ai_agent/ai-ajan-ordusu-piramit.md)
+- [ai-ajan-ordusu-piramit.md](docs/ai-ajan-ordusu-piramit.md)
