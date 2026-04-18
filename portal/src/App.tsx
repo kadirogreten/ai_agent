@@ -9,6 +9,8 @@ import FactsPage from '@/pages/FactsPage'
 import RunDetailPage from '@/pages/RunDetailPage'
 import BundleDetailPage from '@/pages/BundleDetailPage'
 import FactDetailPage from '@/pages/FactDetailPage'
+import JobsPage from '@/pages/JobsPage'
+import JobDetailPage from '@/pages/JobDetailPage'
 
 export default function App() {
   const init = useAuthStore((s) => s.init)
@@ -41,6 +43,8 @@ export default function App() {
           <Route path="bundles/:bundleId" element={<BundleDetailPage />} />
           <Route path="facts" element={<FactsPage />} />
           <Route path="facts/:factId" element={<FactDetailPage />} />
+          <Route path="jobs" element={<JobsPage />} />
+          <Route path="jobs/:jobId" element={<JobDetailPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/app" replace />} />
       </Routes>

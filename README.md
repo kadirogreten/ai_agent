@@ -101,3 +101,16 @@ Model seçimi:
 ## Doküman
 
 - [ai-ajan-ordusu-piramit.md](docs/ai-ajan-ordusu-piramit.md)
+
+## Worker (Ücretsiz)
+
+Portal üzerinden “ajan çalıştırma” için önerilen yaklaşım: Supabase’de `run_requests` kuyruğu + GitHub Actions worker.
+
+- Worker workflow: `.github/workflows/agent-worker.yml` (10 dakikada bir 1 job alır).
+- Supabase migration’lar: `supabase/migrations/0003_run_requests.sql` ve `0004_run_requests_worker_access.sql`
+
+GitHub repo Secrets:
+
+- `SUPABASE_URL`: Supabase project URL
+- `SUPABASE_SERVICE_ROLE_KEY`: Supabase service role key
+- `OPENAI_API_KEY`: OpenAI API key

@@ -10,7 +10,9 @@
     "preview": "vite preview",
     "check": "tsc --noEmit",
     "server:dev": "nodemon",
-    "dev": "concurrently \"npm run client:dev\" \"npm run server:dev\""
+    "dev": "concurrently \"npm run client:dev\" \"npm run server:dev\"",
+    "worker:once": "tsx api/lib/runRequestWorker.ts",
+    "worker:loop": "tsx api/lib/runRequestWorkerLoop.ts"
   },
   "dependencies": {
     "clsx": "^2.1.1",

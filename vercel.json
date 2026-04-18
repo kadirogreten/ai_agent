@@ -1,1 +1,11 @@
-{"rewrites":[{"source":"/(.*)","destination":"/index.html"}]}
+{
+  "installCommand": "npm ci --prefix portal",
+  "buildCommand": "npm run build --prefix portal",
+  "outputDirectory": "portal/dist",
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}

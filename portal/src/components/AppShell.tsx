@@ -10,6 +10,7 @@ const tabs: Tab[] = [
   { to: '/app/runs', label: 'Runs' },
   { to: '/app/bundles', label: 'Bundles' },
   { to: '/app/facts', label: 'Knowledge Facts' },
+  { to: '/app/jobs', label: 'Jobs' },
 ]
 
 export default function AppShell() {
