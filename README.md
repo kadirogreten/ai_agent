@@ -34,6 +34,20 @@ dotnet run --project src/AgentArmy.Cli -- bundle --domainPack market-intel --id 
 
 Bundle çıktısı `runs/bundles/...` altında, her playbook için ayrı klasörler ve bir `bundle.json` manifesti ile oluşur.
 
+CEO modu (otomatik soru + plan + çalıştırma):
+
+```bash
+dotnet run --project src/AgentArmy.Cli -- ceo --domainPack market-intel --request "AI agent platforms haftalık brief çıkar" --model gpt-4.1
+```
+
+CEO iterate (sorulara cevap vererek yeniden planlama):
+
+```bash
+dotnet run --project src/AgentArmy.Cli -- ceo-iterate --domainPack market-intel --request "AI agent platforms haftalık brief çıkar" --answers '{"audience":"PM","region":"Global"}' --model gpt-4.1
+```
+
+Çıktılar `runs/ceo/...` altında `plan.json`, `questions.md`, `ceo.json` gibi dosyalarla tutulur.
+
 Facts (bilgi tabanı) çıkarımı:
 
 - `market-intel` domain-pack ile çalışırken varsayılan olarak her run sonunda `facts.json` (run klasörü içinde) üretilir.

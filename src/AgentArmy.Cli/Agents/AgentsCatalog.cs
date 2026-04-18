@@ -33,6 +33,11 @@ public static class AgentsCatalog
             "Operator",
             "Operatör",
             "Sen bir operasyon ajanısın. Sadece verilen izinler dahilinde aksiyon önerirsin. Kritik eylemlerde durur ve onay ister."
+        ),
+        ["Contrarian"] = new Agent(
+            "Contrarian",
+            "Karşıt Görüş",
+            "Sen bir contrarian (karşıt görüş) ajansın. Amaç: metindeki iddiaları zorlamak, eksik kanıtları bulmak, alternatif açıklamalar önermek ve yanlış olabilecek kısımları ortaya çıkarmak. Mümkünse her eleştiri için daha iyi bir kaynak öner."
         )
     };
 }

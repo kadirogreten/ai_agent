@@ -52,6 +52,13 @@ public static class Runner
             quality = quality + " Kritik iddialar URL ile kanıtlanmalı; sayısal iddialarda URL zorunlu.";
         }
 
+        var tools = exec.Args.GetValueOrDefault("tools") ?? "Yalnızca metin üretimi; dış sistemlerde aksiyon yok.";
+        var contrarian = (exec.Args.GetValueOrDefault("contrarian") ?? "false").Equals("true", StringComparison.OrdinalIgnoreCase);
+        if (contrarian)
+        {
+            tools = tools + " contrarian:on";
+        }
+
         return new TaskContract(
             Persona: persona,
             Goal: goal,
@@ -61,7 +68,7 @@ public static class Runner
             OutOfScope: exec.Args.GetValueOrDefault("outOfScope") ?? string.Empty,
             QualityCriteria: quality,
             Risk: risk,
-            ToolPermissions: exec.Args.GetValueOrDefault("tools") ?? "Yalnızca metin üretimi; dış sistemlerde aksiyon yok.",
+            ToolPermissions: tools,
             Deadline: exec.Args.GetValueOrDefault("deadline") ?? string.Empty
         );
     }
@@ -175,4 +182,3 @@ public static class Runner
         return bundleDir;
     }
 }
-

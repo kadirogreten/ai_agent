@@ -110,6 +110,18 @@ public sealed class Orchestrator
 
             priorWork = output;
 
+            if (ShouldRunContrarian(ctx, step))
+            {
+                var contrarianStep = new PlaybookStep
+                {
+                    Id = "contrarian",
+                    Agent = "Contrarian",
+                    Goal = "Mevcut bulgular ve iddialar içindeki zayıf noktaları, eksik kanıtları ve alternatif açıklamaları çıkar.",
+                    Output = "Markdown: Riskli iddialar, Eksik kaynaklar, Alternatif açıklamalar, Güçlendirme önerileri"
+                };
+                await RunExtraStepAsync(ctx, contrarianStep, personaText, ct);
+            }
+
             if (agent.Id.Equals("Verifier", StringComparison.OrdinalIgnoreCase) && IsFail(verifierReport))
             {
                 var writeStep = ctx.Playbook.Steps.FirstOrDefault(s => s.Agent.Equals("Writer", StringComparison.OrdinalIgnoreCase));
@@ -128,6 +140,49 @@ public sealed class Orchestrator
         }
 
         await TryExtractAndStoreFactsAsync(ctx, ct);
+    }
+
+    private bool ShouldRunContrarian(RunContext ctx, PlaybookStep lastStep)
+    {
+        var enabled = (ctx.Contract.ToolPermissions ?? string.Empty).Contains("contrarian:on", StringComparison.OrdinalIgnoreCase);
+        if (!enabled) return false;
+        return lastStep.Agent.Equals("Analyst", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private async Task RunExtraStepAsync(RunContext ctx, PlaybookStep step, string personaText, CancellationToken ct)
+    {
+        var agent = ResolveAgent(step.Agent);
+        var extraPolicy = BuildExtraPolicy(agent);
+        var system = PromptBuilder.BuildSystemPrompt(agent, personaText, extraPolicy);
+        var context = await File.ReadAllTextAsync(ctx.WorkPath, Encoding.UTF8, ct);
+        var user = PromptBuilder.BuildUserPrompt(ctx, step, context);
+
+        await ctx.AppendLogAsync(new
+        {
+            type = "step_start",
+            ts = DateTimeOffset.UtcNow,
+            runId = ctx.RunId,
+            playbook = ctx.Playbook.Id,
+            step = step.Id,
+            agent = agent.Id
+        }, ct);
+
+        var output = await _llm.CompleteAsync(system, user, ct);
+
+        await ctx.AppendLogAsync(new
+        {
+            type = "step_end",
+            ts = DateTimeOffset.UtcNow,
+            runId = ctx.RunId,
+            playbook = ctx.Playbook.Id,
+            step = step.Id,
+            agent = agent.Id
+        }, ct);
+
+        var stepFile = Path.Combine(ctx.RunDir, $"{step.Id}.{agent.Id}.md");
+        await File.WriteAllTextAsync(stepFile, output.Trim() + "\n", Encoding.UTF8, ct);
+        await ctx.AppendMarkdownAsync(ctx.WorkPath, $"{step.Id} ({agent.DisplayName})", output, ct);
+        await ctx.AppendMarkdownAsync(ctx.DecisionsPath, $"{step.Id}", output, ct);
     }
 
     private async Task TryExtractAndStoreFactsAsync(RunContext ctx, CancellationToken ct)
