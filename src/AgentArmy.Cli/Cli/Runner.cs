@@ -151,7 +151,21 @@ public static class Runner
 
         var bundleRunId = DateTimeOffset.UtcNow.ToString("yyyyMMdd_HHmmss") + $"_bundle_{exec.DomainPack.Id}_{bundle.Id}";
         var bundleDir = Path.Combine(rootDir, "runs", "bundles", bundleRunId);
-        Directory.CreateDirectory(bundleDir);
+        Console.WriteLine($"[BUNDLE] Creating bundle directory: {bundleDir}");
+        Console.WriteLine($"[BUNDLE] Root directory: {rootDir}");
+        Console.WriteLine($"[BUNDLE] Directory exists before creation: {Directory.Exists(bundleDir)}");
+        
+        try
+        {
+            Directory.CreateDirectory(bundleDir);
+            Console.WriteLine($"[BUNDLE] Successfully created bundle directory");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[BUNDLE] ERROR creating directory: {ex.Message}");
+            Console.WriteLine($"[BUNDLE] ERROR details: {ex}");
+            throw;
+        }
 
         var runs = new List<object>();
         foreach (var playbookId in bundle.Playbooks)
@@ -166,6 +180,10 @@ public static class Runner
         }
 
         var manifestPath = Path.Combine(bundleDir, "bundle.json");
+        Console.WriteLine($"[BUNDLE] Writing manifest to: {manifestPath}");
+        Console.WriteLine($"[BUNDLE] Bundle directory exists: {Directory.Exists(bundleDir)}");
+        Console.WriteLine($"[BUNDLE] Bundle directory path: {bundleDir}");
+        
         var manifest = System.Text.Json.JsonSerializer.Serialize(new
         {
             id = bundle.Id,
@@ -177,7 +195,21 @@ public static class Runner
             createdAt = DateTimeOffset.UtcNow,
             runs
         }, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
-        await File.WriteAllTextAsync(manifestPath, manifest + "\n", Encoding.UTF8, ct);
+        
+        Console.WriteLine($"[BUNDLE] Manifest content length: {manifest.Length} characters");
+        Console.WriteLine($"[BUNDLE] First 200 chars of manifest: {manifest.Substring(0, Math.Min(200, manifest.Length))}");
+        
+        try
+        {
+            await File.WriteAllTextAsync(manifestPath, manifest + "\n", Encoding.UTF8, ct);
+            Console.WriteLine($"[BUNDLE] Successfully wrote manifest file");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[BUNDLE] ERROR writing manifest file: {ex.Message}");
+            Console.WriteLine($"[BUNDLE] ERROR details: {ex}");
+            throw;
+        }
 
         return bundleDir;
     }

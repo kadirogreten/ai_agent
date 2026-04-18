@@ -178,18 +178,59 @@ public static class CommandDispatcher
 
         var ceoRunId = DateTimeOffset.UtcNow.ToString("yyyyMMdd_HHmmss") + $"_ceo_{pack.Id}";
         var ceoDir = Path.Combine(rootDir, "runs", "ceo", ceoRunId);
-        Directory.CreateDirectory(ceoDir);
+        Console.WriteLine($"[CEO] Creating CEO directory: {ceoDir}");
+        Console.WriteLine($"[CEO] Root directory: {rootDir}");
+        Console.WriteLine($"[CEO] Directory exists before creation: {Directory.Exists(ceoDir)}");
+        
+        try
+        {
+            Directory.CreateDirectory(ceoDir);
+            Console.WriteLine($"[CEO] Successfully created CEO directory");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[CEO] ERROR creating directory: {ex.Message}");
+            Console.WriteLine($"[CEO] ERROR details: {ex}");
+            throw;
+        }
 
         var planPath = Path.Combine(ceoDir, "plan.json");
+        Console.WriteLine($"[CEO] Writing plan.json to: {planPath}");
         var planJson = System.Text.Json.JsonSerializer.Serialize(plan, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
-        await File.WriteAllTextAsync(planPath, planJson + "\n", Encoding.UTF8, ct);
+        Console.WriteLine($"[CEO] Plan JSON length: {planJson.Length} characters");
+        
+        try
+        {
+            await File.WriteAllTextAsync(planPath, planJson + "\n", Encoding.UTF8, ct);
+            Console.WriteLine($"[CEO] Successfully wrote plan.json");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[CEO] ERROR writing plan.json: {ex.Message}");
+            Console.WriteLine($"[CEO] ERROR details: {ex}");
+            throw;
+        }
 
         if (plan.ClarifyingQuestions.Count > 0)
         {
             var qPath = Path.Combine(ceoDir, "questions.md");
+            Console.WriteLine($"[CEO] Writing questions.md to: {qPath}");
             var lines = new List<string> { "# Clarifying Questions", "" };
             lines.AddRange(plan.ClarifyingQuestions.Select(q => "- " + q));
-            await File.WriteAllTextAsync(qPath, string.Join("\n", lines) + "\n", Encoding.UTF8, ct);
+            var questionsContent = string.Join("\n", lines) + "\n";
+            Console.WriteLine($"[CEO] Questions content length: {questionsContent.Length} characters");
+            
+            try
+            {
+                await File.WriteAllTextAsync(qPath, questionsContent, Encoding.UTF8, ct);
+                Console.WriteLine($"[CEO] Successfully wrote questions.md");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[CEO] ERROR writing questions.md: {ex.Message}");
+                Console.WriteLine($"[CEO] ERROR details: {ex}");
+                throw;
+            }
 
             Console.WriteLine("CEO soruları (yanıtladıkça isteği daha netleştirip tekrar çalıştırabilirsin):");
             foreach (var q in plan.ClarifyingQuestions)
@@ -232,6 +273,10 @@ public static class CommandDispatcher
         }
 
         var manifestPath = Path.Combine(ceoDir, "ceo.json");
+        Console.WriteLine($"[CEO] Writing manifest to: {manifestPath}");
+        Console.WriteLine($"[CEO] CEO directory exists: {Directory.Exists(ceoDir)}");
+        Console.WriteLine($"[CEO] CEO directory path: {ceoDir}");
+        
         var manifest = System.Text.Json.JsonSerializer.Serialize(new
         {
             domainPack = pack.Id,
@@ -242,7 +287,21 @@ public static class CommandDispatcher
             plan = new { plan.PrimaryTopic, plan.Subtopics, plan.Rationale },
             runs
         }, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
-        await File.WriteAllTextAsync(manifestPath, manifest + "\n", Encoding.UTF8, ct);
+        
+        Console.WriteLine($"[CEO] Manifest content length: {manifest.Length} characters");
+        Console.WriteLine($"[CEO] First 200 chars of manifest: {manifest.Substring(0, Math.Min(200, manifest.Length))}");
+        
+        try
+        {
+            await File.WriteAllTextAsync(manifestPath, manifest + "\n", Encoding.UTF8, ct);
+            Console.WriteLine($"[CEO] Successfully wrote manifest file");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[CEO] ERROR writing manifest file: {ex.Message}");
+            Console.WriteLine($"[CEO] ERROR details: {ex}");
+            throw;
+        }
 
         Console.WriteLine(ceoDir);
         return 0;
