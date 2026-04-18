@@ -2,6 +2,13 @@ import fs from 'fs/promises'
 import path from 'path'
 import { getSupabaseAdmin } from './supabaseAdmin.js'
 
+// BOM (Byte Order Mark) karakterini temizleme fonksiyonu
+function stripBOM(content: string): string {
+  // UTF-8 BOM: EF BB BF (byte olarak)
+  // String olarak: \uFEFF
+  return content.replace(/^\uFEFF/, '')
+}
+
 type ImportResult = {
   runs: number
   bundles: number
@@ -57,7 +64,8 @@ type FactJson = {
 
 async function readTextIfExists(p: string) {
   try {
-    return await fs.readFile(p, 'utf8')
+    const content = await fs.readFile(p, 'utf8')
+    return stripBOM(content)
   } catch {
     return null
   }
@@ -66,7 +74,8 @@ async function readTextIfExists(p: string) {
 async function readJsonIfExists<T>(p: string) {
   try {
     const txt = await fs.readFile(p, 'utf8')
-    return JSON.parse(txt) as T
+    const cleanTxt = stripBOM(txt)
+    return JSON.parse(cleanTxt) as T
   } catch {
     return null
   }
