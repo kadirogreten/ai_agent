@@ -492,6 +492,9 @@ async function importCeoDir(ownerUserId: string, ceoDir: string): Promise<Import
 
 export async function importFromRunDir(ownerUserId: string, runDir: string): Promise<MinimalImportResult> {
   console.log('[importFromRunDir] Starting import with runDir:', runDir)
+  console.log('[importFromRunDir] Current working directory:', process.cwd())
+  console.log('[importFromRunDir] Path exists check:', await fs.stat(runDir).then(() => true).catch(() => false))
+  
   const normalized = runDir.trim()
   if (!normalized) {
     console.log('[importFromRunDir] Empty runDir, returning 0 results')

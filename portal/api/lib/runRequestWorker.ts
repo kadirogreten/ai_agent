@@ -1,5 +1,7 @@
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import fs from 'node:fs/promises'
+import path from 'node:path'
 import { getSupabaseAdmin } from './supabaseAdmin.js'
 import { importFromRunDir } from './localImporter.js'
 
@@ -53,6 +55,17 @@ function log(message: string, meta?: Record<string, unknown>) {
     return
   }
   console.log(base, JSON.stringify(meta))
+}
+
+function logEnvironment() {
+  log('Environment info', {
+    cwd: process.cwd(),
+    node_env: process.env.NODE_ENV,
+    pwd: process.env.PWD,
+    github_workspace: process.env.GITHUB_WORKSPACE,
+    dotnet_root: process.env.DOTNET_ROOT,
+    import_root: process.env.LOCAL_AGENTARMY_ROOT,
+  })
 }
 
 function extractRunDir(stdout: string) {
@@ -228,7 +241,12 @@ async function processOne(supabase: ReturnType<typeof getSupabaseAdmin>, job: Ru
     if (!runDir) {
       throw new Error('Could not detect runDir from dotnet output')
     }
-    log('Importing outputs to Supabase', { runDir })
+    log('Importing outputs to Supabase', { 
+      runDir,
+      exists: await fs.stat(runDir).then(() => true).catch(() => false),
+      cwd: process.cwd(),
+      absolutePath: path.resolve(runDir)
+    })
     const importRes = await importFromRunDir(job.owner_user_id, runDir)
     log('Import finished', importRes as unknown as Record<string, unknown>)
 
@@ -267,6 +285,8 @@ async function processOne(supabase: ReturnType<typeof getSupabaseAdmin>, job: Ru
 }
 
 export async function runOnce() {
+  logEnvironment()
+  
   const maxJobs = Number.parseInt(process.env.MAX_JOBS ?? '1', 10)
   const limit = Number.isFinite(maxJobs) && maxJobs > 0 ? maxJobs : 1
 
