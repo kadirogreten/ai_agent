@@ -3,6 +3,7 @@ import { useEffect } from 'react'
 import { useAuthStore } from '@/stores/authStore'
 import LoginPage from '@/pages/LoginPage'
 import AppShell from '@/components/AppShell'
+import DashboardPage from '@/pages/DashboardPage'
 import RunsPage from '@/pages/RunsPage'
 import BundlesPage from '@/pages/BundlesPage'
 import FactsPage from '@/pages/FactsPage'
@@ -36,7 +37,8 @@ export default function App() {
             )
           }
         >
-          <Route index element={<Navigate to="/app/runs" replace />} />
+          <Route index element={<Navigate to="/app/dashboard" replace />} />
+          <Route path="dashboard" element={<DashboardPage />} />
           <Route path="runs" element={<RunsPage />} />
           <Route path="runs/:runId" element={<RunDetailPage />} />
           <Route path="bundles" element={<BundlesPage />} />

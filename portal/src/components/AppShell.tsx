@@ -7,6 +7,7 @@ import { useMemo, useState } from 'react'
 type Tab = { to: string; label: string }
 
 const tabs: Tab[] = [
+  { to: '/app/dashboard', label: 'Dashboard' },
   { to: '/app/runs', label: 'Runs' },
   { to: '/app/bundles', label: 'Bundles' },
   { to: '/app/facts', label: 'Knowledge Facts' },
