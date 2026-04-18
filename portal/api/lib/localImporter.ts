@@ -321,20 +321,25 @@ async function importBundleDir(ownerUserId: string, bundleDir: string): Promise<
   console.log('[importBundleDir] Reading bundle.json from:', bundleJsonPath)
   
   let bundleJson: BundleManifest | null = null
-  try {
-    bundleJson = await readJsonIfExists<BundleManifest>(bundleJsonPath)
-    console.log('[importBundleDir] bundle.json parsed successfully:', !!bundleJson)
-    if (bundleJson) {
+  const rawContent = await readTextIfExists(bundleJsonPath)
+  console.log('[importBundleDir] Raw bundle.json content:', rawContent)
+  console.log('[importBundleDir] bundle.json file exists:', rawContent !== null)
+  
+  if (rawContent) {
+    try {
+      bundleJson = JSON.parse(rawContent) as BundleManifest
+      console.log('[importBundleDir] bundle.json parsed successfully:', !!bundleJson)
       console.log('[importBundleDir] bundleJson keys:', Object.keys(bundleJson))
       console.log('[importBundleDir] bundleJson.title:', bundleJson.title)
       console.log('[importBundleDir] bundleJson.id:', bundleJson.id)
       console.log('[importBundleDir] bundleJson.createdAt:', bundleJson.createdAt)
       console.log('[importBundleDir] bundleJson.runs count:', Array.isArray(bundleJson.runs) ? bundleJson.runs.length : 'not an array')
+    } catch (parseError) {
+      console.error('[importBundleDir] Error parsing bundle.json:', parseError)
+      console.log('[importBundleDir] Raw content that failed to parse:', rawContent)
     }
-  } catch (parseError) {
-    console.error('[importBundleDir] Error parsing bundle.json:', parseError)
-    const rawContent = await readTextIfExists(bundleJsonPath)
-    console.log('[importBundleDir] Raw bundle.json content:', rawContent)
+  } else {
+    console.log('[importBundleDir] bundle.json file is empty or does not exist')
   }
   
   if (!bundleJson) {
@@ -404,19 +409,24 @@ async function importCeoDir(ownerUserId: string, ceoDir: string): Promise<Import
   console.log('[importCeoDir] Reading ceo.json from:', ceoJsonPath)
   
   let ceoJson: CeoManifest | null = null
-  try {
-    ceoJson = await readJsonIfExists<CeoManifest>(ceoJsonPath)
-    console.log('[importCeoDir] ceo.json parsed successfully:', !!ceoJson)
-    if (ceoJson) {
+  const rawContent = await readTextIfExists(ceoJsonPath)
+  console.log('[importCeoDir] Raw ceo.json content:', rawContent)
+  console.log('[importCeoDir] ceo.json file exists:', rawContent !== null)
+  
+  if (rawContent) {
+    try {
+      ceoJson = JSON.parse(rawContent) as CeoManifest
+      console.log('[importCeoDir] ceo.json parsed successfully:', !!ceoJson)
       console.log('[importCeoDir] ceoJson keys:', Object.keys(ceoJson))
       console.log('[importCeoDir] ceoJson.request:', ceoJson.request)
       console.log('[importCeoDir] ceoJson.createdAt:', ceoJson.createdAt)
       console.log('[importCeoDir] ceoJson.runs count:', Array.isArray(ceoJson.runs) ? ceoJson.runs.length : 'not an array')
+    } catch (parseError) {
+      console.error('[importCeoDir] Error parsing ceo.json:', parseError)
+      console.log('[importCeoDir] Raw content that failed to parse:', rawContent)
     }
-  } catch (parseError) {
-    console.error('[importCeoDir] Error parsing ceo.json:', parseError)
-    const rawContent = await readTextIfExists(ceoJsonPath)
-    console.log('[importCeoDir] Raw ceo.json content:', rawContent)
+  } else {
+    console.log('[importCeoDir] ceo.json file is empty or does not exist')
   }
   
   if (!ceoJson) {
