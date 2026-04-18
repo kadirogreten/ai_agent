@@ -315,13 +315,39 @@ export async function importLocalAgentArmy(ownerUserId: string, rootDir?: string
 }
 
 async function importBundleDir(ownerUserId: string, bundleDir: string): Promise<ImportResult> {
-  const bundleJson = await readJsonIfExists<BundleManifest>(path.join(bundleDir, 'bundle.json'))
-  if (!bundleJson) return { runs: 0, bundles: 0, facts: 0 }
+  console.log('[importBundleDir] Starting import for bundle directory:', bundleDir)
+  
+  const bundleJsonPath = path.join(bundleDir, 'bundle.json')
+  console.log('[importBundleDir] Reading bundle.json from:', bundleJsonPath)
+  
+  let bundleJson: BundleManifest | null = null
+  try {
+    bundleJson = await readJsonIfExists<BundleManifest>(bundleJsonPath)
+    console.log('[importBundleDir] bundle.json parsed successfully:', !!bundleJson)
+    if (bundleJson) {
+      console.log('[importBundleDir] bundleJson keys:', Object.keys(bundleJson))
+      console.log('[importBundleDir] bundleJson.title:', bundleJson.title)
+      console.log('[importBundleDir] bundleJson.id:', bundleJson.id)
+      console.log('[importBundleDir] bundleJson.createdAt:', bundleJson.createdAt)
+      console.log('[importBundleDir] bundleJson.runs count:', Array.isArray(bundleJson.runs) ? bundleJson.runs.length : 'not an array')
+    }
+  } catch (parseError) {
+    console.error('[importBundleDir] Error parsing bundle.json:', parseError)
+    const rawContent = await readTextIfExists(bundleJsonPath)
+    console.log('[importBundleDir] Raw bundle.json content:', rawContent)
+  }
+  
+  if (!bundleJson) {
+    console.log('[importBundleDir] No valid bundle.json found, returning 0 results')
+    return { runs: 0, bundles: 0, facts: 0 }
+  }
 
   const dirName = path.basename(bundleDir)
   const createdAt = typeof bundleJson.createdAt === 'string' ? bundleJson.createdAt : null
 
   const bundleRunExternalId = `bundle:${dirName}`
+  console.log('[importBundleDir] Upserting bundle run with externalId:', bundleRunExternalId)
+  
   const bundleRunId = await upsertByExternalId('runs', ownerUserId, bundleRunExternalId, {
     title: bundleJson.title ?? bundleJson.id ?? 'bundle',
     status: 'success',
@@ -345,28 +371,67 @@ async function importBundleDir(ownerUserId: string, bundleDir: string): Promise<
   let factsCount = 0
 
   const runs = Array.isArray(bundleJson.runs) ? bundleJson.runs : []
+  console.log('[importBundleDir] Processing runs, count:', runs.length)
+  
   for (const r of runs) {
+    console.log('[importBundleDir] Processing run:', r)
     const playbook = typeof r.playbook === 'string' ? r.playbook : null
     const runDir = typeof r.dir === 'string' ? r.dir : null
-    if (!playbook || !runDir) continue
+    console.log('[importBundleDir] Run details - playbook:', playbook, 'runDir:', runDir)
+    
+    if (!playbook || !runDir) {
+      console.log('[importBundleDir] Skipping run due to missing fields')
+      continue
+    }
+    
+    console.log('[importBundleDir] Importing playbook run')
     const externalId = `${dirName}:${playbook}`
     const imported = await importPlaybookRun(ownerUserId, externalId, playbook, runDir, createdAt, bundleId)
     runsCount++
     factsCount += imported.factsCount
   }
 
+  console.log('[importBundleDir] Final results - runs:', runsCount, 'bundles:', bundlesCount, 'facts:', factsCount)
   return { runs: runsCount, bundles: bundlesCount, facts: factsCount }
 }
 
 async function importCeoDir(ownerUserId: string, ceoDir: string): Promise<ImportResult> {
   const dirName = path.basename(ceoDir)
-  const ceoJson = await readJsonIfExists<CeoManifest>(path.join(ceoDir, 'ceo.json'))
-  if (!ceoJson) return { runs: 0, bundles: 0, facts: 0 }
+  console.log('[importCeoDir] Starting import for CEO directory:', dirName)
+  console.log('[importCeoDir] Full path:', ceoDir)
+  
+  const ceoJsonPath = path.join(ceoDir, 'ceo.json')
+  console.log('[importCeoDir] Reading ceo.json from:', ceoJsonPath)
+  
+  let ceoJson: CeoManifest | null = null
+  try {
+    ceoJson = await readJsonIfExists<CeoManifest>(ceoJsonPath)
+    console.log('[importCeoDir] ceo.json parsed successfully:', !!ceoJson)
+    if (ceoJson) {
+      console.log('[importCeoDir] ceoJson keys:', Object.keys(ceoJson))
+      console.log('[importCeoDir] ceoJson.request:', ceoJson.request)
+      console.log('[importCeoDir] ceoJson.createdAt:', ceoJson.createdAt)
+      console.log('[importCeoDir] ceoJson.runs count:', Array.isArray(ceoJson.runs) ? ceoJson.runs.length : 'not an array')
+    }
+  } catch (parseError) {
+    console.error('[importCeoDir] Error parsing ceo.json:', parseError)
+    const rawContent = await readTextIfExists(ceoJsonPath)
+    console.log('[importCeoDir] Raw ceo.json content:', rawContent)
+  }
+  
+  if (!ceoJson) {
+    console.log('[importCeoDir] No valid ceo.json found, returning 0 results')
+    return { runs: 0, bundles: 0, facts: 0 }
+  }
 
   const createdAt = typeof ceoJson.createdAt === 'string' ? ceoJson.createdAt : null
   const requestText = typeof ceoJson.request === 'string' ? ceoJson.request : 'ceo'
   const questionsMd = await readTextIfExists(path.join(ceoDir, 'questions.md'))
   const planJson = await readJsonIfExists<Record<string, unknown>>(path.join(ceoDir, 'plan.json'))
+  
+  console.log('[importCeoDir] questions.md exists:', !!questionsMd)
+  console.log('[importCeoDir] plan.json exists:', !!planJson)
+  
   const ceoOutputText = [
     requestText,
     '',
@@ -374,6 +439,8 @@ async function importCeoDir(ownerUserId: string, ceoDir: string): Promise<Import
     planJson ? `Plan: ${JSON.stringify(planJson)}` : null,
   ].filter(Boolean).join('\n')
 
+  console.log('[importCeoDir] Upserting CEO run with title:', `ceo: ${requestText.length > 80 ? requestText.slice(0, 77) + '...' : requestText}`)
+  
   await upsertByExternalId('runs', ownerUserId, `ceo:${dirName}`, {
     title: `ceo: ${requestText.length > 80 ? requestText.slice(0, 77) + '...' : requestText}`,
     status: 'success',
@@ -389,13 +456,22 @@ async function importCeoDir(ownerUserId: string, ceoDir: string): Promise<Import
   let factsCount = 0
 
   const runs = Array.isArray(ceoJson.runs) ? ceoJson.runs : []
+  console.log('[importCeoDir] Processing runs, count:', runs.length)
+  
   for (const r of runs) {
+    console.log('[importCeoDir] Processing run:', r)
     const mode = typeof r.mode === 'string' ? r.mode : null
     const id = typeof r.id === 'string' ? r.id : null
     const runDir = typeof r.dir === 'string' ? r.dir : null
-    if (!mode || !id || !runDir) continue
+    console.log('[importCeoDir] Run details - mode:', mode, 'id:', id, 'runDir:', runDir)
+    
+    if (!mode || !id || !runDir) {
+      console.log('[importCeoDir] Skipping run due to missing fields')
+      continue
+    }
 
     if (mode.toLowerCase() === 'bundle') {
+      console.log('[importCeoDir] Processing bundle run')
       const res = await importBundleDir(ownerUserId, runDir)
       runsCount += res.runs
       bundlesCount += res.bundles
@@ -403,28 +479,41 @@ async function importCeoDir(ownerUserId: string, ceoDir: string): Promise<Import
       continue
     }
 
+    console.log('[importCeoDir] Processing playbook run')
     const externalId = `ceo:${dirName}:${id}`
     const imported = await importPlaybookRun(ownerUserId, externalId, id, runDir, createdAt, null)
     runsCount++
     factsCount += imported.factsCount
   }
 
+  console.log('[importCeoDir] Final results - runs:', runsCount, 'bundles:', bundlesCount, 'facts:', factsCount)
   return { runs: runsCount, bundles: bundlesCount, facts: factsCount }
 }
 
 export async function importFromRunDir(ownerUserId: string, runDir: string): Promise<MinimalImportResult> {
+  console.log('[importFromRunDir] Starting import with runDir:', runDir)
   const normalized = runDir.trim()
-  if (!normalized) return { runs: 0, bundles: 0, facts: 0, importedRunDirs: [] }
+  if (!normalized) {
+    console.log('[importFromRunDir] Empty runDir, returning 0 results')
+    return { runs: 0, bundles: 0, facts: 0, importedRunDirs: [] }
+  }
 
+  console.log('[importFromRunDir] Normalized path:', normalized)
+  
   if (normalized.includes('/runs/ceo/')) {
+    console.log('[importFromRunDir] Detected CEO run, calling importCeoDir')
     const res = await importCeoDir(ownerUserId, normalized)
+    console.log('[importFromRunDir] importCeoDir result:', res)
     return { ...res, importedRunDirs: [normalized] }
   }
 
   if (normalized.includes('/runs/bundles/')) {
+    console.log('[importFromRunDir] Detected bundle run, calling importBundleDir')
     const res = await importBundleDir(ownerUserId, normalized)
+    console.log('[importFromRunDir] importBundleDir result:', res)
     return { ...res, importedRunDirs: [normalized] }
   }
 
+  console.log('[importFromRunDir] Unknown run type, returning 0 results')
   return { runs: 0, bundles: 0, facts: 0, importedRunDirs: [normalized] }
 }
