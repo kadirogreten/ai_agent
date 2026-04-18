@@ -77,6 +77,15 @@ async function listDirDirs(p: string) {
   }
 }
 
+async function existsDir(p: string) {
+  try {
+    const st = await fs.stat(p)
+    return st.isDirectory()
+  } catch {
+    return false
+  }
+}
+
 async function findBestOutputText(runDir: string) {
   const candidates = [
     'edit.Editor.md',
@@ -199,11 +208,16 @@ export async function importLocalAgentArmy(ownerUserId: string, rootDir?: string
   const bundlesRoot = path.join(base, 'runs', 'bundles')
   const ceoRoot = path.join(base, 'runs', 'ceo')
 
+  console.log('[import] base', base)
+  console.log('[import] bundlesRoot exists', await existsDir(bundlesRoot), bundlesRoot)
+  console.log('[import] ceoRoot exists', await existsDir(ceoRoot), ceoRoot)
+
   let runsCount = 0
   let bundlesCount = 0
   let factsCount = 0
 
   const bundleDirs = await listDirDirs(bundlesRoot)
+  console.log('[import] bundleDirs', bundleDirs.length, bundleDirs.slice(0, 5))
   for (const dirName of bundleDirs) {
     const bundleDir = path.join(bundlesRoot, dirName)
     const bundleJson = await readJsonIfExists<BundleManifest>(path.join(bundleDir, 'bundle.json'))
@@ -245,12 +259,39 @@ export async function importLocalAgentArmy(ownerUserId: string, rootDir?: string
   }
 
   const ceoDirs = await listDirDirs(ceoRoot)
+  console.log('[import] ceoDirs', ceoDirs.length, ceoDirs.slice(0, 5))
   for (const dirName of ceoDirs) {
     const ceoDir = path.join(ceoRoot, dirName)
+    const ceoPath = path.join(ceoDir, 'ceo.json')
+    const hasCeoJson = await readTextIfExists(ceoPath)
+    console.log('[import] ceo dir', dirName, 'has ceo.json', !!hasCeoJson)
     const ceoJson = await readJsonIfExists<CeoManifest>(path.join(ceoDir, 'ceo.json'))
     if (!ceoJson) continue
 
     const createdAt = typeof ceoJson.createdAt === 'string' ? ceoJson.createdAt : null
+
+    const ceoExternalId = `ceo:${dirName}`
+    const requestText = typeof ceoJson.request === 'string' ? ceoJson.request : 'ceo'
+    const questionsMd = await readTextIfExists(path.join(ceoDir, 'questions.md'))
+    const planJson = await readJsonIfExists<Record<string, unknown>>(path.join(ceoDir, 'plan.json'))
+    const ceoOutputText = [
+      requestText,
+      '',
+      questionsMd?.trim() ? questionsMd.trim() : null,
+      planJson ? `Plan: ${JSON.stringify(planJson)}` : null,
+    ].filter(Boolean).join('\n')
+
+    await upsertByExternalId('runs', ownerUserId, ceoExternalId, {
+      title: `ceo: ${requestText.length > 80 ? requestText.slice(0, 77) + '...' : requestText}`,
+      status: 'success',
+      started_at: createdAt,
+      finished_at: createdAt,
+      error_message: null,
+      output_text: ceoOutputText || null,
+      created_at: createdAt ?? new Date().toISOString(),
+    })
+    runsCount++
+
     const runs = Array.isArray(ceoJson.runs) ? ceoJson.runs : []
     for (const r of runs) {
       const mode = typeof r.mode === 'string' ? r.mode : null
