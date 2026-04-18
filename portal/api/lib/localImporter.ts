@@ -24,6 +24,22 @@ type BundleManifest = {
   runs?: BundleManifestRun[]
 }
 
+type CeoRun = {
+  mode?: string
+  id?: string
+  dir?: string
+}
+
+type CeoManifest = {
+  domainPack?: string
+  request?: string
+  answers?: string
+  model?: string
+  dryRun?: boolean
+  createdAt?: string
+  runs?: CeoRun[]
+}
+
 type FactJson = {
   Id?: string
   Topic?: string
@@ -77,6 +93,74 @@ async function findBestOutputText(runDir: string) {
   return null
 }
 
+async function importPlaybookRun(ownerUserId: string, externalId: string, playbook: string, runDir: string, createdAt: string | null, sourceBundleId: string | null) {
+  const outputText = await findBestOutputText(runDir)
+  const playbookRunId = await upsertByExternalId('runs', ownerUserId, externalId, {
+    title: playbook,
+    status: outputText ? 'success' : 'fail',
+    started_at: createdAt,
+    finished_at: createdAt,
+    error_message: outputText ? null : 'Missing output',
+    output_text: outputText,
+    created_at: createdAt ?? new Date().toISOString(),
+  })
+
+  let factsCount = 0
+  const facts = await readJsonIfExists<FactJson[]>(path.join(runDir, 'facts.json'))
+  if (!facts || !Array.isArray(facts)) return { runId: playbookRunId, factsCount: 0 }
+
+  const supabase = getSupabaseAdmin()
+  for (const f of facts) {
+    const externalFactId = typeof f.Id === 'string' ? f.Id : null
+    const claim = typeof f.Claim === 'string' ? f.Claim : null
+    const url = typeof f.EvidenceUrl === 'string' ? f.EvidenceUrl : null
+    const quote = typeof f.EvidenceQuote === 'string' ? f.EvidenceQuote : null
+    const domain = typeof f.SourceDomain === 'string' ? f.SourceDomain : null
+    const confidence = typeof f.Confidence === 'number' ? f.Confidence : null
+    if (!claim) continue
+
+    const md = [
+      claim.trim(),
+      '',
+      url ? `Kaynak: ${url}` : null,
+      quote ? `Alıntı: ${quote}` : null,
+    ].filter(Boolean).join('\n')
+
+    const title = claim.length > 120 ? claim.slice(0, 117) + '...' : claim
+    const tags = [domain].filter(Boolean).join(',') || null
+    const state = confidence !== null && confidence >= 0.9 ? 'verified' : 'draft'
+
+    if (externalFactId) {
+      const exists = await supabase
+        .from('knowledge_facts')
+        .select('id')
+        .eq('owner_user_id', ownerUserId)
+        .eq('external_id', externalFactId)
+        .limit(1)
+        .maybeSingle()
+      if (exists.error) throw exists.error
+      if (exists.data?.id) continue
+    }
+
+    const inserted = await supabase.from('knowledge_facts').insert({
+      owner_user_id: ownerUserId,
+      external_id: externalFactId,
+      title,
+      content: md,
+      tags,
+      state,
+      source_type: 'run',
+      source_run_id: playbookRunId,
+      source_bundle_id: sourceBundleId,
+      confidence,
+    })
+    if (inserted.error) throw inserted.error
+    factsCount++
+  }
+
+  return { runId: playbookRunId, factsCount }
+}
+
 async function upsertByExternalId(table: string, ownerUserId: string, externalId: string, row: Record<string, unknown>) {
   const supabase = getSupabaseAdmin()
   const existing = await supabase
@@ -110,10 +194,10 @@ async function upsertByExternalId(table: string, ownerUserId: string, externalId
 }
 
 export async function importLocalAgentArmy(ownerUserId: string, rootDir?: string): Promise<ImportResult> {
-  const supabase = getSupabaseAdmin()
   const resolvedRoot = rootDir && rootDir.trim() ? rootDir.trim() : process.env.LOCAL_AGENTARMY_ROOT
   const base = resolvedRoot && resolvedRoot.trim() ? resolvedRoot.trim() : path.resolve(process.cwd(), '..')
   const bundlesRoot = path.join(base, 'runs', 'bundles')
+  const ceoRoot = path.join(base, 'runs', 'ceo')
 
   let runsCount = 0
   let bundlesCount = 0
@@ -154,69 +238,31 @@ export async function importLocalAgentArmy(ownerUserId: string, rootDir?: string
       if (!playbook || !runDir) continue
 
       const externalId = `${dirName}:${playbook}`
-      const outputText = await findBestOutputText(runDir)
-      const playbookRunId = await upsertByExternalId('runs', ownerUserId, externalId, {
-        title: playbook,
-        status: outputText ? 'success' : 'fail',
-        started_at: createdAt,
-        finished_at: createdAt,
-        error_message: outputText ? null : 'Missing output',
-        output_text: outputText,
-        created_at: createdAt ?? new Date().toISOString(),
-      })
+      const imported = await importPlaybookRun(ownerUserId, externalId, playbook, runDir, createdAt, bundleId)
       runsCount++
+      factsCount += imported.factsCount
+    }
+  }
 
-      const facts = await readJsonIfExists<FactJson[]>(path.join(runDir, 'facts.json'))
-      if (!facts || !Array.isArray(facts)) continue
+  const ceoDirs = await listDirDirs(ceoRoot)
+  for (const dirName of ceoDirs) {
+    const ceoDir = path.join(ceoRoot, dirName)
+    const ceoJson = await readJsonIfExists<CeoManifest>(path.join(ceoDir, 'ceo.json'))
+    if (!ceoJson) continue
 
-      for (const f of facts) {
-        const externalFactId = typeof f.Id === 'string' ? f.Id : null
-        const claim = typeof f.Claim === 'string' ? f.Claim : null
-        const url = typeof f.EvidenceUrl === 'string' ? f.EvidenceUrl : null
-        const quote = typeof f.EvidenceQuote === 'string' ? f.EvidenceQuote : null
-        const domain = typeof f.SourceDomain === 'string' ? f.SourceDomain : null
-        const confidence = typeof f.Confidence === 'number' ? f.Confidence : null
-        if (!claim) continue
+    const createdAt = typeof ceoJson.createdAt === 'string' ? ceoJson.createdAt : null
+    const runs = Array.isArray(ceoJson.runs) ? ceoJson.runs : []
+    for (const r of runs) {
+      const mode = typeof r.mode === 'string' ? r.mode : null
+      const id = typeof r.id === 'string' ? r.id : null
+      const runDir = typeof r.dir === 'string' ? r.dir : null
+      if (!mode || !id || !runDir) continue
+      if (mode.toLowerCase() === 'bundle') continue
 
-        const md = [
-          claim.trim(),
-          '',
-          url ? `Kaynak: ${url}` : null,
-          quote ? `Alıntı: ${quote}` : null,
-        ].filter(Boolean).join('\n')
-
-        const title = claim.length > 120 ? claim.slice(0, 117) + '...' : claim
-        const tags = [bundleJson.domainPack, domain].filter(Boolean).join(',') || null
-        const state = confidence !== null && confidence >= 0.9 ? 'verified' : 'draft'
-
-        if (externalFactId) {
-          const exists = await supabase
-            .from('knowledge_facts')
-            .select('id')
-            .eq('owner_user_id', ownerUserId)
-            .eq('external_id', externalFactId)
-            .limit(1)
-            .maybeSingle()
-          if (exists.error) throw exists.error
-          if (exists.data?.id) continue
-        }
-
-        const inserted = await supabase.from('knowledge_facts').insert({
-          owner_user_id: ownerUserId,
-          external_id: externalFactId,
-          title,
-          content: md,
-          tags,
-          state,
-          source_type: 'run',
-          source_run_id: playbookRunId,
-          source_bundle_id: bundleId,
-          confidence,
-        })
-
-        if (inserted.error) throw inserted.error
-        factsCount++
-      }
+      const externalId = `ceo:${dirName}:${id}`
+      const imported = await importPlaybookRun(ownerUserId, externalId, id, runDir, createdAt, null)
+      runsCount++
+      factsCount += imported.factsCount
     }
   }
 
