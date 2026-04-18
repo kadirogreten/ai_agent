@@ -24,6 +24,10 @@ type BundleManifest = {
   runs?: BundleManifestRun[]
 }
 
+type MinimalImportResult = ImportResult & {
+  importedRunDirs?: string[]
+}
+
 type CeoRun = {
   mode?: string
   id?: string
@@ -308,4 +312,119 @@ export async function importLocalAgentArmy(ownerUserId: string, rootDir?: string
   }
 
   return { runs: runsCount, bundles: bundlesCount, facts: factsCount }
+}
+
+async function importBundleDir(ownerUserId: string, bundleDir: string): Promise<ImportResult> {
+  const bundleJson = await readJsonIfExists<BundleManifest>(path.join(bundleDir, 'bundle.json'))
+  if (!bundleJson) return { runs: 0, bundles: 0, facts: 0 }
+
+  const dirName = path.basename(bundleDir)
+  const createdAt = typeof bundleJson.createdAt === 'string' ? bundleJson.createdAt : null
+
+  const bundleRunExternalId = `bundle:${dirName}`
+  const bundleRunId = await upsertByExternalId('runs', ownerUserId, bundleRunExternalId, {
+    title: bundleJson.title ?? bundleJson.id ?? 'bundle',
+    status: 'success',
+    started_at: createdAt,
+    finished_at: createdAt,
+    error_message: null,
+    output_text: null,
+    created_at: createdAt ?? new Date().toISOString(),
+  })
+
+  const bundleId = await upsertByExternalId('bundles', ownerUserId, dirName, {
+    run_id: bundleRunId,
+    name: bundleJson.title ?? bundleJson.id ?? dirName,
+    tags: bundleJson.domainPack ?? null,
+    payload_json: bundleJson,
+    created_at: createdAt ?? new Date().toISOString(),
+  })
+
+  let runsCount = 1
+  const bundlesCount = 1
+  let factsCount = 0
+
+  const runs = Array.isArray(bundleJson.runs) ? bundleJson.runs : []
+  for (const r of runs) {
+    const playbook = typeof r.playbook === 'string' ? r.playbook : null
+    const runDir = typeof r.dir === 'string' ? r.dir : null
+    if (!playbook || !runDir) continue
+    const externalId = `${dirName}:${playbook}`
+    const imported = await importPlaybookRun(ownerUserId, externalId, playbook, runDir, createdAt, bundleId)
+    runsCount++
+    factsCount += imported.factsCount
+  }
+
+  return { runs: runsCount, bundles: bundlesCount, facts: factsCount }
+}
+
+async function importCeoDir(ownerUserId: string, ceoDir: string): Promise<ImportResult> {
+  const dirName = path.basename(ceoDir)
+  const ceoJson = await readJsonIfExists<CeoManifest>(path.join(ceoDir, 'ceo.json'))
+  if (!ceoJson) return { runs: 0, bundles: 0, facts: 0 }
+
+  const createdAt = typeof ceoJson.createdAt === 'string' ? ceoJson.createdAt : null
+  const requestText = typeof ceoJson.request === 'string' ? ceoJson.request : 'ceo'
+  const questionsMd = await readTextIfExists(path.join(ceoDir, 'questions.md'))
+  const planJson = await readJsonIfExists<Record<string, unknown>>(path.join(ceoDir, 'plan.json'))
+  const ceoOutputText = [
+    requestText,
+    '',
+    questionsMd?.trim() ? questionsMd.trim() : null,
+    planJson ? `Plan: ${JSON.stringify(planJson)}` : null,
+  ].filter(Boolean).join('\n')
+
+  await upsertByExternalId('runs', ownerUserId, `ceo:${dirName}`, {
+    title: `ceo: ${requestText.length > 80 ? requestText.slice(0, 77) + '...' : requestText}`,
+    status: 'success',
+    started_at: createdAt,
+    finished_at: createdAt,
+    error_message: null,
+    output_text: ceoOutputText || null,
+    created_at: createdAt ?? new Date().toISOString(),
+  })
+
+  let runsCount = 1
+  let bundlesCount = 0
+  let factsCount = 0
+
+  const runs = Array.isArray(ceoJson.runs) ? ceoJson.runs : []
+  for (const r of runs) {
+    const mode = typeof r.mode === 'string' ? r.mode : null
+    const id = typeof r.id === 'string' ? r.id : null
+    const runDir = typeof r.dir === 'string' ? r.dir : null
+    if (!mode || !id || !runDir) continue
+
+    if (mode.toLowerCase() === 'bundle') {
+      const res = await importBundleDir(ownerUserId, runDir)
+      runsCount += res.runs
+      bundlesCount += res.bundles
+      factsCount += res.facts
+      continue
+    }
+
+    const externalId = `ceo:${dirName}:${id}`
+    const imported = await importPlaybookRun(ownerUserId, externalId, id, runDir, createdAt, null)
+    runsCount++
+    factsCount += imported.factsCount
+  }
+
+  return { runs: runsCount, bundles: bundlesCount, facts: factsCount }
+}
+
+export async function importFromRunDir(ownerUserId: string, runDir: string): Promise<MinimalImportResult> {
+  const normalized = runDir.trim()
+  if (!normalized) return { runs: 0, bundles: 0, facts: 0, importedRunDirs: [] }
+
+  if (normalized.includes('/runs/ceo/')) {
+    const res = await importCeoDir(ownerUserId, normalized)
+    return { ...res, importedRunDirs: [normalized] }
+  }
+
+  if (normalized.includes('/runs/bundles/')) {
+    const res = await importBundleDir(ownerUserId, normalized)
+    return { ...res, importedRunDirs: [normalized] }
+  }
+
+  return { runs: 0, bundles: 0, facts: 0, importedRunDirs: [normalized] }
 }

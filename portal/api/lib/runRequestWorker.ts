@@ -1,8 +1,7 @@
 import { spawn } from 'node:child_process'
-import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { getSupabaseAdmin } from './supabaseAdmin.js'
-import { importLocalAgentArmy } from './localImporter.js'
+import { importFromRunDir } from './localImporter.js'
 
 type RunRequest = {
   id: string
@@ -67,9 +66,6 @@ function extractRunDir(stdout: string) {
   return null
 }
 
-function repoRootFromRunDir(runDir: string) {
-  return path.resolve(runDir, '..', '..', '..')
-}
 
 function buildDotnetArgs(job: RunRequest) {
   const base = ['run', '--project', 'src/AgentArmy.Cli', '--']
@@ -210,7 +206,6 @@ async function processOne(supabase: ReturnType<typeof getSupabaseAdmin>, job: Ru
       throw new Error('High risk job requires allow_high_risk=true')
     }
 
-    const repoRoot = path.resolve(process.cwd())
     const dotnetArgs = buildDotnetArgs(job)
 
     log('Running dotnet', { args: ['dotnet', ...dotnetArgs] })
@@ -230,9 +225,11 @@ async function processOne(supabase: ReturnType<typeof getSupabaseAdmin>, job: Ru
     }
 
     const runDir = extractRunDir(stdout)
-    const importRoot = runDir ? repoRootFromRunDir(runDir) : repoRoot
-    log('Importing outputs to Supabase', { repoRoot, importRoot, runDir })
-    const importRes = await importLocalAgentArmy(job.owner_user_id, importRoot)
+    if (!runDir) {
+      throw new Error('Could not detect runDir from dotnet output')
+    }
+    log('Importing outputs to Supabase', { runDir })
+    const importRes = await importFromRunDir(job.owner_user_id, runDir)
     log('Import finished', importRes as unknown as Record<string, unknown>)
 
     const updated = await supabase
