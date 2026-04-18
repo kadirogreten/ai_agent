@@ -3,7 +3,7 @@ name: Agent Worker
 on:
   workflow_dispatch:
   schedule:
-    - cron: "*/10 * * * *"
+    - cron: "*/2 * * * *"
 
 jobs:
   worker:
@@ -31,5 +31,5 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          MAX_JOBS: "3"
         run: npx --yes --prefix portal tsx portal/api/lib/runRequestWorker.ts
-

@@ -29,10 +29,14 @@ function runCmd(command: string, args: string[], env: Record<string, string | un
     let stderr = ''
 
     child.stdout.on('data', (d) => {
-      stdout += d.toString()
+      const s = d.toString()
+      stdout += s
+      process.stdout.write(s)
     })
     child.stderr.on('data', (d) => {
-      stderr += d.toString()
+      const s = d.toString()
+      stderr += s
+      process.stderr.write(s)
     })
 
     child.on('error', reject)
@@ -40,6 +44,16 @@ function runCmd(command: string, args: string[], env: Record<string, string | un
       resolve({ code: code ?? 1, stdout, stderr })
     })
   })
+}
+
+function log(message: string, meta?: Record<string, unknown>) {
+  const ts = new Date().toISOString()
+  const base = `[worker ${ts}] ${message}`
+  if (!meta) {
+    console.log(base)
+    return
+  }
+  console.log(base, JSON.stringify(meta))
 }
 
 function buildDotnetArgs(job: RunRequest) {
@@ -149,7 +163,7 @@ function buildDotnetArgs(job: RunRequest) {
   ])
 }
 
-async function main() {
+async function claimOne() {
   const supabase = getSupabaseAdmin()
 
   const claimed = await supabase.rpc('claim_run_request')
@@ -159,11 +173,24 @@ async function main() {
 
   const job = claimed.data as RunRequest | null
   if (!job?.id) {
-    console.log('No pending jobs')
-    return
+    return null
   }
 
+  return { supabase, job }
+}
+
+async function processOne(supabase: ReturnType<typeof getSupabaseAdmin>, job: RunRequest) {
   try {
+    log('Claimed job', {
+      id: job.id,
+      mode: job.mode,
+      domain_pack: job.domain_pack,
+      model: job.model,
+      web: job.web,
+      contrarian: job.contrarian,
+      risk: job.risk,
+    })
+
     if ((job.risk === 'R2' || job.risk === 'R3') && !job.allow_high_risk) {
       throw new Error('High risk job requires allow_high_risk=true')
     }
@@ -171,15 +198,25 @@ async function main() {
     const repoRoot = path.resolve(process.cwd())
     const dotnetArgs = buildDotnetArgs(job)
 
+    log('Running dotnet', { args: ['dotnet', ...dotnetArgs] })
+    const started = Date.now()
+
     const { code, stdout, stderr } = await runCmd('dotnet', dotnetArgs, {
       OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+    })
+
+    log('Dotnet finished', {
+      code,
+      duration_ms: Date.now() - started,
     })
 
     if (code !== 0) {
       throw new Error(`dotnet failed (${code})\n${stderr || stdout}`)
     }
 
+    log('Importing outputs to Supabase')
     const importRes = await importLocalAgentArmy(job.owner_user_id, repoRoot)
+    log('Import finished', importRes as unknown as Record<string, unknown>)
 
     const updated = await supabase
       .from('run_requests')
@@ -216,7 +253,19 @@ async function main() {
 }
 
 export async function runOnce() {
-  await main()
+  const maxJobs = Number.parseInt(process.env.MAX_JOBS ?? '1', 10)
+  const limit = Number.isFinite(maxJobs) && maxJobs > 0 ? maxJobs : 1
+
+  log('Worker tick', { max_jobs: limit })
+
+  for (let i = 0; i < limit; i++) {
+    const claimed = await claimOne()
+    if (!claimed) {
+      if (i === 0) console.log('No pending jobs')
+      return
+    }
+    await processOne(claimed.supabase, claimed.job)
+  }
 }
 
 const isMain = process.argv[1] === fileURLToPath(import.meta.url)
