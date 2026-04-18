@@ -56,6 +56,21 @@ function log(message: string, meta?: Record<string, unknown>) {
   console.log(base, JSON.stringify(meta))
 }
 
+function extractRunDir(stdout: string) {
+  const lines = stdout.split('\n').map((l) => l.trim()).filter(Boolean)
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const l = lines[i]
+    if (l.includes('/runs/ceo/') || l.includes('/runs/bundles/')) {
+      return l
+    }
+  }
+  return null
+}
+
+function repoRootFromRunDir(runDir: string) {
+  return path.resolve(runDir, '..', '..', '..')
+}
+
 function buildDotnetArgs(job: RunRequest) {
   const base = ['run', '--project', 'src/AgentArmy.Cli', '--']
 
@@ -214,8 +229,10 @@ async function processOne(supabase: ReturnType<typeof getSupabaseAdmin>, job: Ru
       throw new Error(`dotnet failed (${code})\n${stderr || stdout}`)
     }
 
-    log('Importing outputs to Supabase')
-    const importRes = await importLocalAgentArmy(job.owner_user_id, repoRoot)
+    const runDir = extractRunDir(stdout)
+    const importRoot = runDir ? repoRootFromRunDir(runDir) : repoRoot
+    log('Importing outputs to Supabase', { repoRoot, importRoot, runDir })
+    const importRes = await importLocalAgentArmy(job.owner_user_id, importRoot)
     log('Import finished', importRes as unknown as Record<string, unknown>)
 
     const updated = await supabase
