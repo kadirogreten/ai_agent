@@ -39,41 +39,30 @@ public sealed class OpenAiResponsesClient : ILlmClient
 
         if (!_enableWebSearch)
         {
-            var payload = new
-            {
-                model = _model,
-                input,
-                temperature = 0.2
-            };
-
-            var respText = await PostAsync(payload, cancellationToken);
+            var payload = BuildPayload(input, tools: null, includeTemperature: true);
+            var respText = await PostWithFallbackAsync(payload, cancellationToken);
             return ExtractTextWithSources(respText);
         }
 
-        var toolWithFilters = _allowedDomains is { Count: > 0 }
-            ? new
-            {
-                type = "web_search",
-                filters = new
-                {
-                    allowed_domains = _allowedDomains
-                }
-            }
-            : null;
-
-        if (toolWithFilters is not null)
+        Dictionary<string, object?>? payloadWithFilters = null;
+        if (_allowedDomains is { Count: > 0 })
         {
-            var payloadWithFilters = new
+            var toolWithFilters = new Dictionary<string, object?>
             {
-                model = _model,
-                tools = new object[] { toolWithFilters },
-                input,
-                temperature = 0.2
+                ["type"] = "web_search",
+                ["filters"] = new Dictionary<string, object?>
+                {
+                    ["allowed_domains"] = _allowedDomains
+                }
             };
+            payloadWithFilters = BuildPayload(input, tools: new object[] { toolWithFilters }, includeTemperature: true);
+        }
 
+        if (payloadWithFilters is not null)
+        {
             try
             {
-                var respText = await PostAsync(payloadWithFilters, cancellationToken);
+                var respText = await PostWithFallbackAsync(payloadWithFilters, cancellationToken);
                 return ExtractTextWithSources(respText);
             }
             catch (InvalidOperationException ex) when (ex.Message.Contains("Parameter 'filters' not supported", StringComparison.OrdinalIgnoreCase))
@@ -81,19 +70,47 @@ public sealed class OpenAiResponsesClient : ILlmClient
             }
         }
 
-        var payloadNoFilters = new
-        {
-            model = _model,
-            tools = new object[] { new { type = "web_search" } },
-            input,
-            temperature = 0.2
-        };
-
-        var respTextNoFilters = await PostAsync(payloadNoFilters, cancellationToken);
+        var payloadNoFilters = BuildPayload(input, tools: new object[] { new Dictionary<string, object?> { ["type"] = "web_search" } }, includeTemperature: true);
+        var respTextNoFilters = await PostWithFallbackAsync(payloadNoFilters, cancellationToken);
         return ExtractTextWithSources(respTextNoFilters);
     }
 
-    private async Task<string> PostAsync(object payload, CancellationToken cancellationToken)
+    private Dictionary<string, object?> BuildPayload(object input, object[]? tools, bool includeTemperature)
+    {
+        var payload = new Dictionary<string, object?>
+        {
+            ["model"] = _model,
+            ["input"] = input
+        };
+
+        if (tools is not null)
+        {
+            payload["tools"] = tools;
+        }
+
+        if (includeTemperature)
+        {
+            payload["temperature"] = 0.2;
+        }
+
+        return payload;
+    }
+
+    private async Task<string> PostWithFallbackAsync(Dictionary<string, object?> payload, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await PostAsync(payload, cancellationToken);
+        }
+        catch (InvalidOperationException ex) when (ex.Message.Contains("Unsupported parameter: 'temperature'", StringComparison.OrdinalIgnoreCase))
+        {
+            var copy = new Dictionary<string, object?>(payload);
+            copy.Remove("temperature");
+            return await PostAsync(copy, cancellationToken);
+        }
+    }
+
+    private async Task<string> PostAsync(Dictionary<string, object?> payload, CancellationToken cancellationToken)
     {
         var json = JsonSerializer.Serialize(payload);
         using var content = new StringContent(json, Encoding.UTF8, "application/json");
