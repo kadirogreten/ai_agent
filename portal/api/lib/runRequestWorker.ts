@@ -226,6 +226,15 @@ async function processOne(supabase: ReturnType<typeof getSupabaseAdmin>, job: Ru
 
     const { code, stdout, stderr } = await runCmd('dotnet', dotnetArgs, {
       OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1',
+      DOTNET_NOLOGO: '1',
+    })
+    
+    // Log the full stdout for debugging
+    log('Full dotnet stdout', { 
+      stdoutLength: stdout.length,
+      stdoutPreview: stdout.slice(0, 1000),
+      lastLines: stdout.trim().split('\n').slice(-10).join('\n')
     })
 
     log('Dotnet finished', {
