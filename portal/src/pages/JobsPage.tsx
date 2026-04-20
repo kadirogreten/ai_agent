@@ -50,10 +50,12 @@ export default function JobsPage() {
   const [mode, setMode] = useState<'all' | JobMode>('all')
 
   const [formOpen, setFormOpen] = useState(false)
-  const [formMode, setFormMode] = useState<'ceo' | 'ceo-iterate'>('ceo')
+  const [formMode, setFormMode] = useState<JobMode>('ceo')
   const [domainPack, setDomainPack] = useState('market-intel')
   const [requestText, setRequestText] = useState('')
   const [answersJson, setAnswersJson] = useState('{}')
+  const [playbookId, setPlaybookId] = useState('brand-site')
+  const [bundleId, setBundleId] = useState('weekly')
   const [modelText, setModelText] = useState('gpt-4.1')
   const [web, setWeb] = useState(true)
   const [contrarian, setContrarian] = useState(false)
@@ -127,13 +129,31 @@ export default function JobsPage() {
           setSaving(false)
           return
         }
+      } else if (formMode === 'run') {
+        answers = {
+          playbookId: playbookId.trim(),
+          topic: requestText.trim(),
+        }
+      } else if (formMode === 'bundle') {
+        answers = {
+          bundleId: bundleId.trim(),
+          topic: requestText.trim(),
+        }
       }
+
+      const requestForRow = requestText.trim()
+        ? formMode === 'run'
+          ? `run:${playbookId.trim() || '-'} • ${requestText.trim()}`
+          : formMode === 'bundle'
+            ? `bundle:${bundleId.trim() || '-'} • ${requestText.trim()}`
+            : requestText.trim()
+        : null
 
       const inserted = await supabase.from('run_requests').insert({
         owner_user_id: user.id,
         mode: formMode,
         domain_pack: domainPack.trim() || null,
-        request_text: requestText.trim() || null,
+        request_text: requestForRow,
         answers_json: answers,
         model: modelText.trim() || null,
         web,
@@ -223,11 +243,13 @@ export default function JobsPage() {
               <div className="mb-1 text-xs text-white/60">Mode</div>
               <select
                 value={formMode}
-                onChange={(e) => setFormMode(e.target.value as 'ceo' | 'ceo-iterate')}
+                onChange={(e) => setFormMode(e.target.value as JobMode)}
                 className="h-10 w-full rounded-md border border-white/10 bg-white/5 px-3 text-sm text-white outline-none"
               >
                 <option value="ceo">ceo</option>
                 <option value="ceo-iterate">ceo-iterate</option>
+                <option value="run">run</option>
+                <option value="bundle">bundle</option>
               </select>
             </div>
             <div>
@@ -235,13 +257,30 @@ export default function JobsPage() {
               <Input value={domainPack} onChange={(e) => setDomainPack(e.target.value)} />
             </div>
             <div className="md:col-span-2">
-              <div className="mb-1 text-xs text-white/60">Request</div>
+              <div className="mb-1 text-xs text-white/60">
+                {formMode === 'run' || formMode === 'bundle' ? 'Topic' : 'Request'}
+              </div>
               <textarea
                 value={requestText}
                 onChange={(e) => setRequestText(e.target.value)}
                 className="min-h-24 w-full rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-400/30"
               />
             </div>
+
+            {formMode === 'run' ? (
+              <div>
+                <div className="mb-1 text-xs text-white/60">playbookId</div>
+                <Input value={playbookId} onChange={(e) => setPlaybookId(e.target.value)} placeholder="brand-site" />
+              </div>
+            ) : null}
+
+            {formMode === 'bundle' ? (
+              <div>
+                <div className="mb-1 text-xs text-white/60">bundleId</div>
+                <Input value={bundleId} onChange={(e) => setBundleId(e.target.value)} placeholder="weekly" />
+              </div>
+            ) : null}
+
             {formMode === 'ceo-iterate' ? (
               <div className="md:col-span-2">
                 <div className="mb-1 text-xs text-white/60">answers_json</div>
@@ -287,7 +326,7 @@ export default function JobsPage() {
           {formErr ? <div className="mt-3 text-sm text-red-200">{formErr}</div> : null}
           <div className="mt-4 flex gap-2">
             <Button variant="secondary" onClick={() => setFormOpen(false)} disabled={saving}>İptal</Button>
-            <Button onClick={createJob} disabled={saving || !requestText.trim()}>
+            <Button onClick={createJob} disabled={saving || !requestText.trim() || (formMode === 'run' && !playbookId.trim()) || (formMode === 'bundle' && !bundleId.trim())}>
               Oluştur
             </Button>
           </div>
@@ -340,4 +379,3 @@ export default function JobsPage() {
     </div>
   )
 }
-

@@ -14,6 +14,8 @@ public sealed class Orchestrator
     private readonly string? _factsTopic;
     private readonly string? _playbookId;
     private readonly string? _runId;
+    private readonly IReadOnlyDictionary<string, Agent> _agents;
+    private readonly OpenAiImageClient? _images;
 
     public Orchestrator(
         ILlmClient llm,
@@ -25,7 +27,9 @@ public sealed class Orchestrator
         FactsStore? globalFactsStore,
         string? factsTopic,
         string? playbookId,
-        string? runId
+        string? runId,
+        IReadOnlyDictionary<string, Agent>? agentOverrides,
+        OpenAiImageClient? images
     )
     {
         _llm = llm;
@@ -38,6 +42,17 @@ public sealed class Orchestrator
         _factsTopic = factsTopic;
         _playbookId = playbookId;
         _runId = runId;
+        _images = images;
+
+        var merged = new Dictionary<string, Agent>(AgentsCatalog.All, StringComparer.OrdinalIgnoreCase);
+        if (agentOverrides is not null)
+        {
+            foreach (var kv in agentOverrides)
+            {
+                merged[kv.Key] = kv.Value;
+            }
+        }
+        _agents = merged;
     }
 
     public async Task RunAsync(RunContext ctx, CancellationToken ct)
@@ -93,6 +108,27 @@ public sealed class Orchestrator
             await File.WriteAllTextAsync(stepFile, output.Trim() + "\n", Encoding.UTF8, ct);
             await ctx.AppendMarkdownAsync(ctx.WorkPath, $"{step.Id} ({agent.DisplayName})", output, ct);
 
+            if (!string.IsNullOrWhiteSpace(step.SaveAs))
+            {
+                var safeName = SafeArtifactFileName(step.SaveAs);
+                var artifactPath = Path.Combine(ctx.RunDir, safeName);
+                await File.WriteAllTextAsync(artifactPath, output.Trim() + "\n", Encoding.UTF8, ct);
+                await ctx.AppendLogAsync(new
+                {
+                    type = "artifact_written",
+                    ts = DateTimeOffset.UtcNow,
+                    runId = ctx.RunId,
+                    playbook = ctx.Playbook.Id,
+                    step = step.Id,
+                    file = safeName
+                }, ct);
+            }
+
+            if (step.Image is not null)
+            {
+                await TryGenerateImageAsync(ctx, step, output, ct);
+            }
+
             if (agent.Id.Equals("Researcher", StringComparison.OrdinalIgnoreCase))
             {
                 await ctx.AppendMarkdownAsync(ctx.FactsPath, $"{step.Id}", output, ct);
@@ -140,6 +176,35 @@ public sealed class Orchestrator
         }
 
         await TryExtractAndStoreFactsAsync(ctx, ct);
+    }
+
+    private async Task TryGenerateImageAsync(RunContext ctx, PlaybookStep step, string prompt, CancellationToken ct)
+    {
+        if (_images is null) return;
+        if (string.IsNullOrWhiteSpace(prompt)) return;
+
+        var size = string.IsNullOrWhiteSpace(step.Image?.Size) ? "1024x1024" : step.Image!.Size!.Trim();
+        var fileNameBase = string.IsNullOrWhiteSpace(step.Image?.FileName)
+            ? $"{step.Id}.image.png"
+            : step.Image!.FileName!.Trim();
+        var fileName = fileNameBase.EndsWith(".png", StringComparison.OrdinalIgnoreCase)
+            ? fileNameBase
+            : fileNameBase + ".png";
+        var path = Path.Combine(ctx.RunDir, fileName);
+
+        var bytes = await _images.GeneratePngAsync(prompt.Trim(), size, ct);
+        await File.WriteAllBytesAsync(path, bytes, ct);
+
+        await ctx.AppendLogAsync(new
+        {
+            type = "image_generated",
+            ts = DateTimeOffset.UtcNow,
+            runId = ctx.RunId,
+            playbook = ctx.Playbook.Id,
+            step = step.Id,
+            file = fileName,
+            size
+        }, ct);
     }
 
     private bool ShouldRunContrarian(RunContext ctx, PlaybookStep lastStep)
@@ -232,7 +297,20 @@ public sealed class Orchestrator
     private static bool ShouldUseFullContext(Agent agent)
     {
         return agent.Id.Equals("Verifier", StringComparison.OrdinalIgnoreCase)
-               || agent.Id.Equals("Editor", StringComparison.OrdinalIgnoreCase);
+               || agent.Id.Equals("Editor", StringComparison.OrdinalIgnoreCase)
+               || agent.Id.Equals("WebDeveloper", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string SafeArtifactFileName(string input)
+    {
+        var name = (input ?? string.Empty).Trim();
+        name = name.Replace("\\", "/");
+        name = Path.GetFileName(name);
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return "artifact.txt";
+        }
+        return name;
     }
 
     private string? BuildExtraPolicy(Agent agent)
@@ -260,7 +338,7 @@ public sealed class Orchestrator
 
     private Agent ResolveAgent(string agentId)
     {
-        if (!AgentsCatalog.All.TryGetValue(agentId, out var agent))
+        if (!_agents.TryGetValue(agentId, out var agent))
         {
             throw new InvalidOperationException($"Unknown agent: {agentId}");
         }

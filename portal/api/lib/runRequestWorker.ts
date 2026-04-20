@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import fs from 'node:fs/promises'
+import os from 'node:os'
 import path from 'node:path'
 import { getSupabaseAdmin } from './supabaseAdmin.js'
 import { importFromRunDir } from './localImporter.js'
@@ -17,6 +18,44 @@ type RunRequest = {
   contrarian: boolean
   risk: 'R0' | 'R1' | 'R2' | 'R3'
   allow_high_risk: boolean
+}
+
+type DbAgent = {
+  id: string
+  name: string
+  code: string
+  description: string | null
+  capabilities: string[]
+}
+
+async function writeAgentsFile(supabase: ReturnType<typeof getSupabaseAdmin>) {
+  const res = await supabase
+    .from('agents')
+    .select('id,name,code,description,capabilities')
+    .order('updated_at', { ascending: false })
+
+  if (res.error) {
+    throw res.error
+  }
+
+  const agents = (res.data ?? []) as DbAgent[]
+  if (agents.length === 0) {
+    return null
+  }
+
+  const payload = {
+    agents: agents.map((a) => ({
+      code: a.code,
+      name: a.name,
+      description: a.description,
+      capabilities: a.capabilities ?? [],
+    })),
+  }
+
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'agentarmy-agents-'))
+  const filePath = path.join(dir, 'agents.json')
+  await fs.writeFile(filePath, JSON.stringify(payload), 'utf-8')
+  return filePath
 }
 
 function runCmd(command: string, args: string[], env: Record<string, string | undefined>) {
@@ -220,6 +259,14 @@ async function processOne(supabase: ReturnType<typeof getSupabaseAdmin>, job: Ru
     }
 
     const dotnetArgs = buildDotnetArgs(job)
+
+    const agentsFile = await writeAgentsFile(supabase)
+    if (agentsFile) {
+      dotnetArgs.push('--agentsFile', agentsFile)
+      log('Using agents file', { agentsFile })
+    } else {
+      log('No agents in DB; using built-in catalog')
+    }
 
     log('Running dotnet', { args: ['dotnet', ...dotnetArgs] })
     const started = Date.now()

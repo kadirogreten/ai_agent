@@ -75,9 +75,14 @@ public static class Runner
 
     public static async Task RunOneAsync(string rootDir, Execution exec, Playbook playbook, string runId, string runDir, CancellationToken ct)
     {
+        var agentsFile = exec.Args.GetValueOrDefault("agentsFile")
+                         ?? Environment.GetEnvironmentVariable("AGENTARMY_AGENTS_FILE");
+        var agentOverrides = AgentsFileLoader.LoadAgents(agentsFile);
+
         ILlmClient llm;
         ILlmClient? webLlm = null;
         HttpClient? http = null;
+        OpenAiImageClient? images = null;
 
         if (exec.DryRun)
         {
@@ -92,6 +97,7 @@ public static class Runner
 
             http = new HttpClient();
             llm = new OpenAiResponsesClient(http, exec.ApiKey, exec.Model, enableWebSearch: false);
+            images = new OpenAiImageClient(http, exec.ApiKey);
             if (exec.Web)
             {
                 webLlm = new OpenAiResponsesClient(http, exec.ApiKey, exec.Model, enableWebSearch: true, allowedDomains: exec.DomainPack?.AllowedDomains);
@@ -126,7 +132,9 @@ public static class Runner
                 store,
                 factsTopic,
                 playbook.Id,
-                runId
+                runId,
+                agentOverrides,
+                images
             );
 
             var contract = BuildContract(exec, playbook);

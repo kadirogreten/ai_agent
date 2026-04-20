@@ -15,6 +15,20 @@ type ImportResult = {
   facts: number
 }
 
+type RunArtifactKind = 'image' | 'file'
+
+type RunArtifactRow = {
+  id: string
+  owner_user_id: string
+  run_id: string
+  kind: RunArtifactKind
+  file_name: string
+  storage_bucket: string
+  storage_path: string
+  mime_type: string
+  created_at: string
+}
+
 type BundleManifestRun = {
   playbook?: string
   dir?: string
@@ -127,6 +141,8 @@ async function importPlaybookRun(ownerUserId: string, externalId: string, playbo
     created_at: createdAt ?? new Date().toISOString(),
   })
 
+  await importRunArtifacts(ownerUserId, playbookRunId, runDir)
+
   let factsCount = 0
   const facts = await readJsonIfExists<FactJson[]>(path.join(runDir, 'facts.json'))
   if (!facts || !Array.isArray(facts)) return { runId: playbookRunId, factsCount: 0 }
@@ -181,6 +197,60 @@ async function importPlaybookRun(ownerUserId: string, externalId: string, playbo
   }
 
   return { runId: playbookRunId, factsCount }
+}
+
+async function importRunArtifacts(ownerUserId: string, runId: string, runDir: string) {
+  const supabase = getSupabaseAdmin()
+  const entries = await fs.readdir(runDir, { withFileTypes: true }).catch(() => [])
+  const files = entries
+    .filter((e) => e.isFile())
+    .map((e) => e.name)
+    .filter((n) => /\.(png|jpe?g|webp|json|diff|patch)$/i.test(n))
+
+  if (files.length === 0) return
+
+  for (const fileName of files) {
+    const lower = fileName.toLowerCase()
+    const mime = lower.endsWith('.png')
+      ? 'image/png'
+      : lower.endsWith('.webp')
+        ? 'image/webp'
+        : lower.endsWith('.jpg') || lower.endsWith('.jpeg')
+          ? 'image/jpeg'
+          : lower.endsWith('.json')
+            ? 'application/json'
+            : 'text/plain'
+
+    const kind: RunArtifactKind = mime.startsWith('image/') ? 'image' : 'file'
+
+    const storageBucket = 'run-artifacts'
+    const storagePath = `${ownerUserId}/${runId}/${fileName}`
+
+    const data = await fs.readFile(path.join(runDir, fileName))
+    const uploaded = await supabase.storage.from(storageBucket).upload(storagePath, data, {
+      contentType: mime,
+      upsert: true,
+    })
+    if (uploaded.error) throw uploaded.error
+
+    const upserted = await supabase
+      .from('run_artifacts')
+      .upsert(
+        {
+          owner_user_id: ownerUserId,
+          run_id: runId,
+          kind,
+          file_name: fileName,
+          storage_bucket: storageBucket,
+          storage_path: storagePath,
+          mime_type: mime,
+        },
+        { onConflict: 'run_id,file_name' },
+      )
+      .select('id')
+      .maybeSingle<Pick<RunArtifactRow, 'id'>>()
+    if (upserted.error) throw upserted.error
+  }
 }
 
 async function upsertByExternalId(table: string, ownerUserId: string, externalId: string, row: Record<string, unknown>) {
