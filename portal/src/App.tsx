@@ -12,6 +12,8 @@ import BundleDetailPage from '@/pages/BundleDetailPage'
 import FactDetailPage from '@/pages/FactDetailPage'
 import JobsPage from '@/pages/JobsPage'
 import JobDetailPage from '@/pages/JobDetailPage'
+import AgentsPage from '@/pages/AgentsPage'
+import AgentUpsertPage from '@/pages/AgentUpsertPage'
 
 export default function App() {
   const init = useAuthStore((s) => s.init)
@@ -26,6 +28,9 @@ export default function App() {
     <Router>
       <Routes>
         <Route path="/" element={<Navigate to="/app" replace />} />
+        <Route path="/agents" element={<Navigate to="/app/agents" replace />} />
+        <Route path="/agents/new" element={<Navigate to="/app/agents/new" replace />} />
+        <Route path="/agents/:agentId/edit" element={<Navigate to="/app/agents/:agentId/edit" replace />} />
         <Route path="/login" element={<LoginPage />} />
         <Route
           path="/app"
@@ -47,6 +52,9 @@ export default function App() {
           <Route path="facts/:factId" element={<FactDetailPage />} />
           <Route path="jobs" element={<JobsPage />} />
           <Route path="jobs/:jobId" element={<JobDetailPage />} />
+          <Route path="agents" element={<AgentsPage />} />
+          <Route path="agents/new" element={<AgentUpsertPage mode="new" />} />
+          <Route path="agents/:agentId/edit" element={<AgentUpsertPage mode="edit" />} />
         </Route>
         <Route path="*" element={<Navigate to="/app" replace />} />
       </Routes>

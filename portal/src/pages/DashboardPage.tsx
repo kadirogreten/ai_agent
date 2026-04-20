@@ -9,7 +9,6 @@ import {
   TrendingUp, 
   Clock, 
   CheckCircle, 
-  XCircle, 
   AlertCircle,
   Download,
   RefreshCw
