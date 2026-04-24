@@ -34,6 +34,19 @@ type JobRow = {
   result_json: unknown | null
 }
 
+type QuestionData = {
+  runDir: string | null
+  questions: string[]
+  planText: string
+}
+
+type SavedAnswers = Record<string, string>
+
+type ReviewSeed = Pick<
+  ReviewRow,
+  'position' | 'question' | 'suggested_answer' | 'user_answer' | 'status' | 'confidence'
+>
+
 function getBearerToken(req: Request) {
   const h = req.headers.authorization
   if (!h) return null
@@ -77,10 +90,129 @@ function extractRunDir(resultJson: unknown) {
   return typeof first === 'string' ? first.trim() : null
 }
 
-async function readQuestionsFromJob(job: JobRow) {
+function parseQuestions(text: string) {
+  return text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith('- '))
+    .map((line) => line.slice(2).trim())
+    .filter(Boolean)
+}
+
+function extractPlanText(text: string) {
+  const marker = '\nPlan: '
+  const index = text.indexOf(marker)
+  if (index === -1) return ''
+  return text.slice(index + marker.length).trim()
+}
+
+function extractImportedCeoExternalId(runDir: string | null) {
+  if (!runDir) return null
+  const dirName = path.basename(runDir.trim())
+  if (!dirName) return null
+  return `ceo:${dirName}`
+}
+
+async function readQuestionsFromImportedRun(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  ownerUserId: string,
+  runDir: string | null,
+) {
+  const externalId = extractImportedCeoExternalId(runDir)
+  if (!externalId) return null
+
+  const res = await supabase
+    .from('runs')
+    .select('output_text')
+    .eq('owner_user_id', ownerUserId)
+    .eq('external_id', externalId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+
+  if (res.error) throw new Error(res.error.message)
+  const outputText = typeof res.data?.[0]?.output_text === 'string' ? res.data[0].output_text : ''
+  if (!outputText.trim()) return null
+
+  return {
+    questions: parseQuestions(outputText),
+    planText: extractPlanText(outputText),
+  }
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message) return error.message
+  if (error && typeof error === 'object' && 'message' in error && typeof error.message === 'string') {
+    return error.message
+  }
+  return fallback
+}
+
+function isMissingReviewTableError(error: unknown) {
+  return getErrorMessage(error, '').includes("public.ceo_question_reviews")
+}
+
+function readSavedAnswers(value: unknown): SavedAnswers {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  return Object.entries(value).reduce<SavedAnswers>((acc, [key, raw]) => {
+    if (typeof raw === 'string' && raw.trim()) {
+      acc[key] = raw
+    }
+    return acc
+  }, {})
+}
+
+function buildFallbackReviews(questions: string[], savedAnswers: SavedAnswers, existing: ReviewSeed[] = []) {
+  return questions.map((question, index) => {
+    const row = existing.find((item) => item.position === index + 1)
+    const userAnswer = row?.user_answer ?? savedAnswers[question] ?? null
+    return {
+      position: index + 1,
+      question,
+      suggested_answer: row?.suggested_answer ?? null,
+      user_answer: userAnswer,
+      status: row?.status ?? (userAnswer ? 'edited' : 'suggested'),
+      confidence: row?.confidence ?? null,
+    }
+  })
+}
+
+async function tryLoadReviews(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  ownerUserId: string,
+  jobId: string,
+) {
+  try {
+    const reviews = await loadReviews(supabase, ownerUserId, jobId)
+    return { reviews, tableAvailable: true }
+  } catch (error) {
+    if (isMissingReviewTableError(error)) {
+      return { reviews: [] as ReviewRow[], tableAvailable: false }
+    }
+    throw error
+  }
+}
+
+async function saveAnswersJson(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  jobId: string,
+  answers: SavedAnswers,
+) {
+  const updated = await supabase
+    .from('run_requests')
+    .update({ answers_json: answers })
+    .eq('id', jobId)
+
+  if (updated.error) throw updated.error
+}
+
+async function readQuestionsFromJob(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  ownerUserId: string,
+  job: JobRow,
+): Promise<QuestionData> {
   const runDir = extractRunDir(job.result_json)
   if (!runDir) {
-    return { runDir: null, questions: [] as string[], planText: '' }
+    return { runDir: null, questions: [], planText: '' }
   }
 
   const qPath = path.join(runDir, 'questions.md')
@@ -88,15 +220,22 @@ async function readQuestionsFromJob(job: JobRow) {
 
   const questionsText = await fs.readFile(qPath, 'utf8').catch(() => '')
   const planText = await fs.readFile(planPath, 'utf8').catch(() => '')
+  const questions = parseQuestions(questionsText)
 
-  const questions = questionsText
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line.startsWith('- '))
-    .map((line) => line.slice(2).trim())
-    .filter(Boolean)
+  if (questions.length > 0) {
+    return { runDir, questions, planText }
+  }
 
-  return { runDir, questions, planText }
+  const imported = await readQuestionsFromImportedRun(supabase, ownerUserId, runDir)
+  if (!imported || imported.questions.length === 0) {
+    return { runDir, questions: [], planText }
+  }
+
+  return {
+    runDir,
+    questions: imported.questions,
+    planText: imported.planText || planText,
+  }
 }
 
 async function loadReviews(supabase: ReturnType<typeof getSupabaseAdmin>, ownerUserId: string, jobId: string) {
@@ -186,20 +325,10 @@ router.get('/jobs/:jobId/review', async (req: Request, res: Response) => {
   try {
     const { supabase, user } = await getAuthedUser(req)
     const job = await getOwnedJob(supabase, user.id, req.params.jobId)
-    const questionData = await readQuestionsFromJob(job)
-    const reviews = await loadReviews(supabase, user.id, job.id)
-
-    const merged = questionData.questions.map((question, index) => {
-      const row = reviews.find((r) => r.position === index + 1)
-      return {
-        position: index + 1,
-        question,
-        suggested_answer: row?.suggested_answer ?? null,
-        user_answer: row?.user_answer ?? null,
-        status: row?.status ?? 'suggested',
-        confidence: row?.confidence ?? null,
-      }
-    })
+    const questionData = await readQuestionsFromJob(supabase, user.id, job)
+    const savedAnswers = readSavedAnswers(job.answers_json)
+    const { reviews } = await tryLoadReviews(supabase, user.id, job.id)
+    const merged = buildFallbackReviews(questionData.questions, savedAnswers, reviews)
 
     res.status(200).json({
       success: true,
@@ -214,7 +343,7 @@ router.get('/jobs/:jobId/review', async (req: Request, res: Response) => {
       reviews: merged,
     })
   } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : 'Review fetch failed'
+    const message = getErrorMessage(e, 'Review fetch failed')
     res.status(500).json({ success: false, error: message })
   }
 })
@@ -223,14 +352,15 @@ router.post('/jobs/:jobId/review/generate', async (req: Request, res: Response) 
   try {
     const { supabase, user } = await getAuthedUser(req)
     const job = await getOwnedJob(supabase, user.id, req.params.jobId)
-    const { questions, planText } = await readQuestionsFromJob(job)
+    const { questions, planText } = await readQuestionsFromJob(supabase, user.id, job)
     if (questions.length === 0) {
       res.status(200).json({ success: true, reviews: [] })
       return
     }
 
     const suggested = await generateSuggestedAnswers(job, questions, planText)
-    const existing = await loadReviews(supabase, user.id, job.id)
+    const savedAnswers = readSavedAnswers(job.answers_json)
+    const { reviews: existing, tableAvailable } = await tryLoadReviews(supabase, user.id, job.id)
     const payload = questions.map((question, index) => {
       const match = suggested.find((x) => x.position === index + 1)
       const current = existing.find((x) => x.position === index + 1)
@@ -240,11 +370,19 @@ router.post('/jobs/:jobId/review/generate', async (req: Request, res: Response) 
         position: index + 1,
         question,
         suggested_answer: match?.suggested_answer || '',
-        user_answer: current?.user_answer ?? null,
+        user_answer: current?.user_answer ?? savedAnswers[question] ?? null,
         status: current?.status ?? 'suggested',
         confidence: match?.confidence ?? null,
       }
     })
+
+    if (!tableAvailable) {
+      res.status(200).json({
+        success: true,
+        reviews: buildFallbackReviews(questions, savedAnswers, payload),
+      })
+      return
+    }
 
     const upserted = await supabase
       .from('ceo_question_reviews')
@@ -255,7 +393,7 @@ router.post('/jobs/:jobId/review/generate', async (req: Request, res: Response) 
     if (upserted.error) throw upserted.error
     res.status(200).json({ success: true, reviews: upserted.data ?? [] })
   } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : 'Suggestion generation failed'
+    const message = getErrorMessage(e, 'Suggestion generation failed')
     res.status(500).json({ success: false, error: message })
   }
 })
@@ -265,8 +403,9 @@ router.post('/jobs/:jobId/review', async (req: Request, res: Response) => {
     const { supabase, user } = await getAuthedUser(req)
     const job = await getOwnedJob(supabase, user.id, req.params.jobId)
     const items = Array.isArray(req.body?.items) ? req.body.items : []
-    const { questions } = await readQuestionsFromJob(job)
-    const existing = await loadReviews(supabase, user.id, job.id)
+    const { questions } = await readQuestionsFromJob(supabase, user.id, job)
+    const savedAnswers = readSavedAnswers(job.answers_json)
+    const { reviews: existing, tableAvailable } = await tryLoadReviews(supabase, user.id, job.id)
 
     const payload = questions.map((question, index) => {
       const position = index + 1
@@ -276,8 +415,8 @@ router.post('/jobs/:jobId/review', async (req: Request, res: Response) => {
       const current = existing.find((row) => row.position === position)
       const userAnswer = typeof incoming?.user_answer === 'string'
         ? incoming.user_answer
-        : (current?.user_answer ?? null)
-      const status = typeof incoming?.status === 'string'
+        : (current?.user_answer ?? savedAnswers[question] ?? null)
+      const status: ReviewRow['status'] = incoming?.status === 'approved' || incoming?.status === 'edited' || incoming?.status === 'suggested'
         ? incoming.status
         : (current?.status ?? 'suggested')
 
@@ -293,7 +432,16 @@ router.post('/jobs/:jobId/review', async (req: Request, res: Response) => {
       }
     })
 
-    if (payload.length > 0) {
+    const answers = payload.reduce<SavedAnswers>((acc, row) => {
+      if (typeof row.user_answer === 'string' && row.user_answer.trim()) {
+        acc[row.question] = row.user_answer
+      }
+      return acc
+    }, {})
+
+    await saveAnswersJson(supabase, job.id, answers)
+
+    if (tableAvailable && payload.length > 0) {
       const upserted = await supabase
         .from('ceo_question_reviews')
         .upsert(payload, { onConflict: 'job_id,position' })
@@ -301,10 +449,15 @@ router.post('/jobs/:jobId/review', async (req: Request, res: Response) => {
       if (upserted.error) throw upserted.error
     }
 
+    if (!tableAvailable) {
+      res.status(200).json({ success: true, reviews: buildFallbackReviews(questions, answers, payload) })
+      return
+    }
+
     const reviews = await loadReviews(supabase, user.id, job.id)
     res.status(200).json({ success: true, reviews })
   } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : 'Review save failed'
+    const message = getErrorMessage(e, 'Review save failed')
     res.status(500).json({ success: false, error: message })
   }
 })
@@ -313,15 +466,18 @@ router.post('/jobs/:jobId/review/iterate', async (req: Request, res: Response) =
   try {
     const { supabase, user } = await getAuthedUser(req)
     const job = await getOwnedJob(supabase, user.id, req.params.jobId)
-    const reviews = await loadReviews(supabase, user.id, job.id)
+    const savedAnswers = readSavedAnswers(job.answers_json)
+    const { reviews, tableAvailable } = await tryLoadReviews(supabase, user.id, job.id)
 
-    const answers = reviews.reduce<Record<string, string>>((acc, row) => {
-      const finalAnswer = (row.user_answer && row.user_answer.trim()) || (row.suggested_answer && row.suggested_answer.trim()) || ''
-      if (finalAnswer) {
-        acc[row.question] = finalAnswer
-      }
-      return acc
-    }, {})
+    const answers = tableAvailable && reviews.length > 0
+      ? reviews.reduce<Record<string, string>>((acc, row) => {
+          const finalAnswer = (row.user_answer && row.user_answer.trim()) || (row.suggested_answer && row.suggested_answer.trim()) || ''
+          if (finalAnswer) {
+            acc[row.question] = finalAnswer
+          }
+          return acc
+        }, {})
+      : savedAnswers
 
     const inserted = await supabase
       .from('run_requests')
@@ -344,7 +500,7 @@ router.post('/jobs/:jobId/review/iterate', async (req: Request, res: Response) =
     if (inserted.error) throw inserted.error
     res.status(200).json({ success: true, jobId: inserted.data.id })
   } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : 'Iterate job creation failed'
+    const message = getErrorMessage(e, 'Iterate job creation failed')
     res.status(500).json({ success: false, error: message })
   }
 })

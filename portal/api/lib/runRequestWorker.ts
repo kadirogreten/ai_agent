@@ -29,6 +29,9 @@ type DbAgent = {
   capabilities: string[]
 }
 
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..')
+const cliProjectPath = path.join(repoRoot, 'src', 'AgentArmy.Cli')
+
 async function writeAgentsFile(supabase: ReturnType<typeof getSupabaseAdmin>) {
   const res = await supabase
     .from('agents')
@@ -59,9 +62,10 @@ async function writeAgentsFile(supabase: ReturnType<typeof getSupabaseAdmin>) {
   return filePath
 }
 
-function runCmd(command: string, args: string[], env: Record<string, string | undefined>) {
+function runCmd(command: string, args: string[], env: Record<string, string | undefined>, cwd = repoRoot) {
   return new Promise<{ code: number; stdout: string; stderr: string }>((resolve, reject) => {
     const child = spawn(command, args, {
+      cwd,
       env: { ...process.env, ...env },
       stdio: ['ignore', 'pipe', 'pipe'],
     })
@@ -99,6 +103,8 @@ function log(message: string, meta?: Record<string, unknown>) {
 
 function logEnvironment() {
   log('Environment info', {
+    repo_root: repoRoot,
+    cli_project_path: cliProjectPath,
     cwd: process.cwd(),
     node_env: process.env.NODE_ENV,
     pwd: process.env.PWD,
@@ -121,7 +127,7 @@ function extractRunDir(stdout: string) {
 
 
 function buildDotnetArgs(job: RunRequest) {
-  const base = ['run', '--project', 'src/AgentArmy.Cli', '--']
+  const base = ['run', '--project', cliProjectPath, '--']
 
   const domainPack = job.domain_pack ?? 'market-intel'
   const model = job.model ?? 'gpt-4.1'
@@ -281,7 +287,7 @@ async function processOne(supabase: ReturnType<typeof getSupabaseAdmin>, job: Ru
       OPENAI_API_KEY: process.env.OPENAI_API_KEY,
       DOTNET_CLI_TELEMETRY_OPTOUT: '1',
       DOTNET_NOLOGO: '1',
-    })
+    }, repoRoot)
     
     // Log the full stdout for debugging
     log('Full dotnet stdout', { 
