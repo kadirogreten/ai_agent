@@ -14,6 +14,7 @@ type JobRow = {
   domain_pack: string | null
   request_text: string | null
   answers_json: unknown | null
+  selected_agents: string[] | null
   model: string | null
   web: boolean
   contrarian: boolean
@@ -47,7 +48,7 @@ export default function JobDetailPage() {
     const r = await supabase
       .from('run_requests')
       .select(
-        'id,status,mode,domain_pack,request_text,answers_json,model,web,contrarian,risk,allow_high_risk,started_at,finished_at,error_message,result_json,created_at,updated_at',
+        'id,status,mode,domain_pack,request_text,answers_json,selected_agents,model,web,contrarian,risk,allow_high_risk,started_at,finished_at,error_message,result_json,created_at,updated_at',
       )
       .eq('id', jobId)
       .maybeSingle()
@@ -75,7 +76,14 @@ export default function JobDetailPage() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <Button variant="secondary" onClick={() => navigate(-1)}>Geri</Button>
+        <div className="flex gap-2">
+          <Button variant="secondary" onClick={() => navigate(-1)}>Geri</Button>
+          {row?.mode === 'ceo' ? (
+            <Button variant="outline" onClick={() => navigate(`/app/jobs/${row.id}/review`)}>
+              CEO Review
+            </Button>
+          ) : null}
+        </div>
         <Button variant="secondary" onClick={() => load()}>Yenile</Button>
       </div>
 
@@ -93,6 +101,9 @@ export default function JobDetailPage() {
               <div className="text-xs text-white/60">Mode: {row.mode}</div>
               <div className="text-xs text-white/60">Domain: {row.domain_pack ?? '-'}</div>
               <div className="text-xs text-white/60">Model: {row.model ?? '-'}</div>
+              <div className="text-xs text-white/60">
+                Agents: {row.selected_agents && row.selected_agents.length > 0 ? row.selected_agents.join(', ') : 'all'}
+              </div>
               <div className="text-xs text-white/60">Risk: {row.risk}</div>
               <div className="text-xs text-white/60">web: {row.web ? 'true' : 'false'}</div>
               <div className="text-xs text-white/60">contrarian: {row.contrarian ? 'true' : 'false'}</div>
@@ -128,4 +139,3 @@ export default function JobDetailPage() {
     </div>
   )
 }
-

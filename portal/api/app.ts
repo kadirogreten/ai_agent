@@ -11,6 +11,7 @@ import path from 'path'
 import dotenv from 'dotenv'
 import { fileURLToPath } from 'url'
 import importRoutes from './routes/import.js'
+import ceoRoutes from './routes/ceo.js'
 
 fileURLToPath(import.meta.url)
 
@@ -25,6 +26,7 @@ app.use(express.json({ limit: '10mb' }))
 app.use(express.urlencoded({ extended: true, limit: '10mb' }))
 
 app.use('/api/import', importRoutes)
+app.use('/api/ceo', ceoRoutes)
 
 /**
  * health
