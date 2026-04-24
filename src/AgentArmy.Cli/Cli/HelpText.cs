@@ -12,10 +12,10 @@ public static class HelpText
         sb.AppendLine("Commands:");
         sb.AppendLine("  list [--domainPack <id>]");
         sb.AppendLine("  bundles --domainPack <id>");
-        sb.AppendLine("  run --playbook <id> [--topic <text>] [--persona <id>] [--risk R0|R1|R2|R3] [--allowHighRisk true|false] [--dryRun true|false] [--web true|false] [--domainPack <id>] [--model <name>] [--facts true|false] [--contrarian true|false] [--agentsFile <path>]");
-        sb.AppendLine("  bundle --domainPack <id> [--id <bundleId>] [--topic <text>] [--risk R0|R1|R2|R3] [--allowHighRisk true|false] [--web true|false] [--model <name>] [--dryRun true|false] [--contrarian true|false] [--agentsFile <path>]");
-        sb.AppendLine("  ceo --domainPack <id> --request <text> [--model <name>] [--dryRun true|false] [--agentsFile <path>]");
-        sb.AppendLine("  ceo-iterate --domainPack <id> --request <text> --answers <json> [--model <name>] [--dryRun true|false] [--agentsFile <path>]");
+        sb.AppendLine("  run --playbook <id> [--topic <text>] [--persona <id>] [--risk R0|R1|R2|R3] [--allowHighRisk true|false] [--dryRun true|false] [--web true|false] [--domainPack <id>] [--model <name>] [--facts true|false] [--contrarian true|false] [--agentsFile <path>] [--agents A,B,C]");
+        sb.AppendLine("  bundle --domainPack <id> [--id <bundleId>] [--topic <text>] [--risk R0|R1|R2|R3] [--allowHighRisk true|false] [--web true|false] [--model <name>] [--dryRun true|false] [--contrarian true|false] [--agentsFile <path>] [--agents A,B,C]");
+        sb.AppendLine("  ceo --domainPack <id> --request <text> [--model <name>] [--dryRun true|false] [--agentsFile <path>] [--agents A,B,C]");
+        sb.AppendLine("  ceo-iterate --domainPack <id> --request <text> --answers <json> [--model <name>] [--dryRun true|false] [--agentsFile <path>] [--agents A,B,C]");
         sb.AppendLine("  setup [--model <name>]");
         sb.AppendLine("  setup-env [--model <name>]");
         sb.AppendLine();

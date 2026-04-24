@@ -28,6 +28,11 @@ type JobRow = {
   updated_at: string
 }
 
+type AgentRow = {
+  code: string
+  name: string
+}
+
 function statusTone(s: JobStatus): 'green' | 'red' | 'yellow' | 'gray' {
   if (s === 'success') return 'green'
   if (s === 'fail') return 'red'
@@ -56,6 +61,8 @@ export default function JobsPage() {
   const [answersJson, setAnswersJson] = useState('{}')
   const [playbookId, setPlaybookId] = useState('brand-site')
   const [bundleId, setBundleId] = useState('weekly')
+  const [availableAgents, setAvailableAgents] = useState<AgentRow[]>([])
+  const [selectedAgents, setSelectedAgents] = useState<string[]>([])
   const [modelText, setModelText] = useState('gpt-4.1')
   const [web, setWeb] = useState(true)
   const [contrarian, setContrarian] = useState(false)
@@ -64,11 +71,24 @@ export default function JobsPage() {
   const [saving, setSaving] = useState(false)
   const [formErr, setFormErr] = useState<string | null>(null)
 
+  const canQuery = initialized && !!user
+
+  useEffect(() => {
+    async function loadAgents() {
+      if (!canQuery || !formOpen) return
+      const res = await supabase.from('agents').select('code,name').order('name', { ascending: true })
+      if (res.error) {
+        setAvailableAgents([])
+        return
+      }
+      setAvailableAgents((res.data ?? []) as unknown as AgentRow[])
+    }
+    loadAgents()
+  }, [canQuery, formOpen])
+
   useEffect(() => {
     init()
   }, [init])
-
-  const canQuery = initialized && !!user
 
   const filters = useMemo(() => ({ q, status, mode }), [q, status, mode])
 
@@ -155,6 +175,7 @@ export default function JobsPage() {
         domain_pack: domainPack.trim() || null,
         request_text: requestForRow,
         answers_json: answers,
+        selected_agents: selectedAgents.length > 0 ? selectedAgents : null,
         model: modelText.trim() || null,
         web,
         contrarian,
@@ -173,6 +194,7 @@ export default function JobsPage() {
       setAnswersJson('{}')
       setRisk('R1')
       setAllowHighRisk(false)
+      setSelectedAgents([])
       setSaving(false)
       load()
     } catch (e: unknown) {
@@ -321,6 +343,53 @@ export default function JobsPage() {
                 <input type="checkbox" checked={allowHighRisk} onChange={(e) => setAllowHighRisk(e.target.checked)} />
                 allow_high_risk
               </label>
+            </div>
+
+            <div className="md:col-span-2">
+              <div className="mb-1 text-xs text-white/60">Ajanlar (seçmezsen tümü çalışır)</div>
+              {availableAgents.length === 0 ? (
+                <div className="text-xs text-white/60">Ajan bulunamadı</div>
+              ) : (
+                <div className="grid gap-2 md:grid-cols-3">
+                  {availableAgents.map((a) => {
+                    const checked = selectedAgents.includes(a.code)
+                    return (
+                      <label key={a.code} className="flex items-center gap-2 rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/80">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) => {
+                            const on = e.target.checked
+                            setSelectedAgents((prev) => {
+                              if (on) return Array.from(new Set(prev.concat([a.code])))
+                              return prev.filter((x) => x !== a.code)
+                            })
+                          }}
+                        />
+                        <span className="truncate">{a.name} <span className="text-xs text-white/50">({a.code})</span></span>
+                      </label>
+                    )
+                  })}
+                </div>
+              )}
+              {availableAgents.length > 0 ? (
+                <div className="mt-2 flex gap-2">
+                  <Button
+                    variant="secondary"
+                    onClick={() => setSelectedAgents(availableAgents.map((a) => a.code))}
+                    disabled={saving}
+                  >
+                    Tümünü seç
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={() => setSelectedAgents([])}
+                    disabled={saving}
+                  >
+                    Temizle
+                  </Button>
+                </div>
+              ) : null}
             </div>
           </div>
           {formErr ? <div className="mt-3 text-sm text-red-200">{formErr}</div> : null}

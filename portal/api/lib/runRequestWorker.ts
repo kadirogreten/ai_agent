@@ -13,6 +13,7 @@ type RunRequest = {
   domain_pack: string | null
   request_text: string | null
   answers_json: unknown | null
+  selected_agents: string[] | null
   model: string | null
   web: boolean
   contrarian: boolean
@@ -266,6 +267,11 @@ async function processOne(supabase: ReturnType<typeof getSupabaseAdmin>, job: Ru
       log('Using agents file', { agentsFile })
     } else {
       log('No agents in DB; using built-in catalog')
+    }
+
+    if (Array.isArray(job.selected_agents) && job.selected_agents.length > 0) {
+      dotnetArgs.push('--agents', job.selected_agents.join(','))
+      log('Using selected agents', { selected_agents: job.selected_agents })
     }
 
     log('Running dotnet', { args: ['dotnet', ...dotnetArgs] })

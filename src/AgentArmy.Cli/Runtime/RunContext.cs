@@ -9,6 +9,7 @@ public sealed class RunContext
     public required string RunDir { get; init; }
     public required TaskContract Contract { get; init; }
     public required Playbook Playbook { get; init; }
+    public IReadOnlyList<string> SelectedAgents { get; init; } = Array.Empty<string>();
 
     public string FactsPath => Path.Combine(RunDir, "facts.md");
     public string DecisionsPath => Path.Combine(RunDir, "decisions.md");
@@ -31,4 +32,3 @@ public sealed class RunContext
         await File.AppendAllTextAsync(path, sb.ToString(), Encoding.UTF8, ct);
     }
 }
-

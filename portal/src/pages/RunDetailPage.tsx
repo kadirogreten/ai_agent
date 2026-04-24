@@ -97,7 +97,14 @@ export default function RunDetailPage() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <Button variant="secondary" onClick={() => navigate(-1)}>Geri</Button>
+        <div className="flex items-center gap-2">
+          <Button variant="secondary" onClick={() => navigate(-1)}>Geri</Button>
+          {runId ? (
+            <Link to={`/app/reports/${runId}`} className="text-sm text-blue-200 hover:underline">
+              Rapor
+            </Link>
+          ) : null}
+        </div>
         {row?.external_id ? <div className="text-xs text-white/60">{row.external_id}</div> : null}
       </div>
 

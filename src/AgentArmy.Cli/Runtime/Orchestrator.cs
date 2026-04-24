@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 
 namespace AgentArmy.Cli;
 
@@ -68,7 +69,14 @@ public sealed class Orchestrator
         string priorWork = string.Empty;
         string verifierReport = string.Empty;
 
-        foreach (var step in ctx.Playbook.Steps)
+        var steps = ctx.Playbook.Steps;
+        if (ctx.SelectedAgents.Count > 0)
+        {
+            var allowed = new HashSet<string>(ctx.SelectedAgents, StringComparer.OrdinalIgnoreCase);
+            steps = ctx.Playbook.Steps.Where(s => allowed.Contains(s.Agent)).ToList();
+        }
+
+        foreach (var step in steps)
         {
             var agent = ResolveAgent(step.Agent);
             var extraPolicy = BuildExtraPolicy(agent);
@@ -176,6 +184,7 @@ public sealed class Orchestrator
         }
 
         await TryExtractAndStoreFactsAsync(ctx, ct);
+        await WriteReportAsync(ctx, ct);
     }
 
     private async Task TryGenerateImageAsync(RunContext ctx, PlaybookStep step, string prompt, CancellationToken ct)
@@ -311,6 +320,114 @@ public sealed class Orchestrator
             return "artifact.txt";
         }
         return name;
+    }
+
+    private async Task WriteReportAsync(RunContext ctx, CancellationToken ct)
+    {
+        var report = new
+        {
+            runId = ctx.RunId,
+            playbook = new { id = ctx.Playbook.Id, title = ctx.Playbook.Title },
+            contract = ctx.Contract,
+            selectedAgents = ctx.SelectedAgents,
+            generatedAt = DateTimeOffset.UtcNow,
+            sections = new[]
+            {
+                new { id = "summary", title = "Özet", format = "markdown", content = BuildSummary(ctx) },
+                new { id = "artifacts", title = "Üretilen Dosyalar", format = "markdown", content = BuildArtifactsSection(ctx) },
+                new { id = "work", title = "Genel Çıktı (Work)", format = "markdown", content = await ReadTextOrEmptyAsync(ctx.WorkPath, ct) },
+                new { id = "facts", title = "Facts", format = "markdown", content = await ReadTextOrEmptyAsync(ctx.FactsPath, ct) },
+                new { id = "decisions", title = "Decisions", format = "markdown", content = await ReadTextOrEmptyAsync(ctx.DecisionsPath, ct) }
+            }
+        };
+
+        var reportJsonPath = Path.Combine(ctx.RunDir, "report.json");
+        var reportJson = JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true });
+        await File.WriteAllTextAsync(reportJsonPath, reportJson + "\n", Encoding.UTF8, ct);
+
+        var reportMdPath = Path.Combine(ctx.RunDir, "report.md");
+        var md = new StringBuilder();
+        md.AppendLine("# Report");
+        md.AppendLine();
+        md.AppendLine("## Özet");
+        md.AppendLine();
+        md.AppendLine(BuildSummary(ctx));
+        md.AppendLine();
+        md.AppendLine("## Üretilen Dosyalar");
+        md.AppendLine();
+        md.AppendLine(BuildArtifactsSection(ctx));
+        md.AppendLine();
+        md.AppendLine("## Genel Çıktı (Work)");
+        md.AppendLine();
+        md.AppendLine((await ReadTextOrEmptyAsync(ctx.WorkPath, ct)).Trim());
+        md.AppendLine();
+        md.AppendLine("## Facts");
+        md.AppendLine();
+        md.AppendLine((await ReadTextOrEmptyAsync(ctx.FactsPath, ct)).Trim());
+        md.AppendLine();
+        md.AppendLine("## Decisions");
+        md.AppendLine();
+        md.AppendLine((await ReadTextOrEmptyAsync(ctx.DecisionsPath, ct)).Trim());
+        md.AppendLine();
+        await File.WriteAllTextAsync(reportMdPath, md.ToString(), Encoding.UTF8, ct);
+
+        await ctx.AppendLogAsync(new
+        {
+            type = "report_written",
+            ts = DateTimeOffset.UtcNow,
+            runId = ctx.RunId,
+            playbook = ctx.Playbook.Id,
+            files = new[] { "report.json", "report.md" }
+        }, ct);
+    }
+
+    private static string BuildSummary(RunContext ctx)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine($"- RunId: {ctx.RunId}");
+        sb.AppendLine($"- Playbook: {ctx.Playbook.Id} ({ctx.Playbook.Title})");
+        sb.AppendLine($"- Topic: {ctx.Contract.Topic}");
+        if (ctx.SelectedAgents.Count > 0)
+        {
+            sb.AppendLine($"- Seçili ajanlar: {string.Join(", ", ctx.SelectedAgents)}");
+        }
+        else
+        {
+            sb.AppendLine("- Seçili ajanlar: (tümü)");
+        }
+        return sb.ToString().Trim();
+    }
+
+    private static string BuildArtifactsSection(RunContext ctx)
+    {
+        var files = Directory.EnumerateFiles(ctx.RunDir, "*", SearchOption.TopDirectoryOnly)
+            .Select(p => new FileInfo(p))
+            .OrderByDescending(f => f.LastWriteTimeUtc)
+            .ToArray();
+
+        var sb = new StringBuilder();
+        foreach (var f in files)
+        {
+            sb.Append("- ");
+            sb.Append(f.Name);
+            sb.Append(" (");
+            sb.Append(f.Length);
+            sb.AppendLine(" bytes)");
+        }
+        return sb.ToString().Trim();
+    }
+
+    private static async Task<string> ReadTextOrEmptyAsync(string path, CancellationToken ct)
+    {
+        try
+        {
+            if (!File.Exists(path)) return string.Empty;
+            return await File.ReadAllTextAsync(path, Encoding.UTF8, ct);
+        }
+        catch
+        {
+            return string.Empty;
+        }
     }
 
     private string? BuildExtraPolicy(Agent agent)

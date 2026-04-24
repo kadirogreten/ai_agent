@@ -79,6 +79,14 @@ public static class Runner
                          ?? Environment.GetEnvironmentVariable("AGENTARMY_AGENTS_FILE");
         var agentOverrides = AgentsFileLoader.LoadAgents(agentsFile);
 
+        var selectedAgentsRaw = exec.Args.GetValueOrDefault("agents")
+                                ?? Environment.GetEnvironmentVariable("AGENTARMY_SELECTED_AGENTS");
+        var selectedAgents = (selectedAgentsRaw ?? string.Empty)
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
         ILlmClient llm;
         ILlmClient? webLlm = null;
         HttpClient? http = null;
@@ -143,7 +151,8 @@ public static class Runner
                 RunId = runId,
                 RunDir = runDir,
                 Contract = contract,
-                Playbook = playbook
+                Playbook = playbook,
+                SelectedAgents = selectedAgents
             };
 
             await orchestrator.RunAsync(ctx, ct);

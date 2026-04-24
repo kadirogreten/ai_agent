@@ -14,6 +14,7 @@ import JobsPage from '@/pages/JobsPage'
 import JobDetailPage from '@/pages/JobDetailPage'
 import AgentsPage from '@/pages/AgentsPage'
 import AgentUpsertPage from '@/pages/AgentUpsertPage'
+import ReportPage from '@/pages/ReportPage'
 
 export default function App() {
   const init = useAuthStore((s) => s.init)
@@ -46,6 +47,7 @@ export default function App() {
           <Route path="dashboard" element={<DashboardPage />} />
           <Route path="runs" element={<RunsPage />} />
           <Route path="runs/:runId" element={<RunDetailPage />} />
+          <Route path="reports/:runId" element={<ReportPage />} />
           <Route path="bundles" element={<BundlesPage />} />
           <Route path="bundles/:bundleId" element={<BundleDetailPage />} />
           <Route path="facts" element={<FactsPage />} />
