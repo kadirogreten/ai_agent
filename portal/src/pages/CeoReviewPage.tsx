@@ -27,6 +27,22 @@ type ReviewResponse = {
   error?: string
 }
 
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message) return error.message
+  if (error && typeof error === 'object' && 'message' in error && typeof error.message === 'string') {
+    return error.message
+  }
+  return fallback
+}
+
+function tryParseJson<T>(text: string): T | null {
+  try {
+    return JSON.parse(text) as T
+  } catch {
+    return null
+  }
+}
+
 function buildStatus(answer: string, suggested: string | null): ReviewItem['status'] {
   const trimmed = answer.trim()
   if (!trimmed) return 'suggested'
@@ -61,18 +77,24 @@ export default function CeoReviewPage() {
     setLoading(true)
     setErr(null)
     setNotice(null)
-    const res = await fetch(`/api/ceo/jobs/${jobId}/review`, {
-      headers: authHeaders,
-    })
-    const json = (await res.json()) as ReviewResponse
-    if (!res.ok || !json.success) {
-      setErr(json.error ?? 'Review yüklenemedi')
+    try {
+      const res = await fetch(`/api/ceo/jobs/${jobId}/review`, {
+        headers: authHeaders,
+      })
+      const text = await res.text()
+      const json = tryParseJson<ReviewResponse>(text)
+
+      if (!res.ok || !json?.success) {
+        setErr(json?.error ?? `Review yüklenemedi (HTTP ${res.status})`)
+        return
+      }
+      setJob(json.job)
+      setItems(json.reviews)
+    } catch (e) {
+      setErr(getErrorMessage(e, 'Review yüklenemedi'))
+    } finally {
       setLoading(false)
-      return
     }
-    setJob(json.job)
-    setItems(json.reviews)
-    setLoading(false)
   }, [authHeaders, jobId])
 
   useEffect(() => {
@@ -88,23 +110,29 @@ export default function CeoReviewPage() {
     setGenerating(true)
     setErr(null)
     setNotice(null)
-    const res = await fetch(`/api/ceo/jobs/${jobId}/review/generate`, {
-      method: 'POST',
-      headers: authHeaders,
-    })
-    const json = (await res.json()) as { success: boolean; reviews?: ReviewItem[]; error?: string }
-    if (!res.ok || !json.success) {
-      setErr(json.error ?? 'Ajan önerileri üretilemedi')
+    try {
+      const res = await fetch(`/api/ceo/jobs/${jobId}/review/generate`, {
+        method: 'POST',
+        headers: authHeaders,
+      })
+      const text = await res.text()
+      const json = tryParseJson<{ success: boolean; reviews?: ReviewItem[]; error?: string }>(text)
+
+      if (!res.ok || !json?.success) {
+        setErr(json?.error ?? `Ajan önerileri üretilemedi (HTTP ${res.status})`)
+        return
+      }
+      setItems((json.reviews ?? []).map((item) => ({
+        ...item,
+        user_answer: item.user_answer ?? item.suggested_answer ?? '',
+        status: item.user_answer ? buildStatus(item.user_answer, item.suggested_answer) : 'approved',
+      })))
+      setNotice('Ajan önerileri oluşturuldu. İstersen düzenleyip kaydedebilirsin.')
+    } catch (e) {
+      setErr(getErrorMessage(e, 'Ajan önerileri üretilemedi'))
+    } finally {
       setGenerating(false)
-      return
     }
-    setItems((json.reviews ?? []).map((item) => ({
-      ...item,
-      user_answer: item.user_answer ?? item.suggested_answer ?? '',
-      status: item.user_answer ? buildStatus(item.user_answer, item.suggested_answer) : 'approved',
-    })))
-    setNotice('Ajan önerileri oluşturuldu. İstersen düzenleyip kaydedebilirsin.')
-    setGenerating(false)
   }
 
   async function saveAnswers() {
@@ -112,28 +140,34 @@ export default function CeoReviewPage() {
     setSaving(true)
     setErr(null)
     setNotice(null)
-    const payload = items.map((item) => ({
-      position: item.position,
-      user_answer: item.user_answer ?? '',
-      status: buildStatus(item.user_answer ?? '', item.suggested_answer),
-    }))
-    const res = await fetch(`/api/ceo/jobs/${jobId}/review`, {
-      method: 'POST',
-      headers: authHeaders,
-      body: JSON.stringify({ items: payload }),
-    })
-    const json = (await res.json()) as { success: boolean; reviews?: ReviewItem[]; error?: string }
-    if (!res.ok || !json.success) {
-      setErr(json.error ?? 'Cevaplar kaydedilemedi')
+    try {
+      const payload = items.map((item) => ({
+        position: item.position,
+        user_answer: item.user_answer ?? '',
+        status: buildStatus(item.user_answer ?? '', item.suggested_answer),
+      }))
+      const res = await fetch(`/api/ceo/jobs/${jobId}/review`, {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({ items: payload }),
+      })
+      const text = await res.text()
+      const json = tryParseJson<{ success: boolean; reviews?: ReviewItem[]; error?: string }>(text)
+
+      if (!res.ok || !json?.success) {
+        setErr(json?.error ?? `Cevaplar kaydedilemedi (HTTP ${res.status})`)
+        return
+      }
+      setItems((json.reviews ?? []).map((item) => ({
+        ...item,
+        user_answer: item.user_answer ?? '',
+      })))
+      setNotice('Cevaplar kaydedildi.')
+    } catch (e) {
+      setErr(getErrorMessage(e, 'Cevaplar kaydedilemedi'))
+    } finally {
       setSaving(false)
-      return
     }
-    setItems((json.reviews ?? []).map((item) => ({
-      ...item,
-      user_answer: item.user_answer ?? '',
-    })))
-    setNotice('Cevaplar kaydedildi.')
-    setSaving(false)
   }
 
   async function runIterate() {
@@ -142,36 +176,42 @@ export default function CeoReviewPage() {
     setErr(null)
     setNotice(null)
 
-    const savePayload = items.map((item) => ({
-      position: item.position,
-      user_answer: item.user_answer ?? '',
-      status: buildStatus(item.user_answer ?? '', item.suggested_answer),
-    }))
+    try {
+      const savePayload = items.map((item) => ({
+        position: item.position,
+        user_answer: item.user_answer ?? '',
+        status: buildStatus(item.user_answer ?? '', item.suggested_answer),
+      }))
 
-    const saveRes = await fetch(`/api/ceo/jobs/${jobId}/review`, {
-      method: 'POST',
-      headers: authHeaders,
-      body: JSON.stringify({ items: savePayload }),
-    })
-    const saveJson = (await saveRes.json()) as { success: boolean; error?: string }
-    if (!saveRes.ok || !saveJson.success) {
-      setErr(saveJson.error ?? 'Iterate öncesi kayıt başarısız')
+      const saveRes = await fetch(`/api/ceo/jobs/${jobId}/review`, {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({ items: savePayload }),
+      })
+      const saveText = await saveRes.text()
+      const saveJson = tryParseJson<{ success: boolean; error?: string }>(saveText)
+      if (!saveRes.ok || !saveJson?.success) {
+        setErr(saveJson?.error ?? `Iterate öncesi kayıt başarısız (HTTP ${saveRes.status})`)
+        return
+      }
+
+      const iterateRes = await fetch(`/api/ceo/jobs/${jobId}/review/iterate`, {
+        method: 'POST',
+        headers: authHeaders,
+      })
+      const iterateText = await iterateRes.text()
+      const iterateJson = tryParseJson<{ success: boolean; jobId?: string; error?: string }>(iterateText)
+      if (!iterateRes.ok || !iterateJson?.success || !iterateJson.jobId) {
+        setErr(iterateJson?.error ?? `CEO iterate job oluşturulamadı (HTTP ${iterateRes.status})`)
+        return
+      }
+
+      navigate(`/app/jobs/${iterateJson.jobId}`)
+    } catch (e) {
+      setErr(getErrorMessage(e, 'CEO iterate job oluşturulamadı'))
+    } finally {
       setIterating(false)
-      return
     }
-
-    const iterateRes = await fetch(`/api/ceo/jobs/${jobId}/review/iterate`, {
-      method: 'POST',
-      headers: authHeaders,
-    })
-    const iterateJson = (await iterateRes.json()) as { success: boolean; jobId?: string; error?: string }
-    if (!iterateRes.ok || !iterateJson.success || !iterateJson.jobId) {
-      setErr(iterateJson.error ?? 'CEO iterate job oluşturulamadı')
-      setIterating(false)
-      return
-    }
-
-    navigate(`/app/jobs/${iterateJson.jobId}`)
   }
 
   return (
@@ -284,4 +324,3 @@ export default function CeoReviewPage() {
     </div>
   )
 }
-
