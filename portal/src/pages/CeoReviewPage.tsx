@@ -289,11 +289,16 @@ export default function CeoReviewPage() {
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => updateItem(item.position, (current) => ({
-                        ...current,
-                        user_answer: current.suggested_answer ?? '',
-                        status: 'approved',
-                      }))}
+                      disabled={!item.suggested_answer || !item.suggested_answer.trim()}
+                      onClick={() => updateItem(item.position, (current) => {
+                        const suggested = current.suggested_answer ?? ''
+                        if (!suggested.trim()) return current
+                        return {
+                          ...current,
+                          user_answer: suggested,
+                          status: 'approved',
+                        }
+                      })}
                     >
                       Ajan cevabını kullan
                     </Button>
