@@ -133,21 +133,23 @@ export async function rejectDraft(draftId: string, notes?: string): Promise<void
 
 export async function triggerSectorDiscovery(
   sectorPrompt: string,
-  tenantId: string
+  ownerId: string
 ): Promise<string> {
   // run_requests tablosuna yeni bir istek yaz
   // Playbook: sector-discovery-and-scaffold (pack: system)
   const { data, error } = await supabase
     .from('run_requests')
     .insert({
-      tenant_id: tenantId,
-      playbook_id: 'sector-discovery-and-scaffold',
-      domain_pack_id: 'system',
-      topic: sectorPrompt,
+      owner_user_id: ownerId,
+      mode: 'run',
+      domain_pack: 'system',
+      request_text: sectorPrompt,
       status: 'pending',
       risk: 'R2',
-      metadata: {
+      web: true,
+      answers_json: {
         source: 'sector-builder-ui',
+        playbook: 'sector-discovery-and-scaffold',
         sector_prompt: sectorPrompt,
       },
     })
