@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "id": "weekly-starter",
+  "title": "E‑ticaret — haftalık başlangıç paketi",
+  "playbooks": ["e-ticaret-pazar-genel"]
+}

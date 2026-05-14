@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "id": "tubitak-1507-tam-paket",
+  "title": "TÜBİTAK 1507 tam paket sırası (yenilik → WP → iskelet → bütçe)",
+  "playbooks": [
+    "yenilik-iddiasi-uret",
+    "tubitak-1501-is-paketleri",
+    "tubitak-1507-iskelet",
+    "hibe-butce-ceklistesi"
+  ]
+}

@@ -16,6 +16,10 @@ import CeoReviewPage from '@/pages/CeoReviewPage'
 import AgentsPage from '@/pages/AgentsPage'
 import AgentUpsertPage from '@/pages/AgentUpsertPage'
 import ReportPage from '@/pages/ReportPage'
+import CostLedgerPage from '@/pages/CostLedgerPage'
+import ApprovalQueuePage from '@/pages/ApprovalQueuePage'
+import AuditLogPage from '@/pages/AuditLogPage'
+import ToolsPage from '@/pages/ToolsPage'
 
 export default function App() {
   const init = useAuthStore((s) => s.init)
@@ -59,6 +63,10 @@ export default function App() {
           <Route path="agents" element={<AgentsPage />} />
           <Route path="agents/new" element={<AgentUpsertPage mode="new" />} />
           <Route path="agents/:agentId/edit" element={<AgentUpsertPage mode="edit" />} />
+          <Route path="tools" element={<ToolsPage />} />
+          <Route path="cost-ledger" element={<CostLedgerPage />} />
+          <Route path="approval-queue" element={<ApprovalQueuePage />} />
+          <Route path="audit-log" element={<AuditLogPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/app" replace />} />
       </Routes>

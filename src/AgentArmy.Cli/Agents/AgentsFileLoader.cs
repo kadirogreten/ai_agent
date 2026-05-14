@@ -53,7 +53,26 @@ public static class AgentsFileLoader
                 ? item.SystemPrompt.Trim()
                 : BuildSystemPrompt(name, item.Description, item.Capabilities);
 
-            dict[item.Code.Trim()] = new Agent(item.Code.Trim(), name, systemPrompt);
+            // IP0.2: behaviors JSON → AgentBehaviors record
+            var b = item.Behaviors;
+            var behaviors = b is null ? new AgentBehaviors() : new AgentBehaviors
+            {
+                RequiresWebSearch      = b.RequiresWebSearch,
+                RequiresFullContext    = b.RequiresFullContext,
+                WritesToFacts          = b.WritesToFacts,
+                WritesToDecisions      = b.WritesToDecisions,
+                CapturesVerifierReport = b.CapturesVerifierReport,
+                TriggersContrarian     = b.TriggersContrarian,
+                AcceptsRubric          = b.AcceptsRubric,
+                PrefersDomainAllowlist = b.PrefersDomainAllowlist,
+            };
+
+            dict[item.Code.Trim()] = new Agent(item.Code.Trim(), name, systemPrompt)
+            {
+                Behaviors   = behaviors,
+                RiskCeiling = string.IsNullOrWhiteSpace(item.RiskCeiling) ? "R1" : item.RiskCeiling.Trim(),
+                CostClass   = string.IsNullOrWhiteSpace(item.CostClass)   ? "low" : item.CostClass.Trim(),
+            };
         }
 
         return dict;
@@ -98,6 +117,18 @@ public static class AgentsFileLoader
         return sb.ToString().Trim();
     }
 
+    private sealed class AgentBehaviorsDto
+    {
+        public bool RequiresWebSearch      { get; set; }
+        public bool RequiresFullContext    { get; set; }
+        public bool WritesToFacts          { get; set; }
+        public bool WritesToDecisions      { get; set; }
+        public bool CapturesVerifierReport { get; set; }
+        public bool TriggersContrarian     { get; set; }
+        public bool AcceptsRubric          { get; set; }
+        public bool PrefersDomainAllowlist { get; set; }
+    }
+
     private sealed class AgentFileItem
     {
         public string Code { get; set; } = string.Empty;
@@ -105,6 +136,9 @@ public static class AgentsFileLoader
         public string? Description { get; set; }
         public string[]? Capabilities { get; set; }
         public string? SystemPrompt { get; set; }
+        public string? RiskCeiling { get; set; }
+        public string? CostClass { get; set; }
+        public AgentBehaviorsDto? Behaviors { get; set; }
     }
 }
 

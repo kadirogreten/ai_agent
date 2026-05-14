@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "id": "yenilik-iddiasi-uret",
+  "title": "Yenilik iddiası: mevcut yöntem vs önerilen",
+  "defaultPersona": "arge-yoneticisi",
+  "defaultRisk": "R1",
+  "steps": [
+    {
+      "id": "scan",
+      "agent": "Researcher",
+      "goal": "Konu alanında güncel yaklaşımları ve temsilci kaynakları URL ile topla.",
+      "output": "Kaynak listesi + kısa özet maddeleri"
+    },
+    {
+      "id": "compare",
+      "agent": "Analyst",
+      "goal": "Mevcut yöntem state-of-the-art özeti ile önerilen yaklaşımı tablolaştır; kısıtlar ve riskler.",
+      "output": "Tablo: Boyut | Mevcut | Önerilen | Kanıt (URL)"
+    },
+    {
+      "id": "write",
+      "agent": "Writer",
+      "goal": "Başvuruya uyumlu iki paragraflık yenilik metni taslağı; abartı yok.",
+      "output": "Markdown taslak"
+    },
+    {
+      "id": "verify",
+      "agent": "Verifier",
+      "goal": "`rubrics/verifier.md` — karşılaştırma tablosu ve kaynak doğrulanabilirliği.",
+      "output": "Denetim + PASS/FAIL"
+    },
+    {
+      "id": "edit",
+      "agent": "Editor",
+      "goal": "Netlik ve Türkçe dil.",
+      "output": "Final metin"
+    }
+  ]
+}
