@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "id": "market-intel",
+  "name": "Market Intelligence",
+  "description": "Rekabet, regülasyon ve pazar ölçümü odaklı playbook koleksiyonu; kaynak ve URL kanıtı ağırlıklı.",
+  "allowedDomainsFile": "allowed-domains.txt",
+  "glossaryFile": null,
+  "regulatoryNotesFile": null,
+  "verifierRubricFile": "rubrics/verifier.md",
+  "playbooksDirectory": "playbooks",
+  "bundlesDirectory": "bundles",
+  "notes": "Personalar depo kökünde personas/ altında; domain özel persona klasörü kullanılmıyor (CLI konvansiyonu)."
+}

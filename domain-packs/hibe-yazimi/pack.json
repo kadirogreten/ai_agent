@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "id": "hibe-yazimi",
+  "name": "Hibe yazımı",
+  "description": "TÜBİTAK ve AB (EIC vb.) başvuru taslakları; yenilik iddiası, iş paketi ve bütçe çizgileri.",
+  "allowedDomainsFile": "allowed-domains.txt",
+  "glossaryFile": "glossary.md",
+  "regulatoryNotesFile": "regulatory_notes.md",
+  "verifierRubricFile": "rubrics/verifier.md",
+  "playbooksDirectory": "playbooks",
+  "bundlesDirectory": "bundles",
+  "notes": "Personalar kök personas/*.md; ör. hibe-yazari, butce-analisti."
+}

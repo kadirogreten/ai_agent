@@ -18,7 +18,7 @@ public sealed class FactsExtractor
         var system = "Sen bir bilgi çıkarımı uzmanısın. Verilen Markdown metinden doğrulanabilir fakt iddiaları çıkaracaksın.";
 
         var user = BuildPrompt(topic, markdown);
-        var jsonText = await _llm.CompleteAsync(system, user, ct);
+        var jsonText = (await _llm.CompleteAsync(system, user, ct)).Text;
 
         var entries = ParseFacts(jsonText, topic, runId, playbookId);
         var now = DateTimeOffset.UtcNow;

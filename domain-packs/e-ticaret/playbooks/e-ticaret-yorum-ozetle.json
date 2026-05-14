@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "id": "e-ticaret-yorum-ozetle",
+  "title": "Kullanıcı yorumlarından sinyal özeti",
+  "defaultPersona": "customer-insights-analyst",
+  "defaultRisk": "R1",
+  "steps": [
+    {
+      "id": "structure",
+      "agent": "Analyst",
+      "goal": "Verilen ham yorum metninden temaları, duygu eğilimini ve tekrarlanan teknik sorunları ayıklayın; Kişisel veri içermeden özetle.",
+      "output": "Tema tablosu + örnek (anonim) alıntı yer tutucular"
+    },
+    {
+      "id": "insights",
+      "agent": "Writer",
+      "goal": "P0/P1 aksiyon listesi ürün ve operasyon için; sahte veya üretilmiş yorum cümlesi yok.",
+      "output": "Özet Markdown"
+    },
+    {
+      "id": "verify",
+      "agent": "Verifier",
+      "goal": "Uydurma yorum yok mu; örneklem sınırları belirtilmiş mi.",
+      "output": "Denetim raporu + PASS/FAIL"
+    },
+    {
+      "id": "edit",
+      "agent": "Editor",
+      "goal": "Kısalt ve netleştir.",
+      "output": "Final özet"
+    }
+  ]
+}

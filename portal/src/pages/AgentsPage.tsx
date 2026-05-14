@@ -4,7 +4,43 @@ import { Card } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
 import { useAuthStore } from '@/stores/authStore'
-import { listAgents, type AgentRow } from '@/lib/agents'
+import { listAgents, type AgentRole, type AgentRow, type RiskCeiling } from '@/lib/agents'
+
+const ROLE_LABELS: Record<AgentRole, string> = {
+  research: 'Araştırma',
+  analysis: 'Analiz',
+  writing: 'Yazım',
+  editing: 'Editör',
+  verification: 'Denetçi',
+  operation: 'Operatör',
+  contrarian: 'Contrarian',
+  design: 'Tasarım',
+  code: 'Kod',
+}
+
+const RISK_COLORS: Record<RiskCeiling, string> = {
+  R0: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
+  R1: 'bg-blue-500/20 text-blue-300 border-blue-500/30',
+  R2: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
+  R3: 'bg-red-500/20 text-red-300 border-red-500/30',
+}
+
+function RoleBadge({ role }: { role: AgentRole | null }) {
+  if (!role) return <span className="text-white/30">—</span>
+  return (
+    <span className="inline-flex items-center rounded border border-white/10 bg-white/5 px-1.5 py-0.5 text-xs text-white/70">
+      {ROLE_LABELS[role]}
+    </span>
+  )
+}
+
+function RiskBadge({ risk }: { risk: RiskCeiling }) {
+  return (
+    <span className={`inline-flex items-center rounded border px-1.5 py-0.5 text-xs font-mono ${RISK_COLORS[risk]}`}>
+      {risk}
+    </span>
+  )
+}
 
 export default function AgentsPage() {
   const init = useAuthStore((s) => s.init)
@@ -50,12 +86,7 @@ export default function AgentsPage() {
             <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Ad veya kod ara" />
           </div>
           <div className="flex gap-2">
-            <Button
-              variant="secondary"
-              onClick={() => {
-                setQ('')
-              }}
-            >
+            <Button variant="secondary" onClick={() => setQ('')}>
               Temizle
             </Button>
             <Link to="/app/agents/new">
@@ -74,6 +105,8 @@ export default function AgentsPage() {
               <tr className="border-b border-white/10 text-xs text-white/60">
                 <th className="px-4 py-2">Ad</th>
                 <th className="px-4 py-2">Kod</th>
+                <th className="px-4 py-2">Rol</th>
+                <th className="px-4 py-2">Risk</th>
                 <th className="px-4 py-2">Açıklama</th>
                 <th className="px-4 py-2">Yetenek</th>
                 <th className="px-4 py-2">Güncellenme</th>
@@ -83,13 +116,13 @@ export default function AgentsPage() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td className="px-4 py-3 text-white/60" colSpan={6}>
+                  <td className="px-4 py-3 text-white/60" colSpan={8}>
                     Yükleniyor...
                   </td>
                 </tr>
               ) : rows.length === 0 ? (
                 <tr>
-                  <td className="px-4 py-3 text-white/60" colSpan={6}>
+                  <td className="px-4 py-3 text-white/60" colSpan={8}>
                     Henüz ajan yok
                   </td>
                 </tr>
@@ -102,8 +135,14 @@ export default function AgentsPage() {
                       </Link>
                     </td>
                     <td className="px-4 py-2 font-mono text-xs text-white/70">{r.code}</td>
+                    <td className="px-4 py-2">
+                      <RoleBadge role={r.role} />
+                    </td>
+                    <td className="px-4 py-2">
+                      <RiskBadge risk={r.risk_ceiling} />
+                    </td>
                     <td className="px-4 py-2 text-xs text-white/70">
-                      {r.description ? r.description.slice(0, 80) : '-'}
+                      {r.description ? r.description.slice(0, 60) : '—'}
                     </td>
                     <td className="px-4 py-2 text-xs text-white/70">{r.capabilities?.length ?? 0}</td>
                     <td className="px-4 py-2 text-xs text-white/60">{new Date(r.updated_at).toLocaleString()}</td>

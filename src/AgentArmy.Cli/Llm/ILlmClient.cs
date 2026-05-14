@@ -1,7 +1,19 @@
 namespace AgentArmy.Cli;
 
-public interface ILlmClient
+/// <summary>
+/// LLM çağrısının sonucu: metin + token kullanım metrikleri.
+/// </summary>
+public sealed record LlmResult(
+    string Text,
+    string Model,
+    int TokensIn,
+    int TokensOut
+)
 {
-    Task<string> CompleteAsync(string systemPrompt, string userPrompt, CancellationToken cancellationToken);
+    public int TotalTokens => TokensIn + TokensOut;
 }
 
+public interface ILlmClient
+{
+    Task<LlmResult> CompleteAsync(string systemPrompt, string userPrompt, CancellationToken cancellationToken);
+}

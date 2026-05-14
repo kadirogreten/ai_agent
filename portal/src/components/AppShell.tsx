@@ -13,6 +13,10 @@ const tabs: Tab[] = [
   { to: '/app/bundles', label: 'Bundles' },
   { to: '/app/facts', label: 'Knowledge Facts' },
   { to: '/app/jobs', label: 'Jobs' },
+  { to: '/app/tools', label: 'Tools' },
+  { to: '/app/cost-ledger', label: 'Cost Ledger' },
+  { to: '/app/approval-queue', label: 'Approval Queue' },
+  { to: '/app/audit-log', label: 'Audit Log' },
 ]
 
 export default function AppShell() {

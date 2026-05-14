@@ -1,4 +1,5 @@
 {
+  "version": 1,
   "id": "mi-message-matrix",
   "title": "Mesaj Matrisi (Persona × Value Prop × Proof)",
   "defaultPersona": "urun-yoneticisi",

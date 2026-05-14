@@ -69,6 +69,13 @@ public sealed class Orchestrator
         string priorWork = string.Empty;
         string verifierReport = string.Empty;
 
+        // IP1.2: Metrik biriktiriciler
+        var runStarted   = DateTimeOffset.UtcNow;
+        int totalTokensIn  = 0;
+        int totalTokensOut = 0;
+        string? lastModel  = null;
+        string? verifierOutcome = null;
+
         var steps = ctx.Playbook.Steps;
         if (ctx.SelectedAgents.Count > 0)
         {
@@ -83,12 +90,14 @@ public sealed class Orchestrator
 
             var system = PromptBuilder.BuildSystemPrompt(agent, personaText, extraPolicy);
 
-            var context = ShouldUseFullContext(agent)
+            // IP0.2: RequiresFullContext bayrağı — hardcoded Verifier/Editor/WebDeveloper yerine
+            var context = agent.Behaviors.RequiresFullContext
                 ? await File.ReadAllTextAsync(ctx.WorkPath, Encoding.UTF8, ct)
                 : priorWork;
             var user = PromptBuilder.BuildUserPrompt(ctx, step, context);
 
-            var llm = ShouldUseWebSearch(step) ? _webLlm ?? _llm : _llm;
+            // IP0.2: RequiresWebSearch bayrağı — hardcoded "Researcher" kontrolü yerine
+            var llm = agent.Behaviors.RequiresWebSearch ? _webLlm ?? _llm : _llm;
 
             await ctx.AppendLogAsync(new
             {
@@ -100,7 +109,13 @@ public sealed class Orchestrator
                 agent = agent.Id
             }, ct);
 
-            var output = await llm.CompleteAsync(system, user, ct);
+            var result = await llm.CompleteAsync(system, user, ct);
+            var output = result.Text;
+
+            // Metrik biriktir
+            totalTokensIn  += result.TokensIn;
+            totalTokensOut += result.TokensOut;
+            lastModel = result.Model;
 
             await ctx.AppendLogAsync(new
             {
@@ -109,7 +124,10 @@ public sealed class Orchestrator
                 runId = ctx.RunId,
                 playbook = ctx.Playbook.Id,
                 step = step.Id,
-                agent = agent.Id
+                agent = agent.Id,
+                tokens_in  = result.TokensIn,
+                tokens_out = result.TokensOut,
+                model = result.Model
             }, ct);
 
             var stepFile = Path.Combine(ctx.RunDir, $"{step.Id}.{agent.Id}.md");
@@ -137,24 +155,29 @@ public sealed class Orchestrator
                 await TryGenerateImageAsync(ctx, step, output, ct);
             }
 
-            if (agent.Id.Equals("Researcher", StringComparison.OrdinalIgnoreCase))
+            // IP0.2: WritesToFacts — hardcoded "Researcher" yerine
+            if (agent.Behaviors.WritesToFacts)
             {
                 await ctx.AppendMarkdownAsync(ctx.FactsPath, $"{step.Id}", output, ct);
             }
 
-            if (agent.Id.Equals("Analyst", StringComparison.OrdinalIgnoreCase))
+            // IP0.2: WritesToDecisions — hardcoded "Analyst" yerine
+            if (agent.Behaviors.WritesToDecisions)
             {
                 await ctx.AppendMarkdownAsync(ctx.DecisionsPath, $"{step.Id}", output, ct);
             }
 
-            if (agent.Id.Equals("Verifier", StringComparison.OrdinalIgnoreCase))
+            // IP0.2: CapturesVerifierReport — hardcoded "Verifier" yerine
+            if (agent.Behaviors.CapturesVerifierReport)
             {
                 verifierReport = output;
+                verifierOutcome = IsFail(verifierReport) ? "fail" : "pass";
             }
 
             priorWork = output;
 
-            if (ShouldRunContrarian(ctx, step))
+            // IP0.2: TriggersContrarian — hardcoded "Analyst" yerine
+            if (ShouldRunContrarian(ctx, agent))
             {
                 var contrarianStep = new PlaybookStep
                 {
@@ -166,7 +189,8 @@ public sealed class Orchestrator
                 await RunExtraStepAsync(ctx, contrarianStep, personaText, ct);
             }
 
-            if (agent.Id.Equals("Verifier", StringComparison.OrdinalIgnoreCase) && IsFail(verifierReport))
+            // IP0.2: CapturesVerifierReport + FAIL → writer'a otomatik düzeltme isteği
+            if (agent.Behaviors.CapturesVerifierReport && IsFail(verifierReport))
             {
                 var writeStep = ctx.Playbook.Steps.FirstOrDefault(s => s.Agent.Equals("Writer", StringComparison.OrdinalIgnoreCase));
                 if (writeStep is not null)
@@ -174,7 +198,10 @@ public sealed class Orchestrator
                     var writer = ResolveAgent("Writer");
                     var fixSystem = PromptBuilder.BuildSystemPrompt(writer, personaText, extraPolicy: null);
                     var fixUser = BuildFixPrompt(ctx, writeStep, verifierReport);
-                    var revised = await _llm.CompleteAsync(fixSystem, fixUser, ct);
+                    var fixResult = await _llm.CompleteAsync(fixSystem, fixUser, ct);
+                    totalTokensIn  += fixResult.TokensIn;
+                    totalTokensOut += fixResult.TokensOut;
+                    var revised = fixResult.Text;
                     var revisedFile = Path.Combine(ctx.RunDir, $"write.revised.{writer.Id}.md");
                     await File.WriteAllTextAsync(revisedFile, revised.Trim() + "\n", Encoding.UTF8, ct);
                     await ctx.AppendMarkdownAsync(ctx.WorkPath, $"write.revised ({writer.DisplayName})", revised, ct);
@@ -184,7 +211,50 @@ public sealed class Orchestrator
         }
 
         await TryExtractAndStoreFactsAsync(ctx, ct);
+
+        // IP1.2: Run metrikleri — report + metrics.json olarak yaz
+        var latencyMs = (int)(DateTimeOffset.UtcNow - runStarted).TotalMilliseconds;
+        await WriteMetricsAsync(ctx, lastModel, totalTokensIn, totalTokensOut, latencyMs, verifierOutcome, ct);
+
         await WriteReportAsync(ctx, ct);
+    }
+
+    private async Task WriteMetricsAsync(
+        RunContext ctx,
+        string? model,
+        int tokensIn,
+        int tokensOut,
+        int latencyMs,
+        string? verifierOutcome,
+        CancellationToken ct)
+    {
+        var metrics = new
+        {
+            run_id        = ctx.RunId,
+            model         = model ?? _llm.GetType().Name,
+            tokens_in     = tokensIn,
+            tokens_out    = tokensOut,
+            latency_ms    = latencyMs,
+            verifier_outcome = verifierOutcome,
+            finished_at   = DateTimeOffset.UtcNow
+        };
+
+        var json = System.Text.Json.JsonSerializer.Serialize(metrics,
+            new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+        var path = Path.Combine(ctx.RunDir, "metrics.json");
+        await File.WriteAllTextAsync(path, json + "\n", Encoding.UTF8, ct);
+
+        await ctx.AppendLogAsync(new
+        {
+            type             = "run_metrics",
+            ts               = DateTimeOffset.UtcNow,
+            runId            = ctx.RunId,
+            model,
+            tokens_in        = tokensIn,
+            tokens_out       = tokensOut,
+            latency_ms       = latencyMs,
+            verifier_outcome = verifierOutcome
+        }, ct);
     }
 
     private async Task TryGenerateImageAsync(RunContext ctx, PlaybookStep step, string prompt, CancellationToken ct)
@@ -216,11 +286,11 @@ public sealed class Orchestrator
         }, ct);
     }
 
-    private bool ShouldRunContrarian(RunContext ctx, PlaybookStep lastStep)
+    // IP0.2: TriggersContrarian bayrağı — hardcoded "Analyst" ID kontrolü kaldırıldı
+    private bool ShouldRunContrarian(RunContext ctx, Agent agent)
     {
         var enabled = (ctx.Contract.ToolPermissions ?? string.Empty).Contains("contrarian:on", StringComparison.OrdinalIgnoreCase);
-        if (!enabled) return false;
-        return lastStep.Agent.Equals("Analyst", StringComparison.OrdinalIgnoreCase);
+        return enabled && agent.Behaviors.TriggersContrarian;
     }
 
     private async Task RunExtraStepAsync(RunContext ctx, PlaybookStep step, string personaText, CancellationToken ct)
@@ -241,7 +311,8 @@ public sealed class Orchestrator
             agent = agent.Id
         }, ct);
 
-        var output = await _llm.CompleteAsync(system, user, ct);
+        var result = await _llm.CompleteAsync(system, user, ct);
+        var output = result.Text;
 
         await ctx.AppendLogAsync(new
         {
@@ -250,7 +321,10 @@ public sealed class Orchestrator
             runId = ctx.RunId,
             playbook = ctx.Playbook.Id,
             step = step.Id,
-            agent = agent.Id
+            agent = agent.Id,
+            tokens_in  = result.TokensIn,
+            tokens_out = result.TokensOut,
+            model = result.Model
         }, ct);
 
         var stepFile = Path.Combine(ctx.RunDir, $"{step.Id}.{agent.Id}.md");
@@ -298,17 +372,8 @@ public sealed class Orchestrator
         }, ct);
     }
 
-    private static bool ShouldUseWebSearch(PlaybookStep step)
-    {
-        return step.Agent.Equals("Researcher", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static bool ShouldUseFullContext(Agent agent)
-    {
-        return agent.Id.Equals("Verifier", StringComparison.OrdinalIgnoreCase)
-               || agent.Id.Equals("Editor", StringComparison.OrdinalIgnoreCase)
-               || agent.Id.Equals("WebDeveloper", StringComparison.OrdinalIgnoreCase);
-    }
+    // IP0.2: Bu metodlar artık kullanılmıyor — behaviors bayraklarına geçildi.
+    // Geriye dönük uyumluluk için bırakıldı; ilerleyen versiyonda kaldırılabilir.
 
     private static string SafeArtifactFileName(string input)
     {
@@ -430,14 +495,16 @@ public sealed class Orchestrator
         }
     }
 
+    // IP0.2: AcceptsRubric + PrefersDomainAllowlist bayrakları
+    // Hardcoded "Verifier"/"Researcher" ID kontrolü kaldırıldı.
     private string? BuildExtraPolicy(Agent agent)
     {
-        if (agent.Id.Equals("Verifier", StringComparison.OrdinalIgnoreCase))
+        if (agent.Behaviors.AcceptsRubric && !string.IsNullOrWhiteSpace(_verifierRubric))
         {
             return _verifierRubric;
         }
 
-        if (agent.Id.Equals("Researcher", StringComparison.OrdinalIgnoreCase) && _preferredDomains.Count > 0)
+        if (agent.Behaviors.PrefersDomainAllowlist && _preferredDomains.Count > 0)
         {
             var top = _preferredDomains.Take(30).ToArray();
             return "Kaynak politikası:\n" +

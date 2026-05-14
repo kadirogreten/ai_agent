@@ -44,12 +44,23 @@ public static class Runner
         var persona = exec.Args.GetValueOrDefault("persona") ?? playbook.DefaultPersona;
         var topic = exec.Args.GetValueOrDefault("topic") ?? string.Empty;
         var goal = exec.Args.GetValueOrDefault("goal") ?? $"{playbook.Title} üret";
-        var risk = exec.Args.GetValueOrDefault("risk") ?? "R1";
+        var riskArg = exec.Args.TryGetValue("risk", out var rVal) ? rVal.Trim() : null;
+        var risk = !string.IsNullOrWhiteSpace(riskArg)
+            ? riskArg!
+            : (!string.IsNullOrWhiteSpace(playbook.DefaultRisk) ? playbook.DefaultRisk.Trim() : "R1");
 
         var quality = exec.Args.GetValueOrDefault("quality") ?? "Kaynaksız kritik iddia yok; belirsizlikleri işaretle.";
         if (exec.DomainPack?.Id.Equals("market-intel", StringComparison.OrdinalIgnoreCase) == true)
         {
             quality = quality + " Kritik iddialar URL ile kanıtlanmalı; sayısal iddialarda URL zorunlu.";
+        }
+        if (exec.DomainPack?.Id.Equals("e-ticaret", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            quality = quality + " E‑ticaret: yanıltıcı iddia, abartılı performans garantisi ve sahte kullanıcı yorumu içeriği yasaktır; domain/regulatory_notes.md ve glossary ile uy.";
+        }
+        if (exec.DomainPack?.Id.Equals("hibe-yazimi", StringComparison.OrdinalIgnoreCase) == true)
+        {
+            quality = quality + " Hibe: uydurma yayın/projeksiyon yok; akademik/teşvik iddiaları doğrulanabilir URL ile; domain/regulatory_notes.md ve glossary ile uy.";
         }
 
         var tools = exec.Args.GetValueOrDefault("tools") ?? "Yalnızca metin üretimi; dış sistemlerde aksiyon yok.";
@@ -104,11 +115,20 @@ public static class Runner
             }
 
             http = new HttpClient();
-            llm = new OpenAiResponsesClient(http, exec.ApiKey, exec.Model, enableWebSearch: false);
+
+            // IP1.7 Multi-LLM routing: varsayılan model ile fallback olarak gpt-4.1-mini kullan
+            var fallbackModel = LlmRouter.ModelForCostClass("low");
+            ILlmClient baseLlm = new OpenAiResponsesClient(http, exec.ApiKey, exec.Model, enableWebSearch: false);
+            ILlmClient? fallbackLlm = exec.Model != fallbackModel
+                ? new OpenAiResponsesClient(http, exec.ApiKey, fallbackModel, enableWebSearch: false)
+                : null;
+            llm = new LlmRouter(baseLlm, exec.Model, fallbackLlm);
+
             images = new OpenAiImageClient(http, exec.ApiKey);
             if (exec.Web)
             {
-                webLlm = new OpenAiResponsesClient(http, exec.ApiKey, exec.Model, enableWebSearch: true, allowedDomains: exec.DomainPack?.AllowedDomains);
+                ILlmClient webBase = new OpenAiResponsesClient(http, exec.ApiKey, exec.Model, enableWebSearch: true, allowedDomains: exec.DomainPack?.AllowedDomains);
+                webLlm = new LlmRouter(webBase, exec.Model, fallbackLlm);
             }
         }
 
