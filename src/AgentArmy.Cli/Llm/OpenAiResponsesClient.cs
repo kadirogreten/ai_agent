@@ -21,7 +21,7 @@ public sealed class OpenAiResponsesClient : ILlmClient
         _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
     }
 
-    public async Task<string> CompleteAsync(string systemPrompt, string userPrompt, CancellationToken cancellationToken)
+    public async Task<LlmResult> CompleteAsync(string systemPrompt, string userPrompt, CancellationToken cancellationToken)
     {
         var input = new object[]
         {
@@ -41,7 +41,7 @@ public sealed class OpenAiResponsesClient : ILlmClient
         {
             var payload = BuildPayload(input, tools: null, includeTemperature: true);
             var respText = await PostWithFallbackAsync(payload, cancellationToken);
-            return ExtractTextWithSources(respText);
+            return ExtractResult(respText);
         }
 
         Dictionary<string, object?>? payloadWithFilters = null;
@@ -63,7 +63,7 @@ public sealed class OpenAiResponsesClient : ILlmClient
             try
             {
                 var respText = await PostWithFallbackAsync(payloadWithFilters, cancellationToken);
-                return ExtractTextWithSources(respText);
+                return ExtractResult(respText);
             }
             catch (InvalidOperationException ex) when (ex.Message.Contains("Parameter 'filters' not supported", StringComparison.OrdinalIgnoreCase))
             {
@@ -72,7 +72,7 @@ public sealed class OpenAiResponsesClient : ILlmClient
 
         var payloadNoFilters = BuildPayload(input, tools: new object[] { new Dictionary<string, object?> { ["type"] = "web_search" } }, includeTemperature: true);
         var respTextNoFilters = await PostWithFallbackAsync(payloadNoFilters, cancellationToken);
-        return ExtractTextWithSources(respTextNoFilters);
+        return ExtractResult(respTextNoFilters);
     }
 
     private Dictionary<string, object?> BuildPayload(object input, object[]? tools, bool includeTemperature)
@@ -123,7 +123,7 @@ public sealed class OpenAiResponsesClient : ILlmClient
         return respText;
     }
 
-    private static string ExtractTextWithSources(string respText)
+    private LlmResult ExtractResult(string respText)
     {
         using var doc = JsonDocument.Parse(respText);
         var root = doc.RootElement;
@@ -131,29 +131,41 @@ public sealed class OpenAiResponsesClient : ILlmClient
         var text = TryGetOutputText(root) ?? TryGetMessageText(root) ?? string.Empty;
         var sources = CollectSources(root);
 
-        if (sources.Count == 0)
+        if (sources.Count > 0)
         {
-            return text.Trim();
+            var sb = new StringBuilder();
+            sb.AppendLine(text.Trim());
+            sb.AppendLine();
+            sb.AppendLine("## Kaynaklar");
+            sb.AppendLine();
+            foreach (var s in sources)
+            {
+                if (!string.IsNullOrWhiteSpace(s.Title))
+                    sb.AppendLine($"- [{EscapeMd(s.Title)}]({s.Url})");
+                else
+                    sb.AppendLine($"- {s.Url}");
+            }
+            text = sb.ToString();
         }
 
-        var sb = new StringBuilder();
-        sb.AppendLine(text.Trim());
-        sb.AppendLine();
-        sb.AppendLine("## Kaynaklar");
-        sb.AppendLine();
-        foreach (var s in sources)
+        var (tokensIn, tokensOut) = ExtractUsage(root);
+        return new LlmResult(text.Trim(), _model, tokensIn, tokensOut);
+    }
+
+    private static (int TokensIn, int TokensOut) ExtractUsage(JsonElement root)
+    {
+        // OpenAI Responses API: root.usage.input_tokens / output_tokens
+        if (!root.TryGetProperty("usage", out var usage) || usage.ValueKind != JsonValueKind.Object)
+            return (0, 0);
+
+        int Get(string name)
         {
-            if (!string.IsNullOrWhiteSpace(s.Title))
-            {
-                sb.AppendLine($"- [{EscapeMd(s.Title)}]({s.Url})");
-            }
-            else
-            {
-                sb.AppendLine($"- {s.Url}");
-            }
+            if (usage.TryGetProperty(name, out var el) && el.ValueKind == JsonValueKind.Number)
+                return el.TryGetInt32(out var v) ? v : 0;
+            return 0;
         }
 
-        return sb.ToString().Trim();
+        return (Get("input_tokens"), Get("output_tokens"));
     }
 
     private static string? TryGetOutputText(JsonElement root)

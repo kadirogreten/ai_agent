@@ -23,13 +23,55 @@ jobs:
         with:
           dotnet-version: "8.0.x"
 
+      # IP1.3: npm cache — portal/package-lock.json hash'ine göre
+      - name: Cache npm deps
+        uses: actions/cache@v4
+        with:
+          path: portal/node_modules
+          key: npm-${{ runner.os }}-${{ hashFiles('portal/package-lock.json') }}
+          restore-keys: npm-${{ runner.os }}-
+
+      # IP1.3: .NET NuGet cache
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      # IP1.3: dotnet build output cache — Release konfigürasyonu
+      - name: Cache dotnet build output
+        uses: actions/cache@v4
+        with:
+          path: src/AgentArmy.Cli/bin
+          key: dotnet-bin-${{ runner.os }}-${{ hashFiles('src/**/*.cs', 'src/**/*.csproj') }}
+          restore-keys: dotnet-bin-${{ runner.os }}-
+
       - name: Install portal deps
         run: npm ci --prefix portal
 
-      - name: Run worker (claim 1 job)
+      # IP1.3: dotnet build (cache miss durumunda gerekli; hit durumunda hızlı geçer)
+      - name: Build .NET CLI
+        run: dotnet build src/AgentArmy.Cli --configuration Release --no-restore
+        env:
+          DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+          DOTNET_NOLOGO: "1"
+
+      # IP1.3: Worker --no-build flag ile çalışır; SLA & timeout env değişkenleri
+      - name: Run worker (claim jobs)
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           MAX_JOBS: "3"
+          # dotnet run --no-build → build adımı zaten yapıldı; çalıştırma süresi ~2s kısalır
+          DOTNET_NO_BUILD: "true"
+          # dotnet process başına max süre (ms) — LLM çağrısı dahil
+          WORKER_CMD_TIMEOUT_MS: "90000"
+          # SLA hedef (ms) — oluşturma → tamamlama
+          WORKER_SLA_THRESHOLD_MS: "30000"
+          # Stale job eşiği (dakika) — GHA timeout_minutes 30 ile uyumlu
+          WORKER_STALE_MINUTES: "35"
+          DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+          DOTNET_NOLOGO: "1"
         run: npx --yes --prefix portal tsx portal/api/lib/runRequestWorker.ts

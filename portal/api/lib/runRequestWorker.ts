@@ -19,6 +19,8 @@ type RunRequest = {
   contrarian: boolean
   risk: 'R0' | 'R1' | 'R2' | 'R3'
   allow_high_risk: boolean
+  created_at: string
+  attempt_count: number
 }
 
 type DbAgent = {
@@ -27,6 +29,54 @@ type DbAgent = {
   code: string
   description: string | null
   capabilities: string[]
+  role: string | null
+  risk_ceiling: string | null
+  cost_class: string | null
+  behaviors: Record<string, unknown> | null
+  system_prompt: string | null
+}
+
+// IP1.2: run çıktı dizinindeki metrics.json dosyasını oku
+async function readMetricsJson(runDir: string): Promise<{
+  model: string | null
+  tokens_in: number
+  tokens_out: number
+  latency_ms: number
+  verifier_outcome: string | null
+} | null> {
+  try {
+    const p = path.join(runDir, 'metrics.json')
+    const raw = await fs.readFile(p, 'utf-8')
+    return JSON.parse(raw)
+  } catch {
+    return null
+  }
+}
+
+// IP1.7: model adına göre yaklaşık maliyet tahmini (USD)
+// Fiyatlar OpenAI genel fiyatlandırmasına göre; env override'larla değiştirilebilir.
+function estimateCostUsd(
+  model: string | null,
+  tokensIn: number,
+  tokensOut: number,
+): number | null {
+  if (!model || (!tokensIn && !tokensOut)) return null
+
+  const m = model.toLowerCase()
+  // Fiyat tablosu: [in $/1M, out $/1M]
+  const pricing: Record<string, [number, number]> = {
+    'gpt-4.1':      [2.0,  8.0],
+    'gpt-4.1-mini': [0.4,  1.6],
+    'gpt-4o':       [2.5, 10.0],
+    'gpt-4o-mini':  [0.15, 0.6],
+    'o4-mini':      [1.1,  4.4],
+  }
+
+  const entry = Object.entries(pricing).find(([k]) => m.startsWith(k))
+  if (!entry) return null
+
+  const [inRate, outRate] = entry[1]
+  return (tokensIn * inRate + tokensOut * outRate) / 1_000_000
 }
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..')
@@ -35,7 +85,7 @@ const cliProjectPath = path.join(repoRoot, 'src', 'AgentArmy.Cli')
 async function writeAgentsFile(supabase: ReturnType<typeof getSupabaseAdmin>) {
   const res = await supabase
     .from('agents')
-    .select('id,name,code,description,capabilities')
+    .select('id,name,code,description,capabilities,role,risk_ceiling,cost_class,behaviors,system_prompt')
     .order('updated_at', { ascending: false })
 
   if (res.error) {
@@ -53,6 +103,11 @@ async function writeAgentsFile(supabase: ReturnType<typeof getSupabaseAdmin>) {
       name: a.name,
       description: a.description,
       capabilities: a.capabilities ?? [],
+      role: a.role,
+      riskCeiling: a.risk_ceiling,
+      costClass: a.cost_class,
+      behaviors: a.behaviors ?? {},
+      systemPrompt: a.system_prompt,
     })),
   }
 
@@ -62,7 +117,19 @@ async function writeAgentsFile(supabase: ReturnType<typeof getSupabaseAdmin>) {
   return filePath
 }
 
-function runCmd(command: string, args: string[], env: Record<string, string | undefined>, cwd = repoRoot) {
+// IP1.3: SLA — varsayılan timeout 120 sn; LLM çağrıları dahil tüm dotnet süreci için.
+// WORKER_CMD_TIMEOUT_MS env değişkeniyle override edilebilir.
+const DEFAULT_CMD_TIMEOUT_MS = Number.parseInt(process.env.WORKER_CMD_TIMEOUT_MS ?? '120000', 10)
+// SLA hedef: oluşturma → tamamlama < 30 sn (GHA queue + build cache ile mümkün)
+const SLA_THRESHOLD_MS = Number.parseInt(process.env.WORKER_SLA_THRESHOLD_MS ?? '30000', 10)
+
+function runCmd(
+  command: string,
+  args: string[],
+  env: Record<string, string | undefined>,
+  cwd = repoRoot,
+  timeoutMs = DEFAULT_CMD_TIMEOUT_MS,
+) {
   return new Promise<{ code: number; stdout: string; stderr: string }>((resolve, reject) => {
     const child = spawn(command, args, {
       cwd,
@@ -72,6 +139,16 @@ function runCmd(command: string, args: string[], env: Record<string, string | un
 
     let stdout = ''
     let stderr = ''
+    let settled = false
+
+    const timer = setTimeout(() => {
+      if (settled) return
+      settled = true
+      log('runCmd timeout — killing child process', { command, timeoutMs, pid: child.pid })
+      child.kill('SIGTERM')
+      setTimeout(() => { try { child.kill('SIGKILL') } catch { /* already dead */ } }, 3000)
+      reject(new Error(`Command timed out after ${timeoutMs}ms: ${command} ${args.slice(0, 3).join(' ')}`))
+    }, timeoutMs)
 
     child.stdout.on('data', (d) => {
       const s = d.toString()
@@ -84,8 +161,16 @@ function runCmd(command: string, args: string[], env: Record<string, string | un
       process.stderr.write(s)
     })
 
-    child.on('error', reject)
+    child.on('error', (err) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      reject(err)
+    })
     child.on('close', (code) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
       resolve({ code: code ?? 1, stdout, stderr })
     })
   })
@@ -127,7 +212,11 @@ function extractRunDir(stdout: string) {
 
 
 function buildDotnetArgs(job: RunRequest) {
-  const base = ['run', '--project', cliProjectPath, '--']
+  // IP1.3: DOTNET_NO_BUILD=true → GHA'da build adımı zaten yapıldı, tekrar build etme
+  const noBuild = process.env.DOTNET_NO_BUILD === 'true'
+  const base = noBuild
+    ? ['run', '--project', cliProjectPath, '--no-build', '--configuration', 'Release', '--']
+    : ['run', '--project', cliProjectPath, '--']
 
   const domainPack = job.domain_pack ?? 'market-intel'
   const model = job.model ?? 'gpt-4.1'
@@ -250,6 +339,11 @@ async function claimOne() {
 }
 
 async function processOne(supabase: ReturnType<typeof getSupabaseAdmin>, job: RunRequest) {
+  // IP1.3: SLA ölçümü — job'un oluşturulmasından itibaren geçen süre
+  const jobCreatedAt = new Date(job.created_at).getTime()
+  const tickStart    = Date.now()
+  const queueLatencyMs = tickStart - jobCreatedAt
+
   try {
     log('Claimed job', {
       id: job.id,
@@ -259,10 +353,38 @@ async function processOne(supabase: ReturnType<typeof getSupabaseAdmin>, job: Ru
       web: job.web,
       contrarian: job.contrarian,
       risk: job.risk,
+      attempt: job.attempt_count,
+      queue_latency_ms: queueLatencyMs,
     })
 
     if ((job.risk === 'R2' || job.risk === 'R3') && !job.allow_high_risk) {
-      throw new Error('High risk job requires allow_high_risk=true')
+      // IP1.5b: Gerçek enforcement — approval_queue kaydı oluştur, job'ı 'waiting_approval' yap.
+      // Worker throw etmez; kullanıcı portal'dan onay verince job tekrar 'pending' olur.
+      log('R2/R3 job requires human approval — gating', { id: job.id, risk: job.risk })
+      const actionSummary = [job.mode, job.domain_pack, job.request_text?.slice(0, 120)]
+        .filter(Boolean).join(' · ')
+      const { error: gateErr } = await supabase.rpc('gate_run_for_approval', {
+        p_run_request_id: job.id,
+        p_owner_user_id:  job.owner_user_id,
+        p_risk_level:     job.risk,
+        p_action_summary: actionSummary || `${job.mode} çalıştırma isteği`,
+        p_step_index:     0,
+        p_step_name:      job.mode,
+        p_agent_code:     null,
+        p_action_detail:  {
+          mode:        job.mode,
+          domain_pack: job.domain_pack,
+          model:       job.model,
+          risk:        job.risk,
+          request:     job.request_text?.slice(0, 500),
+        },
+      })
+      if (gateErr) {
+        log('gate_run_for_approval failed — falling back to error', { error: gateErr.message })
+        throw new Error(`Approval gate failed: ${gateErr.message}`)
+      }
+      log('Job gated for approval', { id: job.id, risk: job.risk })
+      return
     }
 
     const dotnetArgs = buildDotnetArgs(job)
@@ -318,6 +440,38 @@ async function processOne(supabase: ReturnType<typeof getSupabaseAdmin>, job: Ru
     const importRes = await importFromRunDir(job.owner_user_id, runDir)
     log('Import finished', importRes as unknown as Record<string, unknown>)
 
+    // IP1.2: metrics.json oku → runs + run_requests tablolarına yaz
+    const metrics = await readMetricsJson(runDir)
+    const latencyMs = Date.now() - started
+
+    if (metrics && importRes && typeof importRes === 'object' && 'runId' in importRes) {
+      const runId = (importRes as { runId?: string }).runId
+      if (runId) {
+        await supabase
+          .from('runs')
+          .update({
+            model:            metrics.model    ?? job.model,
+            tokens_in:        metrics.tokens_in,
+            tokens_out:       metrics.tokens_out,
+            latency_ms:       metrics.latency_ms ?? latencyMs,
+            cost_usd:         estimateCostUsd(metrics.model, metrics.tokens_in, metrics.tokens_out),
+            verifier_outcome: metrics.verifier_outcome ?? null,
+            domain_pack:      job.domain_pack,
+            risk_level:       job.risk,
+            finished_at:      new Date().toISOString(),
+          })
+          .eq('external_id', runId)
+          .eq('owner_user_id', job.owner_user_id)
+        log('Metrics written to runs', { runId, ...metrics })
+      }
+    }
+
+    const totalMs    = Date.now() - jobCreatedAt
+    const slaBreached = totalMs > SLA_THRESHOLD_MS
+    if (slaBreached) {
+      log('SLA breach', { id: job.id, total_ms: totalMs, threshold_ms: SLA_THRESHOLD_MS })
+    }
+
     const updated = await supabase
       .from('run_requests')
       .update({
@@ -325,15 +479,18 @@ async function processOne(supabase: ReturnType<typeof getSupabaseAdmin>, job: Ru
         finished_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         error_message: null,
+        sla_breach: slaBreached,
         result_json: {
           dotnet_stdout_tail: stdout.trim().split('\n').slice(-5).join('\n'),
           imported: importRes,
+          metrics,
+          sla: { total_ms: totalMs, queue_latency_ms: queueLatencyMs, sla_threshold_ms: SLA_THRESHOLD_MS },
         },
       })
       .eq('id', job.id)
 
     if (updated.error) throw updated.error
-    console.log(`Job ${job.id} success`, importRes)
+    log(`Job success`, { id: job.id, total_ms: totalMs, sla_breach: slaBreached })
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     const updated = await supabase
@@ -352,9 +509,30 @@ async function processOne(supabase: ReturnType<typeof getSupabaseAdmin>, job: Ru
   }
 }
 
+// IP1.3: Her tick başında ölü worker'dan kalan stale job'ları temizle
+async function cleanupStale() {
+  const supabase = getSupabaseAdmin()
+  const staleMinutes = Number.parseInt(process.env.WORKER_STALE_MINUTES ?? '35', 10)
+  const { data, error } = await supabase.rpc('cleanup_stale_running_jobs', {
+    stale_minutes: staleMinutes,
+    max_attempts: 3,
+  })
+  if (error) {
+    log('cleanup_stale_running_jobs error', { error: error.message })
+    return
+  }
+  const cleaned = (data ?? []) as { job_id: string; new_status: string }[]
+  if (cleaned.length > 0) {
+    log('Stale jobs cleaned up', { count: cleaned.length, jobs: cleaned })
+  }
+}
+
 export async function runOnce() {
   logEnvironment()
-  
+
+  // Stale job temizliği her tick başında çalışır
+  await cleanupStale()
+
   const maxJobs = Number.parseInt(process.env.MAX_JOBS ?? '1', 10)
   const limit = Number.isFinite(maxJobs) && maxJobs > 0 ? maxJobs : 1
 

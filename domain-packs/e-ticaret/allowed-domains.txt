@@ -1,0 +1,31 @@
+# E-ticaret / dijital ticaret — P0 kaynak allowlist (Strateji §7.1)
+# Tek satır = bir ana domain/kök URL (yorumlar # ile)
+# Güncellenirken: resmi düzenleyici ve sektör raporu ağırlıklı kalın.
+
+# Küresel — kurumsal yazılım & ödeme
+shopify.com
+stripe.com
+docs.stripe.com
+paypal.com
+
+# Küresel — standartlar & ticaret politikası (genel bağlam)
+oecd.org
+wto.org
+
+# Küresel — analitik ve sektör haberleri
+businessinsider.com
+reuters.com
+bloomberg.com
+forbes.com
+ecommerce-news.com
+
+# Küresel — arama/marketplaces (kamuya açık sayfalar; derin bağlantılar web aramasından)
+amazon.com
+
+# Türkiye — resmi düzenleyici ve istatistik
+tuik.gov.tr
+rekabet.gov.tr
+ticaret.gov.tr
+eticaret.gov.tr
+kvkk.gov.tr
+masak.gov.tr

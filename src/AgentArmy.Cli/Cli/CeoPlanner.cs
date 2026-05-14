@@ -35,7 +35,7 @@ public sealed class CeoPlanner
         var system = "Sen bir CEO/Chief of Staff ajansın. Kullanıcı isteğini doğru playbook/bundle'a yönlendirirsin. Sadece JSON döndürürsün.";
 
         var user = BuildPrompt(request, answersJson, domainPack);
-        var json = await _llm.CompleteAsync(system, user, ct);
+        var json = (await _llm.CompleteAsync(system, user, ct)).Text;
         try
         {
             return ParsePlan(json);
