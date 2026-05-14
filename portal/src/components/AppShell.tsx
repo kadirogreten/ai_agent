@@ -17,6 +17,8 @@ const tabs: Tab[] = [
   { to: '/app/cost-ledger', label: 'Cost Ledger' },
   { to: '/app/approval-queue', label: 'Approval Queue' },
   { to: '/app/audit-log', label: 'Audit Log' },
+  { to: '/app/sector-builder', label: '✦ Sektör Keşif' },
+  { to: '/app/pack-drafts', label: 'Taslaklar' },
 ]
 
 export default function AppShell() {

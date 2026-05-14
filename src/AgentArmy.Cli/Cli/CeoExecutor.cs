@@ -18,6 +18,7 @@ public sealed class CeoExecutor
     private readonly DomainPack _pack;
     private readonly int _maxRetries;
     private readonly int _maxParallel;
+    private readonly LocalConfig.SupabaseConfigSection? _supabase;
 
     // ── Sonuç modelleri ──────────────────────────────────────────────────────
 
@@ -47,7 +48,8 @@ public sealed class CeoExecutor
         Runner.Execution exec,
         DomainPack pack,
         int maxRetries  = 2,
-        int maxParallel = 1)
+        int maxParallel = 1,
+        LocalConfig.SupabaseConfigSection? supabase = null)
     {
         _rootDir    = rootDir;
         _exec       = exec;
@@ -55,6 +57,7 @@ public sealed class CeoExecutor
         _maxRetries = maxRetries;
         // SemaphoreSlim değerini güvenli bir aralıkta tut
         _maxParallel = Math.Clamp(maxParallel, 1, 5);
+        _supabase   = supabase;
     }
 
     // ── Ana çalıştırıcı ──────────────────────────────────────────────────────
@@ -110,6 +113,29 @@ public sealed class CeoExecutor
                 try
                 {
                     var dir = await RunOnceAsync(planned, ceoDir, baseArgs, attempt, ct);
+
+                    // FAZ D2: Sector Discovery hook
+                    // sector-discovery-and-scaffold playbook tamamlandıysa taslağı DB'ye yaz
+                    if (_supabase?.IsConfigured == true &&
+                        planned.Id.Contains("sector-discovery", StringComparison.OrdinalIgnoreCase))
+                    {
+                        _ = Task.Run(async () =>
+                        {
+                            try
+                            {
+                                await DomainPackDraftWriter.TryWriteAsync(
+                                    _supabase,
+                                    dir,
+                                    planned.Topic,
+                                    ct: CancellationToken.None);
+                            }
+                            catch (Exception ex)
+                            {
+                                Console.Error.WriteLine($"[CeoExecutor] DraftWriter hatası: {ex.Message}");
+                            }
+                        }, CancellationToken.None);
+                    }
+
                     var elapsed = (DateTimeOffset.UtcNow - started).TotalSeconds;
                     return new RunResult(
                         planned.Mode, planned.Id, planned.Topic, planned.Risk,

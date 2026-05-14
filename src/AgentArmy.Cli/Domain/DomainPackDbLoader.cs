@@ -1,0 +1,192 @@
+using System.Net.Http.Headers;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Web;
+
+namespace AgentArmy.Cli;
+
+/// <summary>
+/// Supabase REST API üzerinden domain pack + playbooks + bundles yükler.
+/// tenant_id IS NULL (built-in) veya eşleşen tenant'ın paketlerini döner.
+/// </summary>
+public static class DomainPackDbLoader
+{
+    private static readonly JsonSerializerOptions _json = new()
+    {
+        PropertyNameCaseInsensitive = true,
+        NumberHandling = JsonNumberHandling.AllowReadingFromString
+    };
+
+    /// <summary>
+    /// Verilen pack ID için DB'den DomainPack yükler.
+    /// Bulunamazsa <c>null</c> döner.
+    /// </summary>
+    public static async Task<DomainPack?> TryLoadAsync(
+        LocalConfig.SupabaseConfigSection supabase,
+        string packId,
+        CancellationToken ct = default)
+    {
+        using var http = BuildClient(supabase);
+
+        var url = $"{supabase.EffectiveUrl}/rest/v1/domain_packs" +
+                  $"?id=eq.{Uri.EscapeDataString(packId)}" +
+                  $"&status=eq.active" +
+                  $"&select=id,name,description,allowed_domains,glossary_md,regulatory_notes_md,verifier_rubric_md" +
+                  $"&limit=1";
+
+        var response = await http.GetAsync(url, ct);
+        response.EnsureSuccessStatusCode();
+
+        var body = await response.Content.ReadAsStringAsync(ct);
+        var rows  = JsonSerializer.Deserialize<List<DbDomainPackRow>>(body, _json);
+
+        if (rows is null || rows.Count == 0) return null;
+
+        var row = rows[0];
+        return new DomainPack
+        {
+            Id                = row.Id,
+            RootDir           = string.Empty,
+            AllowedDomains    = row.AllowedDomains ?? Array.Empty<string>(),
+            VerifierRubric    = row.VerifierRubricMd,
+            GlossaryMd        = row.GlossaryMd,
+            RegulatoryNotesMd = row.RegulatoryNotesMd,
+            LoadedFromDb      = true
+        };
+    }
+
+    /// <summary>
+    /// Verilen pack ID için DB'den tüm playbook'ları yükler (built-in veya tenant'a özel).
+    /// </summary>
+    public static async Task<List<DbPlaybookRow>> LoadPlaybooksAsync(
+        LocalConfig.SupabaseConfigSection supabase,
+        string packId,
+        CancellationToken ct = default)
+    {
+        using var http = BuildClient(supabase);
+
+        var url = $"{supabase.EffectiveUrl}/rest/v1/playbooks" +
+                  $"?pack_id=eq.{Uri.EscapeDataString(packId)}" +
+                  $"&or=(tenant_id.is.null)" +
+                  $"&select=slug,name,description,goal,steps,default_risk,required_tools,tags,content_json,version";
+
+        var response = await http.GetAsync(url, ct);
+        response.EnsureSuccessStatusCode();
+
+        var body = await response.Content.ReadAsStringAsync(ct);
+        return JsonSerializer.Deserialize<List<DbPlaybookRow>>(body, _json)
+               ?? new List<DbPlaybookRow>();
+    }
+
+    /// <summary>
+    /// Belirli bir playbook slug'ını DB'den Playbook nesnesine dönüştürür.
+    /// </summary>
+    public static async Task<Playbook?> TryLoadPlaybookAsync(
+        LocalConfig.SupabaseConfigSection supabase,
+        string packId,
+        string slug,
+        CancellationToken ct = default)
+    {
+        using var http = BuildClient(supabase);
+
+        var url = $"{supabase.EffectiveUrl}/rest/v1/playbooks" +
+                  $"?slug=eq.{Uri.EscapeDataString(slug)}" +
+                  $"&pack_id=eq.{Uri.EscapeDataString(packId)}" +
+                  $"&select=slug,name,description,goal,steps,default_risk,required_tools,tags,content_json,version" +
+                  $"&limit=1";
+
+        var response = await http.GetAsync(url, ct);
+        response.EnsureSuccessStatusCode();
+
+        var body = await response.Content.ReadAsStringAsync(ct);
+        var rows  = JsonSerializer.Deserialize<List<DbPlaybookRow>>(body, _json);
+
+        if (rows is null || rows.Count == 0) return null;
+
+        return rows[0].ToPlaybook();
+    }
+
+    // ── private helpers ──────────────────────────────────────
+
+    private static HttpClient BuildClient(LocalConfig.SupabaseConfigSection supabase)
+    {
+        var http = new HttpClient();
+        http.DefaultRequestHeaders.Add("apikey", supabase.EffectiveKey);
+        http.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", supabase.EffectiveKey);
+        http.DefaultRequestHeaders.Add("Accept", "application/json");
+        return http;
+    }
+
+    // ── DB satır modelleri ───────────────────────────────────
+
+    public sealed class DbDomainPackRow
+    {
+        [JsonPropertyName("id")]                   public string Id { get; set; } = "";
+        [JsonPropertyName("name")]                 public string Name { get; set; } = "";
+        [JsonPropertyName("description")]          public string? Description { get; set; }
+        [JsonPropertyName("allowed_domains")]      public string[]? AllowedDomains { get; set; }
+        [JsonPropertyName("glossary_md")]          public string? GlossaryMd { get; set; }
+        [JsonPropertyName("regulatory_notes_md")]  public string? RegulatoryNotesMd { get; set; }
+        [JsonPropertyName("verifier_rubric_md")]   public string? VerifierRubricMd { get; set; }
+    }
+
+    public sealed class DbPlaybookRow
+    {
+        [JsonPropertyName("slug")]          public string Slug { get; set; } = "";
+        [JsonPropertyName("name")]          public string Name { get; set; } = "";
+        [JsonPropertyName("description")]   public string? Description { get; set; }
+        [JsonPropertyName("goal")]          public string? Goal { get; set; }
+        [JsonPropertyName("steps")]         public JsonElement Steps { get; set; }
+        [JsonPropertyName("default_risk")]  public string DefaultRisk { get; set; } = "R1";
+        [JsonPropertyName("required_tools")] public string[]? RequiredTools { get; set; }
+        [JsonPropertyName("tags")]          public string[]? Tags { get; set; }
+        [JsonPropertyName("content_json")]  public JsonElement? ContentJson { get; set; }
+        [JsonPropertyName("version")]       public int Version { get; set; } = 1;
+
+        /// <summary>
+        /// DB satırını CLI'nin <see cref="Playbook"/> tipine çevirir.
+        /// content_json varsa tam JSON üzerinden deserialize eder;
+        /// yoksa steps alanından parçalar.
+        /// </summary>
+        public Playbook ToPlaybook()
+        {
+            // Tam JSON varsa önce onu dene
+            if (ContentJson.HasValue && ContentJson.Value.ValueKind == JsonValueKind.Object)
+            {
+                try
+                {
+                    var pb = JsonSerializer.Deserialize<Playbook>(
+                        ContentJson.Value.GetRawText(),
+                        new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    if (pb is not null) return pb;
+                }
+                catch { /* parçalanmışa geç */ }
+            }
+
+            // Steps'i PlaybookStep listesine çevir
+            List<PlaybookStep> steps;
+            try
+            {
+                steps = JsonSerializer.Deserialize<List<PlaybookStep>>(
+                    Steps.GetRawText(),
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+                    ?? new List<PlaybookStep>();
+            }
+            catch
+            {
+                steps = new List<PlaybookStep>();
+            }
+
+            return new Playbook
+            {
+                Id             = Slug,
+                Title          = Name,
+                DefaultPersona = "default",
+                DefaultRisk    = DefaultRisk,
+                Version        = Version,
+                Steps          = steps
+            };
+        }
+    }
+}

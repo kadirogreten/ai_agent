@@ -20,6 +20,8 @@ import CostLedgerPage from '@/pages/CostLedgerPage'
 import ApprovalQueuePage from '@/pages/ApprovalQueuePage'
 import AuditLogPage from '@/pages/AuditLogPage'
 import ToolsPage from '@/pages/ToolsPage'
+import SectorBuilderPage from '@/pages/SectorBuilderPage'
+import PackDraftReviewPage from '@/pages/PackDraftReviewPage'
 
 export default function App() {
   const init = useAuthStore((s) => s.init)
@@ -67,6 +69,8 @@ export default function App() {
           <Route path="cost-ledger" element={<CostLedgerPage />} />
           <Route path="approval-queue" element={<ApprovalQueuePage />} />
           <Route path="audit-log" element={<AuditLogPage />} />
+          <Route path="sector-builder" element={<SectorBuilderPage />} />
+          <Route path="pack-drafts" element={<PackDraftReviewPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/app" replace />} />
       </Routes>

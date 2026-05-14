@@ -4,6 +4,8 @@ namespace AgentArmy.Cli;
 
 public static class PlaybookLoader
 {
+    // ── Liste ─────────────────────────────────────────────────
+
     public static IEnumerable<string> ListPlaybooks(string rootDir, DomainPack? domainPack)
     {
         var ids = new List<string>();
@@ -18,7 +20,8 @@ public static class PlaybookLoader
             );
         }
 
-        if (domainPack is not null && Directory.Exists(domainPack.PlaybooksDir))
+        if (domainPack is not null && !domainPack.LoadedFromDb
+            && Directory.Exists(domainPack.PlaybooksDir))
         {
             ids.AddRange(
                 Directory.GetFiles(domainPack.PlaybooksDir, "*.json")
@@ -32,10 +35,12 @@ public static class PlaybookLoader
             .OrderBy(id => id);
     }
 
+    // ── Yükleme (senkron, dosya) ──────────────────────────────
+
     public static Playbook Load(string rootDir, DomainPack? domainPack, string playbookId)
     {
         var path = Path.Combine(rootDir, "playbooks", playbookId + ".json");
-        if (domainPack is not null)
+        if (domainPack is not null && !domainPack.LoadedFromDb)
         {
             var packPath = Path.Combine(domainPack.PlaybooksDir, playbookId + ".json");
             if (File.Exists(packPath)) path = packPath;
@@ -57,5 +62,39 @@ public static class PlaybookLoader
         }
 
         return playbook;
+    }
+
+    // ── Yükleme (async, DB-first) ─────────────────────────────
+
+    /// <summary>
+    /// DB-first playbook yükleyici.
+    /// <paramref name="supabase"/> yapılandırılmışsa önce DB'yi dener,
+    /// aksi hâlde <see cref="Load"/> senkron fallback'e düşer.
+    /// </summary>
+    public static async Task<Playbook> LoadAsync(
+        string rootDir,
+        DomainPack? domainPack,
+        string playbookId,
+        LocalConfig.SupabaseConfigSection? supabase = null,
+        CancellationToken ct = default)
+    {
+        // DB-first: pack DB'den yüklendiyse veya supabase config var ise dene
+        if (supabase?.IsConfigured == true && domainPack is not null)
+        {
+            try
+            {
+                var pb = await DomainPackDbLoader.TryLoadPlaybookAsync(
+                    supabase, domainPack.Id, playbookId, ct);
+                if (pb is not null) return pb;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine(
+                    $"[PlaybookLoader] DB'den yükleme başarısız ({playbookId}), dosyaya fallback: {ex.Message}");
+            }
+        }
+
+        // Dosya fallback
+        return Load(rootDir, domainPack, playbookId);
     }
 }
