@@ -39,7 +39,15 @@ jobs:
           key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj') }}
           restore-keys: nuget-${{ runner.os }}-
 
-      # IP1.3: dotnet build output cache — Release konfigürasyonu
+      # dotnet obj cache — project.assets.json burada; restore'u hızlandırır
+      - name: Cache dotnet obj
+        uses: actions/cache@v4
+        with:
+          path: src/AgentArmy.Cli/obj
+          key: dotnet-obj-${{ runner.os }}-${{ hashFiles('src/**/*.csproj') }}
+          restore-keys: dotnet-obj-${{ runner.os }}-
+
+      # dotnet build output cache
       - name: Cache dotnet build output
         uses: actions/cache@v4
         with:
@@ -50,7 +58,13 @@ jobs:
       - name: Install portal deps
         run: npm ci --prefix portal
 
-      # IP1.3: dotnet build (cache miss durumunda gerekli; hit durumunda hızlı geçer)
+      # Restore her zaman çalışır; NuGet cache varsa çok hızlı (~2s)
+      - name: Restore .NET dependencies
+        run: dotnet restore src/AgentArmy.Cli
+        env:
+          DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+          DOTNET_NOLOGO: "1"
+
       - name: Build .NET CLI
         run: dotnet build src/AgentArmy.Cli --configuration Release --no-restore
         env:
