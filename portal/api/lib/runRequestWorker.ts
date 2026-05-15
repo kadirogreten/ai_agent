@@ -59,6 +59,21 @@ function estimateCostUsd(
   return (tokensIn * inRate + tokensOut * outRate) / 1_000_000
 }
 
+// ── Yardımcı fonksiyonlar ──────────────────────────────────────────────────
+
+function extractJsonFromText(text: string): Record<string, unknown> | null {
+  const fenced = text.match(/```json\s*(\{[\s\S]*?\})\s*```/)
+  if (fenced) { try { return JSON.parse(fenced[1]) } catch { /* devam */ } }
+  const anyFenced = text.match(/```\s*(\{[\s\S]*?\})\s*```/)
+  if (anyFenced) { try { return JSON.parse(anyFenced[1]) } catch { /* devam */ } }
+  const first = text.indexOf('{')
+  const last  = text.lastIndexOf('}')
+  if (first >= 0 && last > first) {
+    try { return JSON.parse(text.slice(first, last + 1)) } catch { /* devam */ }
+  }
+  return null
+}
+
 // run_events tablosundan run_metrics event'ini oku (metrics.json yerine)
 async function readMetricsFromDb(
   supabase: ReturnType<typeof getSupabaseAdmin>,
@@ -90,8 +105,110 @@ async function readMetricsFromDb(
   }
 }
 
-const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..')
+const repoRoot       = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..')
 const cliProjectPath = path.join(repoRoot, 'src', 'AgentArmy.Cli')
+
+// ── DB yardımcıları ────────────────────────────────────────────────────────
+
+async function upsertRunsRow(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  job: RunRequest,
+  runId: string,
+  startedAt: number,
+  metrics: Awaited<ReturnType<typeof readMetricsFromDb>>,
+  latencyMs: number,
+) {
+  await supabase.from('runs').insert({
+    owner_user_id:    job.owner_user_id,
+    external_id:      runId,
+    title:            job.request_text?.slice(0, 100) ?? runId,
+    status:           'success',
+    started_at:       new Date(startedAt).toISOString(),
+    finished_at:      new Date().toISOString(),
+    domain_pack:      job.domain_pack,
+    risk_level:       job.risk,
+    model:            metrics?.model  ?? job.model,
+    tokens_in:        metrics?.tokens_in  ?? null,
+    tokens_out:       metrics?.tokens_out ?? null,
+    latency_ms:       metrics?.latency_ms ?? latencyMs,
+    cost_usd:         estimateCostUsd(metrics?.model ?? null, metrics?.tokens_in ?? 0, metrics?.tokens_out ?? 0),
+    verifier_outcome: metrics?.verifier_outcome ?? null,
+  })
+}
+
+async function writeAuditEntry(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  job: RunRequest,
+  runId: string | null,
+  success: boolean,
+  errorMsg?: string,
+) {
+  await supabase.from('audit_log').insert({
+    owner_user_id: job.owner_user_id,
+    actor_type:    'worker',
+    actor_id:      'run-worker',
+    action:        success ? 'run.complete' : 'run.fail',
+    resource_type: 'run_request',
+    resource_id:   job.id,
+    risk_level:    job.risk,
+    severity:      success ? 'info' : 'error',
+    detail: {
+      run_id:      runId,
+      domain_pack: job.domain_pack,
+      mode:        job.mode,
+      model:       job.model,
+      ...(errorMsg ? { error: errorMsg.slice(0, 500) } : {}),
+    },
+  })
+}
+
+// Sector Discovery: run_outputs tablosundan scaffold adımını oku, domain_pack_drafts'a yaz
+async function writeDraftFromRunOutputs(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  job: RunRequest,
+  runId: string,
+): Promise<void> {
+  const { data, error } = await supabase
+    .from('run_outputs')
+    .select('content_md')
+    .eq('run_id', runId)
+    .eq('step_id', 'scaffold')
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .single()
+
+  if (error || !data?.content_md) {
+    log('DomainPackDraft: run_outputs scaffold adımı bulunamadı', { runId, error: error?.message })
+    return
+  }
+
+  const draftJson = extractJsonFromText(data.content_md)
+  if (!draftJson) {
+    log('DomainPackDraft: scaffold içinde geçerli JSON bulunamadı', { runId })
+    return
+  }
+
+  const payload     = (job.answers_json ?? {}) as Record<string, unknown>
+  const sectorPrompt = typeof payload.sector_prompt === 'string'
+    ? payload.sector_prompt
+    : (job.request_text ?? '')
+
+  const { error: insertErr } = await supabase.from('domain_pack_drafts').insert({
+    tenant_id:        job.owner_user_id,
+    run_request_id:   job.id,
+    sector_prompt:    sectorPrompt,
+    proposed_pack_id: typeof draftJson.id   === 'string' ? draftJson.id   : null,
+    proposed_name:    typeof draftJson.name === 'string' ? draftJson.name : null,
+    status:           'pending',
+    draft_json:       draftJson,
+  })
+
+  if (insertErr) {
+    log('DomainPackDraft insert hatası', { error: insertErr.message })
+  } else {
+    log('DomainPackDraft kaydedildi', { pack_id: draftJson.id, run_id: runId })
+  }
+}
 
 async function writeAgentsFile(supabase: ReturnType<typeof getSupabaseAdmin>) {
   const res = await supabase
@@ -338,11 +455,12 @@ async function processOne(supabase: ReturnType<typeof getSupabaseAdmin>, job: Ru
     const started = Date.now()
 
     const { code, stdout, stderr } = await runCmd('dotnet', dotnetArgs, {
-      OPENAI_API_KEY:            process.env.OPENAI_API_KEY,
-      SUPABASE_URL:              process.env.SUPABASE_URL,
-      SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
+      OPENAI_API_KEY:              process.env.OPENAI_API_KEY,
+      SUPABASE_URL:                process.env.SUPABASE_URL,
+      SUPABASE_SERVICE_ROLE_KEY:   process.env.SUPABASE_SERVICE_ROLE_KEY,
+      RUN_OWNER_USER_ID:           job.owner_user_id,
       DOTNET_CLI_TELEMETRY_OPTOUT: '1',
-      DOTNET_NOLOGO: '1',
+      DOTNET_NOLOGO:               '1',
     }, repoRoot)
 
     log('Dotnet finished', { code, duration_ms: Date.now() - started })
@@ -356,27 +474,18 @@ async function processOne(supabase: ReturnType<typeof getSupabaseAdmin>, job: Ru
     log('Extracted runId', { runId, stdout_tail: stdout.trim().split('\n').slice(-5).join('\n') })
 
     // Metrikler artık run_events tablosundan okunur
-    const metrics = runId ? await readMetricsFromDb(supabase, runId) : null
-    const latencyMs = Date.now() - started
+    const metrics    = runId ? await readMetricsFromDb(supabase, runId) : null
+    const latencyMs  = Date.now() - started
 
-    // runs tablosunu güncelle (external_id = runId)
-    if (metrics && runId) {
-      await supabase
-        .from('runs')
-        .update({
-          model:            metrics.model    ?? job.model,
-          tokens_in:        metrics.tokens_in,
-          tokens_out:       metrics.tokens_out,
-          latency_ms:       metrics.latency_ms ?? latencyMs,
-          cost_usd:         estimateCostUsd(metrics.model, metrics.tokens_in, metrics.tokens_out),
-          verifier_outcome: metrics.verifier_outcome ?? null,
-          domain_pack:      job.domain_pack,
-          risk_level:       job.risk,
-          finished_at:      new Date().toISOString(),
-        })
-        .eq('external_id', runId)
-        .eq('owner_user_id', job.owner_user_id)
-      log('Metrics written to runs', { runId, ...metrics })
+    // runs tablosuna INSERT et (importFromRunDir artık yok)
+    if (runId) {
+      await upsertRunsRow(supabase, job, runId, started, metrics, latencyMs)
+      log('runs row upserted', { runId, ...metrics })
+    }
+
+    // Sector discovery: scaffold adımından domain_pack_drafts'a yaz
+    if (runId && job.mode !== 'bundle') {
+      await writeDraftFromRunOutputs(supabase, job, runId)
     }
 
     const totalMs    = Date.now() - jobCreatedAt
@@ -405,8 +514,15 @@ async function processOne(supabase: ReturnType<typeof getSupabaseAdmin>, job: Ru
     if (updateErr) throw updateErr
     log('Job success', { id: job.id, run_id: runId, total_ms: totalMs, sla_breach: slaBreached })
 
+    // Audit log
+    await writeAuditEntry(supabase, job, runId ?? null, true)
+
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
+
+    // Audit log (başarısız)
+    try { await writeAuditEntry(supabase, job, null, false, msg) } catch { /* ignore */ }
+
     const { error: updateErr } = await supabase
       .from('run_requests')
       .update({

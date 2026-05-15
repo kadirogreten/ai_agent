@@ -83,6 +83,28 @@ public sealed class CeoExecutor
 
         try
         {
+            // Kapı 2: Risk-gate önce çalışır. R2/R3 onay beklenir; rejected/timeout →
+            // retry yok, doğrudan failed döner.
+            using var gateDb = _supabase?.IsConfigured == true
+                ? new SupabaseWriter(_supabase!.EffectiveUrl!, _supabase!.EffectiveKey!)
+                : null;
+
+            var gate = await RiskGate.GateAsync(
+                db:            gateDb,
+                risk:          planned.Risk,
+                runId:         $"{planned.Mode}:{planned.Id}",
+                agentId:       "CEO",
+                actionSummary: $"CEO {planned.Mode} → {planned.Id} (topic: {planned.Topic})",
+                actionDetail:  new { mode = planned.Mode, id = planned.Id, topic = planned.Topic, risk = planned.Risk },
+                ct:            ct);
+
+            if (!gate.Approved)
+            {
+                var elapsed = (DateTimeOffset.UtcNow - started).TotalSeconds;
+                return new RunResult(planned.Mode, planned.Id, planned.Topic, planned.Risk,
+                    false, $"risk_gate_blocked: {gate.Reason}", 0, elapsed);
+            }
+
             for (int attempt = 1; attempt <= _maxRetries + 1; attempt++)
             {
                 try
@@ -160,12 +182,12 @@ public sealed class CeoExecutor
 
         if (planned.Mode.Equals("bundle", StringComparison.OrdinalIgnoreCase))
         {
-            var bundle = BundleLoader.Load(_rootDir, _pack, planned.Id);
+            var bundle = await BundleLoader.LoadAsync(_rootDir, _pack, planned.Id, _supabase, ct);
             return await Runner.RunBundleAsync(_rootDir, runExec, bundle, planned.Topic, _supabase, ct);
         }
         else
         {
-            var playbook = PlaybookLoader.Load(_rootDir, _pack, planned.Id);
+            var playbook = await PlaybookLoader.LoadAsync(_rootDir, _pack, planned.Id, _supabase, ct);
             var suffix   = attempt > 1 ? $"_retry{attempt - 1}" : string.Empty;
             var runId    = DateTimeOffset.UtcNow.ToString("yyyyMMdd_HHmmss") + "_" + playbook.Id + suffix;
             var runDir   = Path.Combine(_rootDir, "runs", "ceo", runId);  // sadece image için

@@ -21,7 +21,8 @@ public sealed class SupabaseWriter : IDisposable
 
     public SupabaseWriter(string baseUrl, string key)
     {
-        _http = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+        // Paylaşılan handler — connection pool yeniden kullanılır.
+        _http = HttpClientPool.FastWrite;
         _base = baseUrl.TrimEnd('/');
         _key  = key;
     }
@@ -30,6 +31,44 @@ public sealed class SupabaseWriter : IDisposable
     {
         if (cfg?.IsConfigured != true) return null;
         return new SupabaseWriter(cfg.EffectiveUrl!, cfg.EffectiveKey!);
+    }
+
+    /// <summary>
+    /// Verilen tablodan PostgREST query string ile satırları okur. Service-role veya
+    /// authenticated key gereklidir (RLS sayesinde tenant izolasyonu korunur).
+    /// Örnek: SelectAsync("facts", "domain_pack=eq.market-intel&order=confidence.desc&limit=8", ct);
+    /// </summary>
+    public async Task<JsonElement> SelectAsync(string table, string query, CancellationToken ct)
+    {
+        try
+        {
+            var url = $"{_base}/rest/v1/{table}?{query}";
+
+            using var resp = await HttpRetry.SendAsync(_http, () =>
+            {
+                var req = new HttpRequestMessage(HttpMethod.Get, url);
+                req.Headers.Add("apikey",        _key);
+                req.Headers.Add("Authorization", $"Bearer {_key}");
+                req.Headers.Add("Accept",        "application/json");
+                return req;
+            }, ct);
+
+            if (!resp.IsSuccessStatusCode)
+            {
+                var body = await resp.Content.ReadAsStringAsync(ct);
+                Console.Error.WriteLine($"[SupabaseWriter] {table} SELECT {(int)resp.StatusCode}: {body[..Math.Min(200, body.Length)]}");
+                return default;
+            }
+
+            var text = await resp.Content.ReadAsStringAsync(ct);
+            if (string.IsNullOrWhiteSpace(text)) return default;
+            return JsonSerializer.Deserialize<JsonElement>(text);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Console.Error.WriteLine($"[SupabaseWriter] {table} SELECT hata: {ex.Message}");
+            return default;
+        }
     }
 
     /// <summary>
@@ -43,15 +82,18 @@ public sealed class SupabaseWriter : IDisposable
             var url  = $"{_base}/rest/v1/{table}";
             var json = JsonSerializer.Serialize(row, _opts);
 
-            using var req = new HttpRequestMessage(HttpMethod.Post, url)
+            using var resp = await HttpRetry.SendAsync(_http, () =>
             {
-                Content = new StringContent(json, Encoding.UTF8, "application/json")
-            };
-            req.Headers.Add("apikey",        _key);
-            req.Headers.Add("Authorization", $"Bearer {_key}");
-            req.Headers.Add("Prefer",        "return=minimal");
+                var req = new HttpRequestMessage(HttpMethod.Post, url)
+                {
+                    Content = new StringContent(json, Encoding.UTF8, "application/json")
+                };
+                req.Headers.Add("apikey",        _key);
+                req.Headers.Add("Authorization", $"Bearer {_key}");
+                req.Headers.Add("Prefer",        "return=minimal");
+                return req;
+            }, ct);
 
-            var resp = await _http.SendAsync(req, ct);
             if (!resp.IsSuccessStatusCode)
             {
                 var body = await resp.Content.ReadAsStringAsync(ct);
@@ -64,5 +106,9 @@ public sealed class SupabaseWriter : IDisposable
         }
     }
 
-    public void Dispose() => _http.Dispose();
+    /// <summary>
+    /// Paylaşılan HttpClient kullandığı için burada dispose yok — IDisposable
+    /// yalnızca eski `using var` çağrılarıyla uyumluluk için duruyor.
+    /// </summary>
+    public void Dispose() { /* no-op: shared client */ }
 }

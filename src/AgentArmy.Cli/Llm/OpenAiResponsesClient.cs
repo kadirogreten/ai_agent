@@ -113,8 +113,16 @@ public sealed class OpenAiResponsesClient : ILlmClient
     private async Task<string> PostAsync(Dictionary<string, object?> payload, CancellationToken cancellationToken)
     {
         var json = JsonSerializer.Serialize(payload);
-        using var content = new StringContent(json, Encoding.UTF8, "application/json");
-        using var resp = await _http.PostAsync("responses", content, cancellationToken);
+        // HttpRetry her denemede yeni HttpRequestMessage üretir (content'i tekrar kullanabiliriz).
+        using var resp = await HttpRetry.SendAsync(_http, () =>
+        {
+            var req = new HttpRequestMessage(HttpMethod.Post, "responses")
+            {
+                Content = new StringContent(json, Encoding.UTF8, "application/json")
+            };
+            return req;
+        }, cancellationToken);
+
         var respText = await resp.Content.ReadAsStringAsync(cancellationToken);
         if (!resp.IsSuccessStatusCode)
         {

@@ -1,9 +1,8 @@
-using System.Text.Json;
-
 namespace AgentArmy.Cli;
 
 /// <summary>
-/// Global facts store — artık Supabase facts tablosuna yazar.
+/// Global facts store — Supabase facts tablosuna yazar.
+/// Tek hakikat kaynağı DB; JSONL veya başka dosya artık tutulmaz.
 /// Dedup için ON CONFLICT (id) DO NOTHING Supabase tarafında handle edilir.
 /// </summary>
 public sealed class FactsStore

@@ -2,7 +2,7 @@ using System.Text.Json;
 
 namespace AgentArmy.Cli;
 
-public static class CommandDispatcher
+public static partial class CommandDispatcher
 {
     public static async Task<int> ExecuteAsync(string rootDir, string[] args, CancellationToken ct)
     {
@@ -24,6 +24,7 @@ public static class CommandDispatcher
             "ceo-iterate" => await CeoIterateAsync(rootDir, tail, ct),
             "setup"       => Setup(rootDir, tail),
             "setup-env"   => SetupFromEnv(rootDir, tail),
+            "sync-to-db"  => await SyncToDbAsync(rootDir, ct),
             _             => Unknown()
         };
     }
@@ -124,7 +125,7 @@ public static class CommandDispatcher
         }
 
         var bundleId = parsed.GetValueOrDefault("id") ?? "weekly";
-        var bundle   = BundleLoader.Load(rootDir, domainPack, bundleId);
+        var bundle   = await BundleLoader.LoadAsync(rootDir, domainPack, bundleId, GetSupabase(rootDir), ct);
 
         var playbooks = new List<Playbook>();
         foreach (var pid in bundle.Playbooks)
@@ -151,7 +152,11 @@ public static class CommandDispatcher
         if (string.IsNullOrWhiteSpace(exec.ApiKey))
             throw new InvalidOperationException("Missing OpenAI API key.");
 
-        var http = new HttpClient();
+        // Paylaşılan handler; HttpClient dispose edilse de handler ölmez.
+        var http = new HttpClient(HttpClientPool.SharedHandler, disposeHandler: false)
+        {
+            Timeout = TimeSpan.FromMinutes(5)
+        };
         var llm  = new OpenAiResponsesClient(http, exec.ApiKey, exec.Model, enableWebSearch: false);
         return (llm, http);
     }
@@ -170,11 +175,12 @@ public static class CommandDispatcher
 
         using (http)
         {
-            var planner = new CeoPlanner(llm);
+            // DB önce inşa ediliyor; planner facts'leri DB'den okusun.
+            using var db = SupabaseWriter.TryCreate(supabase);
+            var planner = new CeoPlanner(llm, db);
             var plan    = await planner.PlanAsync(request, answersJson, pack, ct);
 
             // CEO planını DB'ye yaz
-            using var db = SupabaseWriter.TryCreate(supabase);
             if (db is not null)
             {
                 await db.InsertAsync("ceo_plans", new
@@ -199,7 +205,11 @@ public static class CommandDispatcher
             }
 
             var maxRetries  = int.TryParse(parsed.GetValueOrDefault("maxRetries")  ?? Environment.GetEnvironmentVariable("CEO_MAX_RETRIES"),  out var mr) ? mr : 2;
-            var maxParallel = int.TryParse(parsed.GetValueOrDefault("maxParallel") ?? Environment.GetEnvironmentVariable("CEO_MAX_PARALLEL"), out var mp) ? mp : 1;
+            // Kapı 2: Dinamik paralelleşme — kullanıcı override etmediyse plan.runs.Count'a göre
+            // otomatik olarak up to 3 paralel çalış. Tek run'lı planlarda 1 kalır.
+            var maxParallel = int.TryParse(parsed.GetValueOrDefault("maxParallel") ?? Environment.GetEnvironmentVariable("CEO_MAX_PARALLEL"), out var mp)
+                ? mp
+                : Math.Min(Math.Max(plan.Runs.Count, 1), 3);
 
             var executor = new CeoExecutor(rootDir, exec, pack, maxRetries, maxParallel, supabase);
             var result   = await executor.ExecuteAsync(plan, parsed, ct);

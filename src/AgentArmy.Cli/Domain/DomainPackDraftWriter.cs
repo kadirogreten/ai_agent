@@ -94,7 +94,7 @@ public static class DomainPackDraftWriter
         var key     = Environment.GetEnvironmentVariable("SUPABASE_SERVICE_ROLE_KEY");
         if (string.IsNullOrWhiteSpace(baseUrl) || string.IsNullOrWhiteSpace(key)) return null;
 
-        using var http = new HttpClient();
+        using var http = new HttpClient(HttpClientPool.SharedHandler, disposeHandler: false);
         var url = $"{baseUrl.TrimEnd('/')}/rest/v1/run_outputs" +
                   $"?run_id=eq.{Uri.EscapeDataString(runId)}" +
                   $"&step_id=eq.scaffold" +
@@ -144,7 +144,7 @@ public static class DomainPackDraftWriter
         var key     = Environment.GetEnvironmentVariable("SUPABASE_SERVICE_ROLE_KEY");
         if (string.IsNullOrWhiteSpace(baseUrl) || string.IsNullOrWhiteSpace(key)) return null;
 
-        using var http = new HttpClient();
+        using var http = new HttpClient(HttpClientPool.SharedHandler, disposeHandler: false);
         var row = new
         {
             sector_prompt    = sectorPrompt,

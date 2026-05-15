@@ -22,7 +22,7 @@ public static class PromptBuilder
         return sb.ToString();
     }
 
-    public static string BuildUserPrompt(RunContext ctx, PlaybookStep step, string priorWork)
+    public static string BuildUserPrompt(RunContext ctx, PlaybookStep step, string priorWork, string? priorFacts = null)
     {
         var c = ctx.Contract;
         var sb = new StringBuilder();
@@ -46,6 +46,13 @@ public static class PromptBuilder
         sb.AppendLine($"Beklenen çıktı: {step.Output}");
         sb.AppendLine();
 
+        if (!string.IsNullOrWhiteSpace(priorFacts))
+        {
+            sb.AppendLine("Önceki run'lardan kalıcı bulgular (kurumsal hafıza — doğrulanmış kabul edilebilir):");
+            sb.AppendLine(priorFacts.Trim());
+            sb.AppendLine();
+        }
+
         if (!string.IsNullOrWhiteSpace(priorWork))
         {
             sb.AppendLine("Önceki çalışma (referans için):");
@@ -55,6 +62,7 @@ public static class PromptBuilder
 
         sb.AppendLine("Kurallar:");
         sb.AppendLine("- Kaynaksız kritik iddia yazma; belirsizlikleri açıkça işaretle.");
+        sb.AppendLine("- Geçmiş bulgular varsa onları tekrar kanıtlamaya çalışma; üzerine inşa et.");
         sb.AppendLine("- Sonucu sadece istenen formatta üret.");
 
         return sb.ToString();

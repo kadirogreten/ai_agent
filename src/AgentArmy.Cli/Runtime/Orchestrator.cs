@@ -17,6 +17,12 @@ public sealed class Orchestrator
     private readonly string? _runId;
     private readonly IReadOnlyDictionary<string, Agent> _agents;
     private readonly OpenAiImageClient? _images;
+    private readonly FactsIndex? _factsIndex;
+    private readonly string? _preloadedPersonaText;
+
+    // Context budget — sliding window. ~16K char ≈ ~4K token (mixed TR/EN).
+    private const int MaxContextChars = 16000;
+    private const int MaxPriorFacts   = 8;
 
     public Orchestrator(
         ILlmClient llm,
@@ -30,7 +36,9 @@ public sealed class Orchestrator
         string? playbookId,
         string? runId,
         IReadOnlyDictionary<string, Agent>? agentOverrides,
-        OpenAiImageClient? images
+        OpenAiImageClient? images,
+        FactsIndex? factsIndex = null,
+        string? preloadedPersonaText = null
     )
     {
         _llm              = llm;
@@ -43,7 +51,9 @@ public sealed class Orchestrator
         _factsTopic       = factsTopic;
         _playbookId       = playbookId;
         _runId            = runId;
-        _images           = images;
+        _images               = images;
+        _factsIndex           = factsIndex;
+        _preloadedPersonaText = preloadedPersonaText;
 
         var merged = new Dictionary<string, Agent>(AgentsCatalog.All, StringComparer.OrdinalIgnoreCase);
         if (agentOverrides is not null)
@@ -57,7 +67,24 @@ public sealed class Orchestrator
         if (!string.IsNullOrWhiteSpace(ctx.RunDir))
             Directory.CreateDirectory(ctx.RunDir);
 
-        var personaText = LoadPersonaText(ctx.Contract.Persona, ctx.Playbook.DefaultPersona);
+        // Persona: önce DB'den preload edilmiş metin, yoksa disk fallback (eski yol).
+        var personaText = !string.IsNullOrWhiteSpace(_preloadedPersonaText)
+            ? _preloadedPersonaText!
+            : LoadPersonaText(ctx.Contract.Persona, ctx.Playbook.DefaultPersona);
+
+        // Kapı 1: Hafızalı otonomi — geçmiş run'lardaki facts'leri DB'den bir kere yükle, prompt'a inject et.
+        var priorFactsText = await BuildPriorFactsBlockAsync(ctx.Contract.Topic, ct);
+        if (!string.IsNullOrWhiteSpace(priorFactsText))
+        {
+            await ctx.AppendLogAsync(new
+            {
+                type        = "facts_injected",
+                ts          = DateTimeOffset.UtcNow,
+                runId       = ctx.RunId,
+                playbook    = ctx.Playbook.Id,
+                facts_count = priorFactsText.Split('\n').Count(l => l.StartsWith("- "))
+            }, ct);
+        }
 
         string priorWork = string.Empty;
         string verifierReport = string.Empty;
@@ -81,8 +108,9 @@ public sealed class Orchestrator
             var extraPolicy = BuildExtraPolicy(agent);
             var system      = PromptBuilder.BuildSystemPrompt(agent, personaText, extraPolicy);
 
-            var context = agent.Behaviors.RequiresFullContext ? ctx.GetWork() : priorWork;
-            var user    = PromptBuilder.BuildUserPrompt(ctx, step, context);
+            var rawContext = agent.Behaviors.RequiresFullContext ? ctx.GetWork() : priorWork;
+            var context    = TrimContext(rawContext);
+            var user       = PromptBuilder.BuildUserPrompt(ctx, step, context, priorFactsText);
 
             var llm = agent.Behaviors.RequiresWebSearch ? _webLlm ?? _llm : _llm;
 
@@ -215,6 +243,7 @@ public sealed class Orchestrator
         await ctx.Db.InsertAsync("run_outputs", new
         {
             run_id        = ctx.RunId,
+            owner_user_id = ctx.OwnerId,
             step_id       = stepId,
             agent_id      = agentId,
             artifact_name = artifactName,
@@ -253,9 +282,10 @@ public sealed class Orchestrator
 
         await ctx.Db.InsertAsync("run_outputs", new
         {
-            run_id      = ctx.RunId,
-            output_type = "report",
-            content_json = JsonSerializer.Deserialize<JsonElement>(
+            run_id        = ctx.RunId,
+            owner_user_id = ctx.OwnerId,
+            output_type   = "report",
+            content_json  = JsonSerializer.Deserialize<JsonElement>(
                 JsonSerializer.Serialize(report,
                     new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower }))
         }, ct);
@@ -315,8 +345,9 @@ public sealed class Orchestrator
         var agent       = ResolveAgent(step.Agent);
         var extraPolicy = BuildExtraPolicy(agent);
         var system      = PromptBuilder.BuildSystemPrompt(agent, personaText, extraPolicy);
-        var context     = ctx.GetWork();
-        var user        = PromptBuilder.BuildUserPrompt(ctx, step, context);
+        var context     = TrimContext(ctx.GetWork());
+        var priorFacts  = await BuildPriorFactsBlockAsync(ctx.Contract.Topic, ct);
+        var user        = PromptBuilder.BuildUserPrompt(ctx, step, context, priorFacts);
 
         await ctx.AppendLogAsync(new
         {
@@ -439,6 +470,45 @@ public sealed class Orchestrator
         sb.AppendLine(writeStep.Output);
         sb.AppendLine();
         sb.AppendLine("Kural: Belirsizlikleri saklama; kaynaksız kritik iddia yazma.");
+        return sb.ToString();
+    }
+
+    // ── Kapı 1: Hafızalı otonomi yardımcıları ────────────────────────────
+
+    /// <summary>
+    /// Context'i sliding window ile kısaltır: çok uzun olduğunda baş kısmı atılır,
+    /// son MaxContextChars karakteri kalır. Token kaçağını engeller.
+    /// </summary>
+    private static string TrimContext(string text)
+    {
+        if (string.IsNullOrEmpty(text) || text.Length <= MaxContextChars)
+            return text;
+
+        var tail = text.Substring(text.Length - MaxContextChars);
+        return "[... önceki bağlamın baş kısmı bağlam bütçesi nedeniyle kısaltıldı ...]\n\n" + tail;
+    }
+
+    /// <summary>
+    /// Geçmiş run'lardan biriken facts'leri konuya göre DB'den okur ve
+    /// prompt'a inject edilebilir kısa bir blok üretir.
+    /// </summary>
+    private async Task<string> BuildPriorFactsBlockAsync(string topic, CancellationToken ct)
+    {
+        if (_factsIndex is null || string.IsNullOrWhiteSpace(topic)) return string.Empty;
+
+        IReadOnlyList<FactEntry> hits;
+        try { hits = await _factsIndex.SearchAsync(topic, MaxPriorFacts, ct); }
+        catch { return string.Empty; }
+
+        if (hits.Count == 0) return string.Empty;
+
+        var sb = new StringBuilder();
+        foreach (var f in hits)
+        {
+            sb.Append("- ").AppendLine(f.Claim.Trim());
+            if (!string.IsNullOrWhiteSpace(f.EvidenceUrl))
+                sb.Append("  Kaynak: ").Append(f.EvidenceUrl).Append(" (güven ").AppendFormat("{0:0.00}", f.Confidence).AppendLine(")");
+        }
         return sb.ToString();
     }
 }

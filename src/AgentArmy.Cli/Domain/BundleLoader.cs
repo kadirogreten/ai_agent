@@ -38,5 +38,33 @@ public static class BundleLoader
 
         return bundle;
     }
+
+    /// <summary>
+    /// DB-first bundle yükleyici. Supabase yapılandırılmışsa önce DB'yi dener,
+    /// aksi hâlde dosya sistemine fallback yapar.
+    /// </summary>
+    public static async Task<Bundle> LoadAsync(
+        string repoRoot,
+        DomainPack domainPack,
+        string bundleId,
+        LocalConfig.SupabaseConfigSection? supabase = null,
+        CancellationToken ct = default)
+    {
+        if (supabase?.IsConfigured == true)
+        {
+            try
+            {
+                var b = await DomainPackDbLoader.TryLoadBundleAsync(supabase, domainPack.Id, bundleId, ct);
+                if (b is not null) return b;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine(
+                    $"[BundleLoader] DB'den yükleme başarısız ({bundleId}), dosyaya fallback: {ex.Message}");
+            }
+        }
+
+        return Load(repoRoot, domainPack, bundleId);
+    }
 }
 

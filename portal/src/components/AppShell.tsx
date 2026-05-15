@@ -9,8 +9,12 @@ type Tab = { to: string; label: string }
 const tabs: Tab[] = [
   { to: '/app/dashboard', label: 'Dashboard' },
   { to: '/app/agents', label: 'Agents' },
+  { to: '/app/personas', label: 'Personas' },
+  { to: '/app/playbooks', label: 'Playbooks' },
+  { to: '/app/playbook-bundles', label: 'Bundles (Tpl)' },
+  { to: '/app/domain-packs', label: 'Domain Packs' },
   { to: '/app/runs', label: 'Runs' },
-  { to: '/app/bundles', label: 'Bundles' },
+  { to: '/app/bundles', label: 'Run Bundles' },
   { to: '/app/facts', label: 'Knowledge Facts' },
   { to: '/app/jobs', label: 'Jobs' },
   { to: '/app/tools', label: 'Tools' },

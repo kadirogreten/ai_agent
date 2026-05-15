@@ -106,11 +106,76 @@ public static class DomainPackDbLoader
         return rows[0].ToPlaybook();
     }
 
+    /// <summary>
+    /// Belirli bir persona slug'ının content_md alanını DB'den çeker.
+    /// pack-spesifik persona yoksa cross-domain (pack_id IS NULL) persona aranır.
+    /// </summary>
+    public static async Task<string?> TryLoadPersonaMdAsync(
+        LocalConfig.SupabaseConfigSection supabase,
+        string packId,
+        string slug,
+        CancellationToken ct = default)
+    {
+        using var http = BuildClient(supabase);
+
+        var url = $"{supabase.EffectiveUrl}/rest/v1/personas" +
+                  $"?slug=eq.{Uri.EscapeDataString(slug)}" +
+                  $"&or=(pack_id.eq.{Uri.EscapeDataString(packId)},pack_id.is.null)" +
+                  $"&select=slug,content_md,system_prompt,role_description" +
+                  $"&limit=2";
+
+        var response = await http.GetAsync(url, ct);
+        response.EnsureSuccessStatusCode();
+
+        var body = await response.Content.ReadAsStringAsync(ct);
+        var rows = JsonSerializer.Deserialize<List<DbPersonaRow>>(body, _json);
+        if (rows is null || rows.Count == 0) return null;
+
+        // pack-spesifik öncelik
+        var primary = rows.Find(r => !string.IsNullOrWhiteSpace(r.ContentMd)) ?? rows[0];
+        if (!string.IsNullOrWhiteSpace(primary.ContentMd)) return primary.ContentMd;
+        if (!string.IsNullOrWhiteSpace(primary.SystemPrompt)) return primary.SystemPrompt;
+        if (!string.IsNullOrWhiteSpace(primary.RoleDescription)) return primary.RoleDescription;
+        return null;
+    }
+
+    /// <summary>
+    /// Belirli bir bundle slug'ını DB'den Bundle nesnesine dönüştürür.
+    /// </summary>
+    public static async Task<Bundle?> TryLoadBundleAsync(
+        LocalConfig.SupabaseConfigSection supabase,
+        string packId,
+        string slug,
+        CancellationToken ct = default)
+    {
+        using var http = BuildClient(supabase);
+
+        var url = $"{supabase.EffectiveUrl}/rest/v1/playbook_bundles" +
+                  $"?slug=eq.{Uri.EscapeDataString(slug)}" +
+                  $"&pack_id=eq.{Uri.EscapeDataString(packId)}" +
+                  $"&select=slug,name,description,playbook_slugs,default_risk,content_json,version" +
+                  $"&limit=1";
+
+        var response = await http.GetAsync(url, ct);
+        response.EnsureSuccessStatusCode();
+
+        var body = await response.Content.ReadAsStringAsync(ct);
+        var rows = JsonSerializer.Deserialize<List<DbBundleRow>>(body, _json);
+        if (rows is null || rows.Count == 0) return null;
+
+        return rows[0].ToBundle();
+    }
+
     // ── private helpers ──────────────────────────────────────
 
     private static HttpClient BuildClient(LocalConfig.SupabaseConfigSection supabase)
     {
-        var http = new HttpClient();
+        // Paylaşılan SocketsHttpHandler üzerine yeni HttpClient — connection pool
+        // korunur; client'ın kendisi ucuz ve dispose edilebilir.
+        var http = new HttpClient(HttpClientPool.SharedHandler, disposeHandler: false)
+        {
+            Timeout = TimeSpan.FromSeconds(60)
+        };
         http.DefaultRequestHeaders.Add("apikey", supabase.EffectiveKey);
         http.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", supabase.EffectiveKey);
@@ -186,6 +251,48 @@ public static class DomainPackDbLoader
                 DefaultRisk    = DefaultRisk,
                 Version        = Version,
                 Steps          = steps
+            };
+        }
+    }
+
+    public sealed class DbPersonaRow
+    {
+        [JsonPropertyName("slug")]             public string Slug { get; set; } = "";
+        [JsonPropertyName("content_md")]       public string? ContentMd { get; set; }
+        [JsonPropertyName("system_prompt")]    public string? SystemPrompt { get; set; }
+        [JsonPropertyName("role_description")] public string? RoleDescription { get; set; }
+    }
+
+    public sealed class DbBundleRow
+    {
+        [JsonPropertyName("slug")]            public string Slug { get; set; } = "";
+        [JsonPropertyName("name")]            public string Name { get; set; } = "";
+        [JsonPropertyName("description")]     public string? Description { get; set; }
+        [JsonPropertyName("playbook_slugs")]  public string[]? PlaybookSlugs { get; set; }
+        [JsonPropertyName("default_risk")]    public string DefaultRisk { get; set; } = "R1";
+        [JsonPropertyName("content_json")]    public JsonElement? ContentJson { get; set; }
+        [JsonPropertyName("version")]         public int Version { get; set; } = 1;
+
+        public Bundle ToBundle()
+        {
+            // Tam JSON varsa onu kullan
+            if (ContentJson.HasValue && ContentJson.Value.ValueKind == JsonValueKind.Object)
+            {
+                try
+                {
+                    var b = JsonSerializer.Deserialize<Bundle>(
+                        ContentJson.Value.GetRawText(),
+                        new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    if (b is not null) return b;
+                }
+                catch { /* manuel inşaya geç */ }
+            }
+
+            return new Bundle
+            {
+                Id        = Slug,
+                Title     = Name,
+                Playbooks = (PlaybookSlugs ?? Array.Empty<string>()).ToList()
             };
         }
     }

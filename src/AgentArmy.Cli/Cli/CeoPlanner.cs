@@ -6,10 +6,12 @@ namespace AgentArmy.Cli;
 public sealed class CeoPlanner
 {
     private readonly ILlmClient _llm;
+    private readonly SupabaseWriter? _db;
 
-    public CeoPlanner(ILlmClient llm)
+    public CeoPlanner(ILlmClient llm, SupabaseWriter? db = null)
     {
         _llm = llm;
+        _db  = db;
     }
 
     public sealed record PlannedRun(
@@ -34,7 +36,7 @@ public sealed class CeoPlanner
     {
         var system = "Sen bir CEO/Chief of Staff ajansın. Kullanıcı isteğini doğru playbook/bundle'a yönlendirirsin. Sadece JSON döndürürsün.";
 
-        var user = BuildPrompt(request, answersJson, domainPack);
+        var user = await BuildPromptAsync(request, answersJson, domainPack, ct);
         var json = (await _llm.CompleteAsync(system, user, ct)).Text;
         try
         {
@@ -56,7 +58,7 @@ public sealed class CeoPlanner
         }
     }
 
-    private static string BuildPrompt(string request, string? answersJson, DomainPack domainPack)
+    private async Task<string> BuildPromptAsync(string request, string? answersJson, DomainPack domainPack, CancellationToken ct)
     {
         var sb = new StringBuilder();
         sb.AppendLine("Bugünün tarihi (UTC): " + DateTimeOffset.UtcNow.ToString("yyyy-MM-dd"));
@@ -104,19 +106,21 @@ public sealed class CeoPlanner
             sb.AppendLine("- " + p);
         }
 
-        var factsIndexPath = Path.Combine(domainPack.RootDir, "knowledge", domainPack.Id, "facts.jsonl");
-        if (File.Exists(factsIndexPath))
+        // Geçmiş facts'ler artık DB'den okunuyor — tek hakikat kaynağı.
+        if (_db is not null)
         {
-            sb.AppendLine();
-            sb.AppendLine("Mevcut bilgi deposundan ilgili faktlar (kısa):");
-
-            var index = new FactsIndex(factsIndexPath);
-            var facts = index.Search(request, maxFacts: 12);
-            foreach (var f in facts)
+            var index = new FactsIndex(_db, domainPack.Id);
+            var facts = await index.SearchAsync(request, maxFacts: 12, ct);
+            if (facts.Count > 0)
             {
-                sb.AppendLine($"- claim: {f.Claim}");
-                sb.AppendLine($"  url: {f.EvidenceUrl}");
-                sb.AppendLine($"  conf: {f.Confidence:0.00}");
+                sb.AppendLine();
+                sb.AppendLine("Mevcut bilgi deposundan ilgili faktlar (kısa):");
+                foreach (var f in facts)
+                {
+                    sb.AppendLine($"- claim: {f.Claim}");
+                    sb.AppendLine($"  url: {f.EvidenceUrl}");
+                    sb.AppendLine($"  conf: {f.Confidence:0.00}");
+                }
             }
         }
 

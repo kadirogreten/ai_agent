@@ -114,7 +114,11 @@ public static class Runner
             if (string.IsNullOrWhiteSpace(exec.ApiKey))
                 throw new InvalidOperationException("Missing OpenAI API key.");
 
-            http = new HttpClient();
+            // Paylaşılan handler; LLM çağrıları uzun sürebilir, timeout 5dk.
+            http = new HttpClient(HttpClientPool.SharedHandler, disposeHandler: false)
+            {
+                Timeout = TimeSpan.FromMinutes(5)
+            };
             var fallbackModel = LlmRouter.ModelForCostClass("low");
             ILlmClient baseLlm = new OpenAiResponsesClient(http, exec.ApiKey, exec.Model, enableWebSearch: false);
             ILlmClient? fallbackLlm = exec.Model != fallbackModel
@@ -152,13 +156,25 @@ public static class Runner
                 factsTopic = exec.Args.GetValueOrDefault("topic") ?? string.Empty;
             }
 
+            // Kapı 1: Hafızalı otonomi — facts'leri DB'den oku (tek hakikat kaynağı).
+            FactsIndex? factsIndex = (db is not null && exec.DomainPack is not null)
+                ? new FactsIndex(db, exec.DomainPack.Id)
+                : null;
+
+            // Persona: DB-first (personas tablosu) + disk fallback.
+            var personaSlug = exec.Args.GetValueOrDefault("persona") ?? playbook.DefaultPersona;
+            var personaText = await PersonaLoader.LoadTextAsync(
+                rootDir, exec.DomainPack, personaSlug, supabase, ct);
+
             var orchestrator = new Orchestrator(
                 llm, webLlm, rootDir,
                 exec.DomainPack?.VerifierRubric,
                 exec.DomainPack?.AllowedDomains,
                 extractor, store, factsTopic,
                 playbook.Id, runId,
-                agentOverrides, images
+                agentOverrides, images,
+                factsIndex,
+                personaText
             );
 
             var contract = BuildContract(exec, playbook);

@@ -22,6 +22,12 @@ import AuditLogPage from '@/pages/AuditLogPage'
 import ToolsPage from '@/pages/ToolsPage'
 import SectorBuilderPage from '@/pages/SectorBuilderPage'
 import PackDraftReviewPage from '@/pages/PackDraftReviewPage'
+import PersonasPage from '@/pages/PersonasPage'
+import PersonaUpsertPage from '@/pages/PersonaUpsertPage'
+import PlaybooksPage from '@/pages/PlaybooksPage'
+import PlaybookUpsertPage from '@/pages/PlaybookUpsertPage'
+import PlaybookBundlesPage from '@/pages/PlaybookBundlesPage'
+import DomainPacksPage from '@/pages/DomainPacksPage'
 
 export default function App() {
   const init = useAuthStore((s) => s.init)
@@ -71,6 +77,14 @@ export default function App() {
           <Route path="audit-log" element={<AuditLogPage />} />
           <Route path="sector-builder" element={<SectorBuilderPage />} />
           <Route path="pack-drafts" element={<PackDraftReviewPage />} />
+          <Route path="personas" element={<PersonasPage />} />
+          <Route path="personas/new" element={<PersonaUpsertPage mode="new" />} />
+          <Route path="personas/:personaId/edit" element={<PersonaUpsertPage mode="edit" />} />
+          <Route path="playbooks" element={<PlaybooksPage />} />
+          <Route path="playbooks/new" element={<PlaybookUpsertPage mode="new" />} />
+          <Route path="playbooks/:playbookId/edit" element={<PlaybookUpsertPage mode="edit" />} />
+          <Route path="playbook-bundles" element={<PlaybookBundlesPage />} />
+          <Route path="domain-packs" element={<DomainPacksPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/app" replace />} />
       </Routes>
