@@ -149,7 +149,7 @@ export async function triggerSectorDiscovery(
       web: true,
       answers_json: {
         source: 'sector-builder-ui',
-        playbook: 'sector-discovery-and-scaffold',
+        playbookId: 'sector-discovery-and-scaffold',
         sector_prompt: sectorPrompt,
       },
     })

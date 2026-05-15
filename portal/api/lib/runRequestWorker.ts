@@ -82,6 +82,91 @@ function estimateCostUsd(
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..')
 const cliProjectPath = path.join(repoRoot, 'src', 'AgentArmy.Cli')
 
+// ── Sector Discovery: scaffold çıktısından domain_pack_drafts INSERT ─────────
+
+function extractJsonFromText(text: string): Record<string, unknown> | null {
+  // ```json ... ``` bloğu
+  const fenced = text.match(/```json\s*(\{[\s\S]*?\})\s*```/)
+  if (fenced) {
+    try { return JSON.parse(fenced[1]) } catch { /* devam */ }
+  }
+  // ``` ... ``` (lang etiketi olmadan)
+  const anyFenced = text.match(/```\s*(\{[\s\S]*?\})\s*```/)
+  if (anyFenced) {
+    try { return JSON.parse(anyFenced[1]) } catch { /* devam */ }
+  }
+  // Ham JSON: ilk { ... }
+  const first = text.indexOf('{')
+  const last  = text.lastIndexOf('}')
+  if (first >= 0 && last > first) {
+    try { return JSON.parse(text.slice(first, last + 1)) } catch { /* devam */ }
+  }
+  return null
+}
+
+async function writeDomainPackDraft(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  job: RunRequest,
+  runDir: string,
+): Promise<void> {
+  // scaffold.*.md dosyalarını tara
+  let files: string[] = []
+  try {
+    const allFiles = await fs.readdir(runDir)
+    files = allFiles
+      .filter((f) => f.startsWith('scaffold') && f.endsWith('.md'))
+      .map((f) => path.join(runDir, f))
+  } catch {
+    log('DomainPackDraft: runDir okunamadı', { runDir })
+    return
+  }
+
+  if (files.length === 0) {
+    // work.md'yi de dene (Orchestrator tüm adımları buraya da yazar)
+    const workMd = path.join(runDir, 'work.md')
+    if (await fs.stat(workMd).then(() => true).catch(() => false)) {
+      files = [workMd]
+    }
+  }
+
+  let draftJson: Record<string, unknown> | null = null
+  for (const f of files) {
+    const content = await fs.readFile(f, 'utf-8').catch(() => '')
+    draftJson = extractJsonFromText(content)
+    if (draftJson) break
+  }
+
+  if (!draftJson) {
+    log('DomainPackDraft: JSON bulunamadı scaffold çıktısında', { runDir, files })
+    return
+  }
+
+  const payload = (job.answers_json ?? {}) as Record<string, unknown>
+  const sectorPrompt = typeof payload.sector_prompt === 'string'
+    ? payload.sector_prompt
+    : (job.request_text ?? '')
+
+  const { error } = await supabase.from('domain_pack_drafts').insert({
+    tenant_id:        job.owner_user_id,
+    run_request_id:   job.id,
+    sector_prompt:    sectorPrompt,
+    proposed_pack_id: typeof draftJson.id === 'string' ? draftJson.id : null,
+    proposed_name:    typeof draftJson.name === 'string' ? draftJson.name : null,
+    status:           'pending',
+    draft_json:       draftJson,
+  })
+
+  if (error) {
+    log('DomainPackDraft insert hatası', { error: error.message })
+  } else {
+    log('DomainPackDraft kaydedildi', {
+      pack_id: draftJson.id,
+      name: draftJson.name,
+      run_request_id: job.id,
+    })
+  }
+}
+
 async function writeAgentsFile(supabase: ReturnType<typeof getSupabaseAdmin>) {
   const res = await supabase
     .from('agents')
@@ -431,12 +516,21 @@ async function processOne(supabase: ReturnType<typeof getSupabaseAdmin>, job: Ru
     if (!runDir) {
       throw new Error('Could not detect runDir from dotnet output')
     }
-    log('Importing outputs to Supabase', { 
+    log('Importing outputs to Supabase', {
       runDir,
       exists: await fs.stat(runDir).then(() => true).catch(() => false),
       cwd: process.cwd(),
       absolutePath: path.resolve(runDir)
     })
+
+    // Sector Discovery: scaffold adımının çıktısını domain_pack_drafts'a yaz
+    const payload = (job.answers_json ?? {}) as Record<string, unknown>
+    if (payload.playbookId === 'sector-discovery-and-scaffold') {
+      await writeDomainPackDraft(supabase, job, runDir).catch((e) =>
+        log('DomainPackDraft write failed (non-fatal)', { error: String(e) })
+      )
+    }
+
     const importRes = await importFromRunDir(job.owner_user_id, runDir)
     log('Import finished', importRes as unknown as Record<string, unknown>)
 
