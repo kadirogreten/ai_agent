@@ -80,10 +80,12 @@ jobs:
           MAX_JOBS: "3"
           # dotnet run --no-build → build adımı zaten yapıldı; çalıştırma süresi ~2s kısalır
           DOTNET_NO_BUILD: "true"
-          # dotnet process başına max süre (ms) — LLM çağrısı dahil
-          WORKER_CMD_TIMEOUT_MS: "90000"
+          # dotnet process başına max süre (ms) — LLM çağrısı + retry + multi-step.
+          # 90s yetmiyor: gerçek bir run (web_search + verifier + editor) 3-8 dakika.
+          # GHA job timeout 30dk, içine sığacak şekilde 12dk veriyoruz.
+          WORKER_CMD_TIMEOUT_MS: "920000"
           # SLA hedef (ms) — oluşturma → tamamlama
-          WORKER_SLA_THRESHOLD_MS: "30000"
+          WORKER_SLA_THRESHOLD_MS: "240000"
           # Stale job eşiği (dakika) — GHA timeout_minutes 30 ile uyumlu
           WORKER_STALE_MINUTES: "35"
           DOTNET_CLI_TELEMETRY_OPTOUT: "1"

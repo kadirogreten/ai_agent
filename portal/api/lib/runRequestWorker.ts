@@ -459,6 +459,8 @@ async function processOne(supabase: ReturnType<typeof getSupabaseAdmin>, job: Ru
       SUPABASE_URL:                process.env.SUPABASE_URL,
       SUPABASE_SERVICE_ROLE_KEY:   process.env.SUPABASE_SERVICE_ROLE_KEY,
       RUN_OWNER_USER_ID:           job.owner_user_id,
+      // Sector Discovery hook için: Runner draft yazarken run_request_id bilsin.
+      RUN_REQUEST_ID:              job.id,
       DOTNET_CLI_TELEMETRY_OPTOUT: '1',
       DOTNET_NOLOGO:               '1',
     }, repoRoot)
@@ -571,6 +573,10 @@ export async function runOnce() {
 }
 
 const isMain = process.argv[1] === fileURLToPath(import.meta.url)
+if (isMain) {
+  runOnce().catch((e) => { console.error(e); process.exit(1) })
+}
+ss.argv[1] === fileURLToPath(import.meta.url)
 if (isMain) {
   runOnce().catch((e) => { console.error(e); process.exit(1) })
 }

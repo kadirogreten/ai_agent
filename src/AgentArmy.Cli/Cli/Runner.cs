@@ -189,6 +189,29 @@ public static class Runner
             };
 
             await orchestrator.RunAsync(ctx, ct);
+
+            // Sector Discovery hook: doğrudan playbook çalıştırması (CEO mode değil) için
+            // de scaffold çıktısını domain_pack_drafts tablosuna yaz. Aksi halde portal
+            // "Taslaklar" sekmesinde hiçbir şey görünmez.
+            if (db is not null
+                && playbook.Id.Contains("sector-discovery", StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    var topic     = exec.Args.GetValueOrDefault("topic") ?? string.Empty;
+                    var runReqId  = Environment.GetEnvironmentVariable("RUN_REQUEST_ID");
+                    var draftId   = await DomainPackDraftWriter.TryWriteFromDbAsync(
+                        db, runId, topic, runReqId, ct);
+                    if (!string.IsNullOrWhiteSpace(draftId))
+                        Console.WriteLine($"[Runner] Sector discovery draft yazıldı: {draftId}");
+                    else
+                        Console.Error.WriteLine("[Runner] Sector discovery draft yazılamadı (scaffold step çıktısı boş veya parse hatası).");
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"[Runner] DraftWriter hatası: {ex.Message}");
+                }
+            }
         }
     }
 
