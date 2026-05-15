@@ -1,66 +1,44 @@
-using System.Text;
 using System.Text.Json;
 
 namespace AgentArmy.Cli;
 
+/// <summary>
+/// Global facts store — artık Supabase facts tablosuna yazar.
+/// Dedup için ON CONFLICT (id) DO NOTHING Supabase tarafında handle edilir.
+/// </summary>
 public sealed class FactsStore
 {
-    private readonly string _path;
+    private readonly SupabaseWriter _db;
+    private readonly string _domainPack;
 
-    public FactsStore(string path)
+    public FactsStore(SupabaseWriter db, string domainPack)
     {
-        _path = path;
+        _db         = db;
+        _domainPack = domainPack;
     }
 
     public async Task<int> AppendUniqueAsync(IEnumerable<FactEntry> facts, CancellationToken ct)
     {
-        Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
-        var existing = await LoadIdsAsync(ct);
-
         var appended = 0;
-        await using var stream = new FileStream(_path, FileMode.OpenOrCreate, FileAccess.Write, FileShare.Read);
-        stream.Seek(0, SeekOrigin.End);
-        await using var writer = new StreamWriter(stream, Encoding.UTF8);
-
-        foreach (var fact in facts)
+        foreach (var f in facts)
         {
-            if (existing.Contains(fact.Id)) continue;
-            var json = JsonSerializer.Serialize(fact);
-            await writer.WriteLineAsync(json.AsMemory(), ct);
-            existing.Add(fact.Id);
+            await _db.InsertAsync("facts", new
+            {
+                id             = f.Id,
+                domain_pack    = _domainPack,
+                run_id         = f.RunId,
+                playbook_id    = f.PlaybookId,
+                topic          = f.Topic,
+                claim          = f.Claim,
+                evidence_url   = f.EvidenceUrl,
+                evidence_quote = f.EvidenceQuote,
+                source_title   = f.SourceTitle,
+                source_domain  = f.SourceDomain,
+                confidence     = f.Confidence,
+                extracted_at   = f.ExtractedAtUtc
+            }, ct);
             appended++;
         }
-
-        await writer.FlushAsync();
         return appended;
     }
-
-    private async Task<HashSet<string>> LoadIdsAsync(CancellationToken ct)
-    {
-        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        if (!File.Exists(_path)) return set;
-
-        using var stream = new FileStream(_path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-        using var reader = new StreamReader(stream, Encoding.UTF8);
-        while (!reader.EndOfStream)
-        {
-            var line = await reader.ReadLineAsync(ct);
-            if (string.IsNullOrWhiteSpace(line)) continue;
-            try
-            {
-                using var doc = JsonDocument.Parse(line);
-                if (doc.RootElement.TryGetProperty("Id", out var id) && id.ValueKind == JsonValueKind.String)
-                {
-                    var s = id.GetString();
-                    if (!string.IsNullOrWhiteSpace(s)) set.Add(s);
-                }
-            }
-            catch
-            {
-            }
-        }
-
-        return set;
-    }
 }
-

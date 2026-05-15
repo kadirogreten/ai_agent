@@ -5,30 +5,55 @@ namespace AgentArmy.Cli;
 
 public sealed class RunContext
 {
-    public required string RunId { get; init; }
-    public required string RunDir { get; init; }
-    public required TaskContract Contract { get; init; }
-    public required Playbook Playbook { get; init; }
+    public required string RunId    { get; init; }
+    public required string RunDir   { get; init; }   // sadece image dosyaları için
+    public required TaskContract Contract  { get; init; }
+    public required Playbook     Playbook  { get; init; }
     public IReadOnlyList<string> SelectedAgents { get; init; } = Array.Empty<string>();
+    public SupabaseWriter? Db { get; init; }
 
-    public string FactsPath => Path.Combine(RunDir, "facts.md");
-    public string DecisionsPath => Path.Combine(RunDir, "decisions.md");
-    public string WorkPath => Path.Combine(RunDir, "work.md");
-    public string LogPath => Path.Combine(RunDir, "log.jsonl");
+    // ── In-memory accumulators (disk yerine) ──────────────────────────────
+    private readonly StringBuilder _work      = new("# Work\n\n");
+    private readonly StringBuilder _facts     = new("# Facts\n\n");
+    private readonly StringBuilder _decisions = new("# Decisions\n\n");
 
-    public async Task AppendLogAsync(object evt, CancellationToken ct)
+    public string GetWork()      => _work.ToString();
+    public string GetFacts()     => _facts.ToString();
+    public string GetDecisions() => _decisions.ToString();
+
+    public void AppendWork(string title, string body)
+        => AppendSection(_work, title, body);
+
+    public void AppendFacts(string title, string body)
+        => AppendSection(_facts, title, body);
+
+    public void AppendDecisions(string title, string body)
+        => AppendSection(_decisions, title, body);
+
+    private static void AppendSection(StringBuilder sb, string title, string body)
     {
-        var line = JsonSerializer.Serialize(evt);
-        await File.AppendAllTextAsync(LogPath, line + "\n", Encoding.UTF8, ct);
-    }
-
-    public async Task AppendMarkdownAsync(string path, string title, string body, CancellationToken ct)
-    {
-        var sb = new StringBuilder();
         sb.AppendLine($"## {title}");
         sb.AppendLine();
         sb.AppendLine(body.Trim());
         sb.AppendLine();
-        await File.AppendAllTextAsync(path, sb.ToString(), Encoding.UTF8, ct);
+    }
+
+    // ── Event log → run_events tablosu ────────────────────────────────────
+    public async Task AppendLogAsync(object evt, CancellationToken ct)
+    {
+        if (Db is null) return;
+
+        var json    = JsonSerializer.Serialize(evt);
+        var element = JsonSerializer.Deserialize<JsonElement>(json);
+        var type    = element.TryGetProperty("type", out var t) && t.ValueKind == JsonValueKind.String
+            ? t.GetString() ?? "event"
+            : "event";
+
+        await Db.InsertAsync("run_events", new
+        {
+            run_id     = RunId,
+            event_type = type,
+            payload    = element
+        }, ct);
     }
 }

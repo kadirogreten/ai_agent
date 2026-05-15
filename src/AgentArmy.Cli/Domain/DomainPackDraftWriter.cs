@@ -14,33 +14,50 @@ public static class DomainPackDraftWriter
     private static readonly JsonSerializerOptions _jsonOpts = new()
     {
         PropertyNameCaseInsensitive = true,
-        WriteIndented = false
+        WriteIndented               = false
     };
 
     /// <summary>
-    /// Verilen run dizininde "scaffold" adımının çıktısını tarar,
-    /// geçerli domain pack JSON bulursa <c>domain_pack_drafts</c> tablosuna yazar.
-    /// Bulamazsa sessizce döner (hata fırlatmaz).
+    /// DB-first: run_outputs tablosundaki scaffold adımını okur,
+    /// geçerli domain pack JSON bulursa domain_pack_drafts'a yazar.
     /// </summary>
-    /// <param name="supabase">Supabase bağlantı ayarları</param>
-    /// <param name="runDir">İlgili playbook run dizini</param>
-    /// <param name="sectorPrompt">Kullanıcının orijinal sektör açıklaması</param>
-    /// <param name="runRequestId">İlgili Supabase run_requests.id (opsiyonel)</param>
-    /// <param name="tenantId">Sahibinin auth.uid() (opsiyonel; null → service role ile yazar)</param>
-    /// <param name="ct">Cancellation token</param>
-    /// <returns>Oluşturulan draft UUID veya null</returns>
+    public static async Task<string?> TryWriteFromDbAsync(
+        SupabaseWriter db,
+        string runId,
+        string sectorPrompt,
+        string? runRequestId = null,
+        CancellationToken ct = default)
+    {
+        // run_outputs'tan scaffold adımını sorgula
+        var content = await FetchScaffoldContentAsync(db, runId, ct);
+        if (content is null)
+        {
+            Console.Error.WriteLine("[DraftWriter] run_outputs'ta scaffold adımı bulunamadı.");
+            return null;
+        }
+
+        return await WriteFromContentAsync(db, content, sectorPrompt, runRequestId, ct);
+    }
+
+    /// <summary>
+    /// Dosya tabanlı eski yöntem — geriye dönük uyumluluk için korundu.
+    /// Yeni kod TryWriteFromDbAsync kullanmalı.
+    /// </summary>
     public static async Task<string?> TryWriteAsync(
         LocalConfig.SupabaseConfigSection supabase,
         string runDir,
         string sectorPrompt,
         string? runRequestId = null,
-        string? tenantId = null,
+        string? tenantId     = null,
         CancellationToken ct = default)
     {
         if (!supabase.IsConfigured) return null;
-        if (!Directory.Exists(runDir)) return null;
+        if (!Directory.Exists(runDir))
+        {
+            Console.Error.WriteLine($"[DraftWriter] runDir bulunamadı: {runDir}");
+            return null;
+        }
 
-        // scaffold adımının çıktı dosyalarını bul
         var candidates = Directory.GetFiles(runDir, "scaffold.*.md")
             .Concat(Directory.GetFiles(runDir, "scaffold.md"))
             .ToList();
@@ -51,55 +68,103 @@ public static class DomainPackDraftWriter
             return null;
         }
 
-        string? rawJson = null;
-        string? proposedPackId = null;
-        string? proposedName = null;
-
+        string? rawContent = null;
         foreach (var file in candidates)
         {
-            var content = await File.ReadAllTextAsync(file, Encoding.UTF8, ct);
-            rawJson = ExtractJson(content);
-            if (rawJson is not null) break;
+            rawContent = await File.ReadAllTextAsync(file, Encoding.UTF8, ct);
+            if (!string.IsNullOrWhiteSpace(rawContent)) break;
         }
 
+        if (rawContent is null) return null;
+
+        using var db = new SupabaseWriter(supabase.EffectiveUrl!, supabase.EffectiveKey!);
+        return await WriteFromContentAsync(db, rawContent, sectorPrompt, runRequestId, ct);
+    }
+
+    // ── İç yardımcılar ──────────────────────────────────────────────────────
+
+    private static async Task<string?> FetchScaffoldContentAsync(
+        SupabaseWriter db,
+        string runId,
+        CancellationToken ct)
+    {
+        // SupabaseWriter'ın _base ve _key alanlarına erişemeyiz, bu yüzden
+        // kendi HttpClient'ını kullanırız (DB'nin base URL'i ve key'i çevre değişkenlerinden)
+        var baseUrl = Environment.GetEnvironmentVariable("SUPABASE_URL");
+        var key     = Environment.GetEnvironmentVariable("SUPABASE_SERVICE_ROLE_KEY");
+        if (string.IsNullOrWhiteSpace(baseUrl) || string.IsNullOrWhiteSpace(key)) return null;
+
+        using var http = new HttpClient();
+        var url = $"{baseUrl.TrimEnd('/')}/rest/v1/run_outputs" +
+                  $"?run_id=eq.{Uri.EscapeDataString(runId)}" +
+                  $"&step_id=eq.scaffold" +
+                  $"&order=created_at.asc&limit=1&select=content_md";
+
+        using var req = new HttpRequestMessage(HttpMethod.Get, url);
+        req.Headers.Add("apikey",        key);
+        req.Headers.Add("Authorization", $"Bearer {key}");
+
+        var resp = await http.SendAsync(req, ct);
+        if (!resp.IsSuccessStatusCode) return null;
+
+        var json = await resp.Content.ReadAsStringAsync(ct);
+        using var doc = JsonDocument.Parse(json);
+        var arr = doc.RootElement;
+        if (arr.ValueKind != JsonValueKind.Array || arr.GetArrayLength() == 0) return null;
+
+        return arr[0].TryGetProperty("content_md", out var el) ? el.GetString() : null;
+    }
+
+    private static async Task<string?> WriteFromContentAsync(
+        SupabaseWriter db,
+        string content,
+        string sectorPrompt,
+        string? runRequestId,
+        CancellationToken ct)
+    {
+        var rawJson = ExtractJson(content);
         if (rawJson is null)
         {
             Console.Error.WriteLine("[DraftWriter] Geçerli JSON bulunamadı, taslak yazılmıyor.");
             return null;
         }
 
-        // Önerilen pack ID ve name'i JSON'dan çıkar
+        string? proposedPackId = null;
+        string? proposedName   = null;
         try
         {
             using var doc = JsonDocument.Parse(rawJson);
-            proposedPackId = doc.RootElement.TryGetProperty("id", out var idEl)
-                ? idEl.GetString() : null;
-            proposedName = doc.RootElement.TryGetProperty("name", out var nameEl)
-                ? nameEl.GetString() : null;
+            proposedPackId = doc.RootElement.TryGetProperty("id",   out var idEl)   ? idEl.GetString()   : null;
+            proposedName   = doc.RootElement.TryGetProperty("name", out var nameEl) ? nameEl.GetString() : null;
         }
-        catch { /* JSON parse hatası — yine de kaydet */ }
+        catch { }
 
-        // domain_pack_drafts INSERT
+        // domain_pack_drafts INSERT — return=representation ile ID alıyoruz
+        var baseUrl = Environment.GetEnvironmentVariable("SUPABASE_URL");
+        var key     = Environment.GetEnvironmentVariable("SUPABASE_SERVICE_ROLE_KEY");
+        if (string.IsNullOrWhiteSpace(baseUrl) || string.IsNullOrWhiteSpace(key)) return null;
+
+        using var http = new HttpClient();
         var row = new
         {
             sector_prompt    = sectorPrompt,
             proposed_pack_id = proposedPackId,
             proposed_name    = proposedName,
             run_request_id   = string.IsNullOrWhiteSpace(runRequestId) ? (object?)null : runRequestId,
-            tenant_id        = tenantId,
             status           = "pending",
             draft_json       = JsonSerializer.Deserialize<JsonElement>(rawJson, _jsonOpts),
         };
 
-        using var http = BuildClient(supabase);
-
         var body = JsonSerializer.Serialize(row, _jsonOpts);
-        var content2 = new StringContent(body, Encoding.UTF8, "application/json");
-        content2.Headers.Add("Prefer", "return=representation");
+        using var req = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl.TrimEnd('/')}/rest/v1/domain_pack_drafts")
+        {
+            Content = new StringContent(body, Encoding.UTF8, "application/json")
+        };
+        req.Headers.Add("apikey",        key);
+        req.Headers.Add("Authorization", $"Bearer {key}");
+        req.Headers.Add("Prefer",        "return=representation");
 
-        var url = $"{supabase.EffectiveUrl}/rest/v1/domain_pack_drafts";
-        var resp = await http.PostAsync(url, content2, ct);
-
+        var resp = await http.SendAsync(req, ct);
         if (!resp.IsSuccessStatusCode)
         {
             var err = await resp.Content.ReadAsStringAsync(ct);
@@ -108,7 +173,6 @@ public static class DomainPackDraftWriter
         }
 
         var result = await resp.Content.ReadAsStringAsync(ct);
-        // Dönen satırdan ID'yi çıkar
         try
         {
             using var doc = JsonDocument.Parse(result);
@@ -116,56 +180,38 @@ public static class DomainPackDraftWriter
             if (arr.ValueKind == JsonValueKind.Array && arr.GetArrayLength() > 0)
             {
                 var draftId = arr[0].GetProperty("id").GetString();
-                Console.WriteLine($"[DraftWriter] ✅ Taslak kaydedildi: draft_id={draftId}, pack_id={proposedPackId}");
+                Console.WriteLine($"[DraftWriter] Taslak kaydedildi: draft_id={draftId}, pack_id={proposedPackId}");
                 return draftId;
             }
         }
-        catch { /* ID çıkarılamadı ama kayıt başarılıydı */ }
+        catch { }
 
-        Console.WriteLine($"[DraftWriter] ✅ Taslak kaydedildi (ID alınamadı).");
+        Console.WriteLine("[DraftWriter] Taslak kaydedildi (ID alınamadı).");
         return null;
     }
 
-    // ── Yardımcılar ──────────────────────────────────────────
-
-    private static HttpClient BuildClient(LocalConfig.SupabaseConfigSection supabase)
-    {
-        var http = new HttpClient();
-        http.DefaultRequestHeaders.Add("apikey", supabase.EffectiveKey);
-        http.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Bearer", supabase.EffectiveKey);
-        return http;
-    }
-
-    /// <summary>
-    /// Markdown içeriğinden JSON bloğunu çıkarır.
-    /// Önce ```json ... ``` blok, sonra ham { ... } dener.
-    /// </summary>
     private static string? ExtractJson(string text)
     {
-        // ```json ... ``` bloğu
         var fenced = Regex.Match(text, @"```json\s*(\{[\s\S]*?\})\s*```", RegexOptions.Singleline);
         if (fenced.Success)
         {
-            var candidate = fenced.Groups[1].Value.Trim();
-            if (IsValidJson(candidate)) return candidate;
+            var c = fenced.Groups[1].Value.Trim();
+            if (IsValidJson(c)) return c;
         }
 
-        // ``` ... ``` (dil etiketi olmadan)
         var fencedAny = Regex.Match(text, @"```\s*(\{[\s\S]*?\})\s*```", RegexOptions.Singleline);
         if (fencedAny.Success)
         {
-            var candidate = fencedAny.Groups[1].Value.Trim();
-            if (IsValidJson(candidate)) return candidate;
+            var c = fencedAny.Groups[1].Value.Trim();
+            if (IsValidJson(c)) return c;
         }
 
-        // Ham JSON: metindeki ilk { ... } bloğunu bul
         var firstBrace = text.IndexOf('{');
         var lastBrace  = text.LastIndexOf('}');
         if (firstBrace >= 0 && lastBrace > firstBrace)
         {
-            var candidate = text[firstBrace..(lastBrace + 1)].Trim();
-            if (IsValidJson(candidate)) return candidate;
+            var c = text[firstBrace..(lastBrace + 1)].Trim();
+            if (IsValidJson(c)) return c;
         }
 
         return null;
