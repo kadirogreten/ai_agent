@@ -576,7 +576,3 @@ const isMain = process.argv[1] === fileURLToPath(import.meta.url)
 if (isMain) {
   runOnce().catch((e) => { console.error(e); process.exit(1) })
 }
-ss.argv[1] === fileURLToPath(import.meta.url)
-if (isMain) {
-  runOnce().catch((e) => { console.error(e); process.exit(1) })
-}
