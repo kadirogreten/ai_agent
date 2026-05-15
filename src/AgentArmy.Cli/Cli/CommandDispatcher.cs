@@ -16,17 +16,44 @@ public static class CommandDispatcher
         var tail = args.Skip(1).ToArray();
         return cmd switch
         {
-            "list" => ListPlaybooks(rootDir, tail),
-            "bundles" => ListBundles(rootDir, tail),
-            "run" => await RunPlaybookAsync(rootDir, tail, ct),
-            "bundle" => await RunBundleAsync(rootDir, tail, ct),
-            "ceo" => await CeoAsync(rootDir, tail, ct),
+            "list"        => ListPlaybooks(rootDir, tail),
+            "bundles"     => ListBundles(rootDir, tail),
+            "run"         => await RunPlaybookAsync(rootDir, tail, ct),
+            "bundle"      => await RunBundleAsync(rootDir, tail, ct),
+            "ceo"         => await CeoAsync(rootDir, tail, ct),
             "ceo-iterate" => await CeoIterateAsync(rootDir, tail, ct),
-            "setup" => Setup(rootDir, tail),
-            "setup-env" => SetupFromEnv(rootDir, tail),
-            _ => Unknown()
+            "setup"       => Setup(rootDir, tail),
+            "setup-env"   => SetupFromEnv(rootDir, tail),
+            _             => Unknown()
         };
     }
+
+    // ── Supabase config yardımcısı ───────────────────────────
+    // Ortam değişkenlerini de okur; dosyaya gerek yok.
+    private static LocalConfig.SupabaseConfigSection GetSupabase(string rootDir)
+    {
+        var local = LocalConfig.TryLoad(rootDir);
+        return local?.GetSupabase() ?? new LocalConfig.SupabaseConfigSection();
+    }
+
+    // ── DB-first DomainPack yükleyici ────────────────────────
+    private static async Task<DomainPack?> LoadPackAsync(
+        string rootDir, string? packId, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(packId)) return null;
+        var supabase = GetSupabase(rootDir);
+        return await DomainPackLoader.TryLoadAsync(rootDir, packId, supabase, ct);
+    }
+
+    // ── DB-first Playbook yükleyici ──────────────────────────
+    private static async Task<Playbook> LoadPlaybookAsync(
+        string rootDir, DomainPack? pack, string playbookId, CancellationToken ct)
+    {
+        var supabase = GetSupabase(rootDir);
+        return await PlaybookLoader.LoadAsync(rootDir, pack, playbookId, supabase, ct);
+    }
+
+    // ── Komutlar ─────────────────────────────────────────────
 
     private static int Unknown()
     {
@@ -40,9 +67,7 @@ public static class CommandDispatcher
         var packId = parsed.GetValueOrDefault("domainPack") ?? Environment.GetEnvironmentVariable("AGENTARMY_DOMAIN_PACK");
         var pack = DomainPackLoader.TryLoad(rootDir, packId);
         foreach (var id in PlaybookLoader.ListPlaybooks(rootDir, pack))
-        {
             Console.WriteLine(id);
-        }
         return 0;
     }
 
@@ -52,29 +77,31 @@ public static class CommandDispatcher
         var packId = parsed.GetValueOrDefault("domainPack") ?? Environment.GetEnvironmentVariable("AGENTARMY_DOMAIN_PACK");
         var pack = DomainPackLoader.TryLoad(rootDir, packId);
         foreach (var id in BundleLoader.ListBundles(rootDir, pack))
-        {
             Console.WriteLine(id);
-        }
         return 0;
     }
 
     private static async Task<int> RunPlaybookAsync(string rootDir, string[] args, CancellationToken ct)
     {
         var parsed = Args.Parse(args);
-        var domainPackId = parsed.GetValueOrDefault("domainPack") ?? Environment.GetEnvironmentVariable("AGENTARMY_DOMAIN_PACK");
+        var domainPackId = parsed.GetValueOrDefault("domainPack")
+                           ?? Environment.GetEnvironmentVariable("AGENTARMY_DOMAIN_PACK");
+
         if (!parsed.TryGetValue("playbook", out var playbookId) || string.IsNullOrWhiteSpace(playbookId))
         {
             Console.Error.WriteLine("Missing --playbook");
             return 1;
         }
 
-        var domainPack = DomainPackLoader.TryLoad(rootDir, domainPackId);
-        var playbook = PlaybookLoader.Load(rootDir, domainPack, playbookId);
+        // DB-first: pack ve playbook DB'den gelir, bulunamazsa dosyaya düşer
+        var domainPack = await LoadPackAsync(rootDir, domainPackId, ct);
+        var playbook   = await LoadPlaybookAsync(rootDir, domainPack, playbookId, ct);
+
         RiskPolicy.MergeDefaultRiskFromPlaybooks(parsed, new[] { playbook });
         RiskPolicy.Enforce(parsed);
 
-        var exec = Runner.BuildExecution(rootDir, parsed, domainPackId);
-        var runId = DateTimeOffset.UtcNow.ToString("yyyyMMdd_HHmmss") + "_" + playbook.Id;
+        var exec   = Runner.BuildExecution(rootDir, parsed, domainPackId);
+        var runId  = DateTimeOffset.UtcNow.ToString("yyyyMMdd_HHmmss") + "_" + playbook.Id;
         var runDir = Path.Combine(rootDir, "runs", runId);
         await Runner.RunOneAsync(rootDir, exec, playbook, runId, runDir, ct);
         Console.WriteLine(runDir);
@@ -84,70 +111,37 @@ public static class CommandDispatcher
     private static async Task<int> RunBundleAsync(string rootDir, string[] args, CancellationToken ct)
     {
         var parsed = Args.Parse(args);
-        var domainPackId = parsed.GetValueOrDefault("domainPack") ?? Environment.GetEnvironmentVariable("AGENTARMY_DOMAIN_PACK");
-        var domainPack = DomainPackLoader.TryLoad(rootDir, domainPackId);
+        var domainPackId = parsed.GetValueOrDefault("domainPack")
+                           ?? Environment.GetEnvironmentVariable("AGENTARMY_DOMAIN_PACK");
+
+        // DB-first pack yükleme
+        var domainPack = await LoadPackAsync(rootDir, domainPackId, ct);
         if (domainPack is null)
         {
             Console.Error.WriteLine("Bundle requires a domain pack. Use --domainPack <id>");
             return 1;
         }
 
-        var bundleId = parsed.GetValueOrDefault("id") ?? "weekly";
-        var bundle = BundleLoader.Load(rootDir, domainPack, bundleId);
-        var playbooks = bundle.Playbooks
-            .Select(pid => PlaybookLoader.Load(rootDir, domainPack, pid))
-            .ToList();
+        var bundleId  = parsed.GetValueOrDefault("id") ?? "weekly";
+        var bundle    = BundleLoader.Load(rootDir, domainPack, bundleId);
+
+        // Her playbook DB-first
+        var playbooks = new List<Playbook>();
+        foreach (var pid in bundle.Playbooks)
+            playbooks.Add(await LoadPlaybookAsync(rootDir, domainPack, pid, ct));
 
         RiskPolicy.MergeDefaultRiskFromPlaybooks(parsed, playbooks);
         RiskPolicy.Enforce(parsed);
 
-        var exec = Runner.BuildExecution(rootDir, parsed, domainPackId);
+        var exec  = Runner.BuildExecution(rootDir, parsed, domainPackId);
         var topic = parsed.GetValueOrDefault("topic") ?? string.Empty;
-        var dir = await Runner.RunBundleAsync(rootDir, exec, bundle, topic, ct);
+        var dir   = await Runner.RunBundleAsync(rootDir, exec, bundle, topic, ct);
         Console.WriteLine(dir);
         return 0;
     }
 
-    private static int Setup(string rootDir, string[] args)
-    {
-        var parsed = Args.Parse(args);
-        var model = parsed.GetValueOrDefault("model")
-                    ?? Environment.GetEnvironmentVariable("OPENAI_MODEL")
-                    ?? "gpt-4.1";
+    // ── CEO ortak yardımcılar ────────────────────────────────
 
-        Console.Write("OpenAI API key: ");
-        var key = SecretInput.ReadHiddenLine().Trim();
-        if (string.IsNullOrWhiteSpace(key))
-        {
-            Console.Error.WriteLine("Empty key; cancelled.");
-            return 1;
-        }
-
-        LocalConfigWriter.Write(rootDir, key, model);
-        Console.WriteLine("Saved to agentarmy.local.json (gitignored). ");
-        return 0;
-    }
-
-    private static int SetupFromEnv(string rootDir, string[] args)
-    {
-        var parsed = Args.Parse(args);
-        var model = parsed.GetValueOrDefault("model")
-                    ?? Environment.GetEnvironmentVariable("OPENAI_MODEL")
-                    ?? "gpt-4.1";
-
-        var key = Environment.GetEnvironmentVariable("OPENAI_API_KEY");
-        if (string.IsNullOrWhiteSpace(key))
-        {
-            Console.Error.WriteLine("Missing OPENAI_API_KEY in environment.");
-            return 1;
-        }
-
-        LocalConfigWriter.Write(rootDir, key.Trim(), model);
-        Console.WriteLine("Saved to agentarmy.local.json (gitignored).");
-        return 0;
-    }
-
-    // IP1.3 CEO: Ortak yardımcı — planner LLM oluştur
     private static (ILlmClient llm, HttpClient? http) BuildPlannerLlm(Runner.Execution exec)
     {
         if (exec.DryRun)
@@ -161,7 +155,6 @@ public static class CommandDispatcher
         return (llm, http);
     }
 
-    // IP1.3 CEO: Ortak CEO akışı — planlama + dosya yazımı + executor
     private static async Task<int> RunCeoFlowAsync(
         string rootDir,
         string request,
@@ -182,35 +175,32 @@ public static class CommandDispatcher
             var ceoDir   = Path.Combine(rootDir, "runs", "ceo", ceoRunId);
             Directory.CreateDirectory(ceoDir);
 
-            // plan.json
-            var planJson = System.Text.Json.JsonSerializer.Serialize(
-                plan, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
-            await File.WriteAllTextAsync(Path.Combine(ceoDir, "plan.json"), planJson + "\n", Encoding.UTF8, ct);
+            await File.WriteAllTextAsync(
+                Path.Combine(ceoDir, "plan.json"),
+                System.Text.Json.JsonSerializer.Serialize(plan, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }) + "\n",
+                Encoding.UTF8, ct);
 
-            // answers.json (iterate modu için)
             if (!string.IsNullOrWhiteSpace(answersJson))
                 await File.WriteAllTextAsync(Path.Combine(ceoDir, "answers.json"), answersJson.Trim() + "\n", Encoding.UTF8, ct);
 
-            // questions.md
             if (plan.ClarifyingQuestions.Count > 0)
             {
                 var lines = new List<string> { "# Clarifying Questions", "" };
                 lines.AddRange(plan.ClarifyingQuestions.Select(q => "- " + q));
                 await File.WriteAllTextAsync(Path.Combine(ceoDir, "questions.md"), string.Join("\n", lines) + "\n", Encoding.UTF8, ct);
 
-                Console.WriteLine("CEO soruları (yanıtladıkça isteği daha netleştirip tekrar çalıştırabilirsin):");
+                Console.WriteLine("CEO soruları:");
                 foreach (var q in plan.ClarifyingQuestions) Console.WriteLine("- " + q);
                 Console.WriteLine();
             }
 
-            // IP1.3: CeoExecutor — retry + parallel + execution.json
-            var maxRetries  = int.TryParse(parsed.GetValueOrDefault("maxRetries") ?? Environment.GetEnvironmentVariable("CEO_MAX_RETRIES"),  out var mr) ? mr : 2;
+            var maxRetries  = int.TryParse(parsed.GetValueOrDefault("maxRetries")  ?? Environment.GetEnvironmentVariable("CEO_MAX_RETRIES"),  out var mr) ? mr : 2;
             var maxParallel = int.TryParse(parsed.GetValueOrDefault("maxParallel") ?? Environment.GetEnvironmentVariable("CEO_MAX_PARALLEL"), out var mp) ? mp : 1;
 
-            var executor = new CeoExecutor(rootDir, exec, pack, maxRetries, maxParallel);
+            var supabase = GetSupabase(rootDir);
+            var executor = new CeoExecutor(rootDir, exec, pack, maxRetries, maxParallel, supabase);
             var result   = await executor.ExecuteAsync(plan, ceoDir, parsed, ct);
 
-            // ceo.json manifest
             var manifest = System.Text.Json.JsonSerializer.Serialize(new
             {
                 domainPack  = pack.Id,
@@ -236,8 +226,11 @@ public static class CommandDispatcher
     private static async Task<int> CeoAsync(string rootDir, string[] args, CancellationToken ct)
     {
         var parsed = Args.Parse(args);
-        var domainPackId = parsed.GetValueOrDefault("domainPack") ?? Environment.GetEnvironmentVariable("AGENTARMY_DOMAIN_PACK");
-        var pack = DomainPackLoader.TryLoad(rootDir, domainPackId);
+        var domainPackId = parsed.GetValueOrDefault("domainPack")
+                           ?? Environment.GetEnvironmentVariable("AGENTARMY_DOMAIN_PACK");
+
+        // DB-first pack yükleme
+        var pack = await LoadPackAsync(rootDir, domainPackId, ct);
         if (pack is null) { Console.Error.WriteLine("CEO requires a domain pack. Use --domainPack market-intel"); return 1; }
 
         var request = parsed.GetValueOrDefault("request") ?? string.Empty;
@@ -249,8 +242,11 @@ public static class CommandDispatcher
     private static async Task<int> CeoIterateAsync(string rootDir, string[] args, CancellationToken ct)
     {
         var parsed = Args.Parse(args);
-        var domainPackId = parsed.GetValueOrDefault("domainPack") ?? Environment.GetEnvironmentVariable("AGENTARMY_DOMAIN_PACK");
-        var pack = DomainPackLoader.TryLoad(rootDir, domainPackId);
+        var domainPackId = parsed.GetValueOrDefault("domainPack")
+                           ?? Environment.GetEnvironmentVariable("AGENTARMY_DOMAIN_PACK");
+
+        // DB-first pack yükleme
+        var pack = await LoadPackAsync(rootDir, domainPackId, ct);
         if (pack is null) { Console.Error.WriteLine("CEO requires a domain pack. Use --domainPack market-intel"); return 1; }
 
         var request = parsed.GetValueOrDefault("request") ?? string.Empty;
@@ -260,5 +256,46 @@ public static class CommandDispatcher
         if (string.IsNullOrWhiteSpace(answers)) { Console.Error.WriteLine("Missing --answers (JSON string)"); return 1; }
 
         return await RunCeoFlowAsync(rootDir, request, answers, parsed, pack, "iter", ct);
+    }
+
+    // ── Setup komutları ──────────────────────────────────────
+
+    private static int Setup(string rootDir, string[] args)
+    {
+        var parsed = Args.Parse(args);
+        var model = parsed.GetValueOrDefault("model")
+                    ?? Environment.GetEnvironmentVariable("OPENAI_MODEL")
+                    ?? "gpt-4.1";
+
+        Console.Write("OpenAI API key: ");
+        var key = SecretInput.ReadHiddenLine().Trim();
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            Console.Error.WriteLine("Empty key; cancelled.");
+            return 1;
+        }
+
+        LocalConfigWriter.Write(rootDir, key, model);
+        Console.WriteLine("Saved to agentarmy.local.json (gitignored).");
+        return 0;
+    }
+
+    private static int SetupFromEnv(string rootDir, string[] args)
+    {
+        var parsed = Args.Parse(args);
+        var model = parsed.GetValueOrDefault("model")
+                    ?? Environment.GetEnvironmentVariable("OPENAI_MODEL")
+                    ?? "gpt-4.1";
+
+        var key = Environment.GetEnvironmentVariable("OPENAI_API_KEY");
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            Console.Error.WriteLine("Missing OPENAI_API_KEY in environment.");
+            return 1;
+        }
+
+        LocalConfigWriter.Write(rootDir, key.Trim(), model);
+        Console.WriteLine("Saved to agentarmy.local.json (gitignored).");
+        return 0;
     }
 }

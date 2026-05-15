@@ -492,6 +492,9 @@ async function processOne(supabase: ReturnType<typeof getSupabaseAdmin>, job: Ru
 
     const { code, stdout, stderr } = await runCmd('dotnet', dotnetArgs, {
       OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+      // Supabase credentials: CLI DB-first loader için gerekli
+      SUPABASE_URL: process.env.SUPABASE_URL,
+      SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
       DOTNET_CLI_TELEMETRY_OPTOUT: '1',
       DOTNET_NOLOGO: '1',
     }, repoRoot)
