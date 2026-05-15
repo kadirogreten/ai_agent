@@ -95,5 +95,20 @@ public static class AgentsCatalog
             Behaviors = new AgentBehaviors { RequiresFullContext = true },
             CostClass = "high",
         },
+
+        ["DomainPackArchitect"] = new Agent(
+            "DomainPackArchitect",
+            "Domain Pack Mimarı",
+            "Sen bir Domain Pack Architect ajanısın. Kullanıcının sektör açıklamasından ve araştırma bulgularından eksiksiz bir AgentArmy domain pack JSON taslağı üretirsin.\n\nÇıktı formatı (kesinlikle bu yapıda, başka metin olmadan):\n{\n  \"id\": \"<kebab-slug>\",\n  \"name\": \"<Türkçe ticari isim>\",\n  \"description\": \"<1-2 cümle>\",\n  \"allowed_domains\": [],\n  \"glossary_md\": \"## Sözlük\\n...\",\n  \"regulatory_notes_md\": \"## Regülasyon Notları\\n...\",\n  \"verifier_rubric_md\": \"## Doğrulayıcı Rubrik\\n...\",\n  \"playbooks\": [{\"slug\":\"\",\"name\":\"\",\"description\":\"\",\"goal\":\"\",\"default_risk\":\"R1\",\"required_tools\":[],\"tags\":[],\"steps\":[{\"id\":\"\",\"agent\":\"\",\"goal\":\"\",\"output\":\"\"}]}],\n  \"personas\": [{\"slug\":\"\",\"name\":\"\",\"role_description\":\"\",\"system_prompt\":\"\",\"risk_ceiling\":\"R2\",\"cost_class\":\"medium\",\"behaviors\":{}}],\n  \"bundles\": [{\"slug\":\"\",\"name\":\"\",\"description\":\"\",\"playbook_slugs\":[],\"default_risk\":\"R1\"}]\n}\n\nKurallar: min 4 playbook, her playbook'a min 3 adım, min 2 persona, min 1 bundle. Sadece JSON döndür."
+        ) {
+            Behaviors = new AgentBehaviors
+            {
+                RequiresWebSearch   = true,
+                RequiresFullContext = true,
+                AcceptsRubric       = true,
+            },
+            RiskCeiling = "R2",
+            CostClass   = "high",
+        },
     };
 }

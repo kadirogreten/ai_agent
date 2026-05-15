@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "id": "sector-discovery-and-scaffold",
+  "title": "Sektör Keşif ve İskelet Oluşturma",
+  "defaultPersona": "default",
+  "defaultRisk": "R2",
+  "steps": [
+    {
+      "id": "sector_research",
+      "agent": "Researcher",
+      "goal": "Sektörün temel iş akışlarını, yasal gereksinimlerini ve rekabetçi araçları belirle. En az 5 güvenilir kaynak bul.",
+      "output": "Sektör özeti: iş akışları + yasal gereksinimler + rekabet haritası"
+    },
+    {
+      "id": "gap_analysis",
+      "agent": "Analyst",
+      "goal": "Mevcut domain pack'lerle örtüşen ve örtüşmeyen alanları analiz et. Hangi playbook'ların gerekli olduğunu listele.",
+      "output": "Boşluk analizi tablosu + önerilen playbook listesi"
+    },
+    {
+      "id": "scaffold",
+      "agent": "DomainPackArchitect",
+      "goal": "Araştırma ve analiz bulgularını kullanarak eksiksiz domain pack JSON taslağı oluştur. Sadece JSON döndür — başka metin yok.\n\nŞu yapıyı kullan:\n{\n  \"id\": \"<kebab-slug>\",\n  \"name\": \"<Türkçe isim>\",\n  \"description\": \"<açıklama>\",\n  \"allowed_domains\": [],\n  \"glossary_md\": \"...\",\n  \"regulatory_notes_md\": \"...\",\n  \"verifier_rubric_md\": \"...\",\n  \"playbooks\": [{\"slug\":\"\",\"name\":\"\",\"description\":\"\",\"goal\":\"\",\"default_risk\":\"R1\",\"required_tools\":[],\"tags\":[],\"steps\":[{\"id\":\"\",\"agent\":\"\",\"goal\":\"\",\"output\":\"\"}]}],\n  \"personas\": [{\"slug\":\"\",\"name\":\"\",\"role_description\":\"\",\"system_prompt\":\"\",\"risk_ceiling\":\"R2\",\"cost_class\":\"medium\",\"behaviors\":{}}],\n  \"bundles\": [{\"slug\":\"\",\"name\":\"\",\"description\":\"\",\"playbook_slugs\":[],\"default_risk\":\"R1\"}]\n}",
+      "output": "Tam domain pack JSON"
+    },
+    {
+      "id": "verify",
+      "agent": "Verifier",
+      "goal": "JSON geçerliliğini, playbook adımlarının tutarlılığını ve risk sınıfı atamalarını doğrula.",
+      "output": "Denetim raporu + PASS/FAIL"
+    }
+  ]
+}
