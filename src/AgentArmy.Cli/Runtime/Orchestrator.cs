@@ -19,6 +19,36 @@ public sealed class Orchestrator
     private readonly OpenAiImageClient? _images;
     private readonly FactsIndex? _factsIndex;
     private readonly string? _preloadedPersonaText;
+    // Persona behavior katmanı — core agent behaviors üstüne OR edilir.
+    private readonly AgentBehaviors? _personaBehaviorOverrides;
+    // Persona'nın risk tavanı — null ise kısıtlama yok.
+    private readonly string? _personaRiskCeiling;
+
+    private static readonly string[] RiskOrder = ["R0", "R1", "R2", "R3"];
+
+    private static int RiskRank(string? risk) =>
+        Array.IndexOf(RiskOrder, (risk ?? "R1").ToUpperInvariant().Trim());
+
+    // İki risk tavanından katısını (daha düşük indeksli olanı) döner.
+    private static string StricterCeiling(string agentCeiling, string? personaCeiling)
+    {
+        if (string.IsNullOrWhiteSpace(personaCeiling)) return agentCeiling;
+        return RiskRank(agentCeiling) <= RiskRank(personaCeiling) ? agentCeiling : personaCeiling;
+    }
+
+    // Persona davranışlarını core agent davranışlarının üstüne OR ile uygular.
+    private static AgentBehaviors MergeBehaviors(AgentBehaviors agent, AgentBehaviors persona) =>
+        new AgentBehaviors
+        {
+            RequiresWebSearch      = agent.RequiresWebSearch      || persona.RequiresWebSearch,
+            RequiresFullContext    = agent.RequiresFullContext    || persona.RequiresFullContext,
+            WritesToFacts          = agent.WritesToFacts          || persona.WritesToFacts,
+            WritesToDecisions      = agent.WritesToDecisions      || persona.WritesToDecisions,
+            CapturesVerifierReport = agent.CapturesVerifierReport || persona.CapturesVerifierReport,
+            TriggersContrarian     = agent.TriggersContrarian     || persona.TriggersContrarian,
+            AcceptsRubric          = agent.AcceptsRubric          || persona.AcceptsRubric,
+            PrefersDomainAllowlist = agent.PrefersDomainAllowlist || persona.PrefersDomainAllowlist,
+        };
 
     // Context budget — sliding window. ~16K char ≈ ~4K token (mixed TR/EN).
     private const int MaxContextChars = 16000;
@@ -38,7 +68,7 @@ public sealed class Orchestrator
         IReadOnlyDictionary<string, Agent>? agentOverrides,
         OpenAiImageClient? images,
         FactsIndex? factsIndex = null,
-        string? preloadedPersonaText = null
+        Persona? preloadedPersona = null
     )
     {
         _llm              = llm;
@@ -53,7 +83,9 @@ public sealed class Orchestrator
         _runId            = runId;
         _images               = images;
         _factsIndex           = factsIndex;
-        _preloadedPersonaText = preloadedPersonaText;
+        _preloadedPersonaText = preloadedPersona?.ContentMd;
+        _personaBehaviorOverrides = preloadedPersona?.BehaviorOverrides;
+        _personaRiskCeiling       = preloadedPersona?.RiskCeiling;
 
         var merged = new Dictionary<string, Agent>(AgentsCatalog.All, StringComparer.OrdinalIgnoreCase);
         if (agentOverrides is not null)
@@ -105,6 +137,29 @@ public sealed class Orchestrator
         foreach (var step in steps)
         {
             var agent       = ResolveAgent(step.Agent);
+
+            // Risk ceiling — persona veya agent tavanını aşan görevler bloklanır.
+            var taskRisk = ctx.Contract.Risk ?? "R1";
+            var ceiling  = StricterCeiling(agent.RiskCeiling, _personaRiskCeiling);
+            if (RiskRank(taskRisk) > RiskRank(ceiling))
+            {
+                await ctx.AppendLogAsync(new
+                {
+                    type     = "step_blocked",
+                    reason   = "risk_ceiling_exceeded",
+                    ts       = DateTimeOffset.UtcNow,
+                    runId    = ctx.RunId,
+                    playbook = ctx.Playbook.Id,
+                    step     = step.Id,
+                    agent    = agent.Id,
+                    task_risk = taskRisk,
+                    ceiling
+                }, ct);
+                throw new InvalidOperationException(
+                    $"Adım '{step.Id}' bloklandı: görev riski {taskRisk} > " +
+                    $"efektif tavan {ceiling} (ajan={agent.RiskCeiling}, persona={_personaRiskCeiling ?? "—"}).");
+            }
+
             var extraPolicy = BuildExtraPolicy(agent);
             var system      = PromptBuilder.BuildSystemPrompt(agent, personaText, extraPolicy);
 
@@ -443,7 +498,8 @@ public sealed class Orchestrator
     {
         if (!_agents.TryGetValue(agentId, out var agent))
             throw new InvalidOperationException($"Unknown agent: {agentId}");
-        return agent;
+        if (_personaBehaviorOverrides is null) return agent;
+        return agent with { Behaviors = MergeBehaviors(agent.Behaviors, _personaBehaviorOverrides) };
     }
 
     private string LoadPersonaText(string personaFromArgs, string defaultPersona)

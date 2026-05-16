@@ -1,16 +1,16 @@
 namespace AgentArmy.Cli;
 
 /// <summary>
-/// Persona content yükleyici — DB-first, dosya fallback.
+/// Persona yükleyici — DB-first, dosya fallback.
 /// Tek hakikat kaynağı Supabase personas tablosu; disk eski içerikler için yedek.
 /// </summary>
 public static class PersonaLoader
 {
     /// <summary>
-    /// Persona içeriğini (system prompt + persona bağlamı) düz metin olarak döner.
-    /// DB'de bulunamazsa repo'daki personas/{slug}.md dosyasına bakar.
+    /// Persona'yı behaviors + risk_ceiling dahil tam nesne olarak döner.
+    /// DB'de bulunamazsa disk fallback ile ContentMd dolu, behaviors boş bir Persona döner.
     /// </summary>
-    public static async Task<string> LoadTextAsync(
+    public static async Task<Persona> LoadAsync(
         string rootDir,
         DomainPack? domainPack,
         string personaSlug,
@@ -18,16 +18,16 @@ public static class PersonaLoader
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(personaSlug))
-            return string.Empty;
+            return new Persona(string.Empty, string.Empty);
 
         // 1. DB önce
         if (supabase?.IsConfigured == true && domainPack is not null)
         {
             try
             {
-                var content = await DomainPackDbLoader.TryLoadPersonaMdAsync(
+                var persona = await DomainPackDbLoader.TryLoadPersonaAsync(
                     supabase, domainPack.Id, personaSlug, ct);
-                if (!string.IsNullOrWhiteSpace(content)) return content!;
+                if (persona is not null) return persona;
             }
             catch (Exception ex)
             {
@@ -36,11 +36,26 @@ public static class PersonaLoader
             }
         }
 
-        // 2. Disk fallback (repo'daki personas/{slug}.md)
+        // 2. Disk fallback (repo'daki personas/{slug}.md) — behaviors yok
         var path = Path.Combine(rootDir, "personas", personaSlug + ".md");
-        if (File.Exists(path))
-            return File.ReadAllText(path);
+        var contentMd = File.Exists(path)
+            ? File.ReadAllText(path)
+            : $"Persona içeriği bulunamadı: {personaSlug}";
 
-        return $"Persona içeriği bulunamadı: {personaSlug}";
+        return new Persona(personaSlug, contentMd);
+    }
+
+    /// <summary>
+    /// Geriye dönük uyumluluk için — sadece metin döner. Yeni kod <see cref="LoadAsync"/> kullanmalı.
+    /// </summary>
+    public static async Task<string> LoadTextAsync(
+        string rootDir,
+        DomainPack? domainPack,
+        string personaSlug,
+        LocalConfig.SupabaseConfigSection? supabase = null,
+        CancellationToken ct = default)
+    {
+        var persona = await LoadAsync(rootDir, domainPack, personaSlug, supabase, ct);
+        return persona.ContentMd;
     }
 }

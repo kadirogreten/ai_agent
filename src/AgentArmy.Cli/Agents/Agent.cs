@@ -28,3 +28,12 @@ public sealed record Agent(string Id, string DisplayName, string SystemPrompt)
     public string CostClass          { get; init; } = "low";
 }
 
+// Persona: DB'den yüklenen kimlik katmanı. BehaviorOverrides, core agent davranışlarının üstüne OR edilir.
+// RiskCeiling null ise persona hiçbir kısıtlama getirmez; değer varsa core agent ceiling ile kıyaslanır, katısı kazanır.
+public sealed record Persona(string Slug, string ContentMd)
+{
+    public AgentBehaviors BehaviorOverrides { get; init; } = new AgentBehaviors();
+    public string?        RiskCeiling       { get; init; } = null;
+    public string         CostClass         { get; init; } = "medium";
+}
+

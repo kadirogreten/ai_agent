@@ -107,10 +107,11 @@ public static class DomainPackDbLoader
     }
 
     /// <summary>
-    /// Belirli bir persona slug'ının content_md alanını DB'den çeker.
+    /// Belirli bir persona slug'ını DB'den tam <see cref="Persona"/> nesnesi olarak yükler.
+    /// behaviors, risk_ceiling ve cost_class alanları da çekilir ve C# tipine dönüştürülür.
     /// pack-spesifik persona yoksa cross-domain (pack_id IS NULL) persona aranır.
     /// </summary>
-    public static async Task<string?> TryLoadPersonaMdAsync(
+    public static async Task<Persona?> TryLoadPersonaAsync(
         LocalConfig.SupabaseConfigSection supabase,
         string packId,
         string slug,
@@ -121,7 +122,7 @@ public static class DomainPackDbLoader
         var url = $"{supabase.EffectiveUrl}/rest/v1/personas" +
                   $"?slug=eq.{Uri.EscapeDataString(slug)}" +
                   $"&or=(pack_id.eq.{Uri.EscapeDataString(packId)},pack_id.is.null)" +
-                  $"&select=slug,content_md,system_prompt,role_description" +
+                  $"&select=slug,content_md,system_prompt,role_description,behaviors,risk_ceiling,cost_class" +
                   $"&limit=2";
 
         var response = await http.GetAsync(url, ct);
@@ -131,12 +132,34 @@ public static class DomainPackDbLoader
         var rows = JsonSerializer.Deserialize<List<DbPersonaRow>>(body, _json);
         if (rows is null || rows.Count == 0) return null;
 
-        // pack-spesifik öncelik
+        // pack-spesifik öncelik: ContentMd dolu olan tercih edilir
         var primary = rows.Find(r => !string.IsNullOrWhiteSpace(r.ContentMd)) ?? rows[0];
-        if (!string.IsNullOrWhiteSpace(primary.ContentMd)) return primary.ContentMd;
-        if (!string.IsNullOrWhiteSpace(primary.SystemPrompt)) return primary.SystemPrompt;
-        if (!string.IsNullOrWhiteSpace(primary.RoleDescription)) return primary.RoleDescription;
-        return null;
+
+        var contentMd = primary.ContentMd
+                     ?? primary.SystemPrompt
+                     ?? primary.RoleDescription
+                     ?? string.Empty;
+
+        return new Persona(primary.Slug, contentMd)
+        {
+            BehaviorOverrides = primary.ParseBehaviors(),
+            RiskCeiling       = string.IsNullOrWhiteSpace(primary.RiskCeiling) ? null : primary.RiskCeiling,
+            CostClass         = primary.CostClass ?? "medium"
+        };
+    }
+
+    /// <summary>
+    /// Geriye dönük uyumluluk için — sadece content_md metnini döner.
+    /// Yeni kod <see cref="TryLoadPersonaAsync"/> kullanmalı.
+    /// </summary>
+    public static async Task<string?> TryLoadPersonaMdAsync(
+        LocalConfig.SupabaseConfigSection supabase,
+        string packId,
+        string slug,
+        CancellationToken ct = default)
+    {
+        var persona = await TryLoadPersonaAsync(supabase, packId, slug, ct);
+        return persona?.ContentMd;
     }
 
     /// <summary>
@@ -261,6 +284,31 @@ public static class DomainPackDbLoader
         [JsonPropertyName("content_md")]       public string? ContentMd { get; set; }
         [JsonPropertyName("system_prompt")]    public string? SystemPrompt { get; set; }
         [JsonPropertyName("role_description")] public string? RoleDescription { get; set; }
+        [JsonPropertyName("behaviors")]        public JsonElement? Behaviors { get; set; }
+        [JsonPropertyName("risk_ceiling")]     public string? RiskCeiling { get; set; }
+        [JsonPropertyName("cost_class")]       public string? CostClass { get; set; }
+
+        public AgentBehaviors ParseBehaviors()
+        {
+            if (!Behaviors.HasValue || Behaviors.Value.ValueKind != JsonValueKind.Object)
+                return new AgentBehaviors();
+
+            var b = Behaviors.Value;
+            return new AgentBehaviors
+            {
+                RequiresWebSearch      = GetBool(b, "requires_web_search"),
+                RequiresFullContext    = GetBool(b, "requires_full_context"),
+                WritesToFacts          = GetBool(b, "writes_to_facts"),
+                WritesToDecisions      = GetBool(b, "writes_to_decisions"),
+                CapturesVerifierReport = GetBool(b, "captures_verifier_report"),
+                TriggersContrarian     = GetBool(b, "triggers_contrarian"),
+                AcceptsRubric          = GetBool(b, "accepts_rubric"),
+                PrefersDomainAllowlist = GetBool(b, "prefers_domain_allowlist")
+            };
+
+            static bool GetBool(JsonElement el, string key) =>
+                el.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.True;
+        }
     }
 
     public sealed class DbBundleRow

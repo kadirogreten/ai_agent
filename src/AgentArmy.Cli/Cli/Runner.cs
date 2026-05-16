@@ -162,8 +162,9 @@ public static class Runner
                 : null;
 
             // Persona: DB-first (personas tablosu) + disk fallback.
+            // LoadAsync behaviors + risk_ceiling'i de getirir; Orchestrator bunları enforce eder.
             var personaSlug = exec.Args.GetValueOrDefault("persona") ?? playbook.DefaultPersona;
-            var personaText = await PersonaLoader.LoadTextAsync(
+            var persona = await PersonaLoader.LoadAsync(
                 rootDir, exec.DomainPack, personaSlug, supabase, ct);
 
             var orchestrator = new Orchestrator(
@@ -174,7 +175,7 @@ public static class Runner
                 playbook.Id, runId,
                 agentOverrides, images,
                 factsIndex,
-                personaText
+                persona
             );
 
             var contract = BuildContract(exec, playbook);
