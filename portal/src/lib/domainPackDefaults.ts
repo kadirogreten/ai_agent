@@ -1,3 +1,13 @@
+export type PackOption = { id: string; label: string }
+
+/** Built-in domain packs (repo domain-packs/). DB'de yoksa bile formda görünür. */
+export const BUILTIN_DOMAIN_PACKS: PackOption[] = [
+  { id: 'market-intel', label: 'Market Intel' },
+  { id: 'e-ticaret', label: 'E-Ticaret' },
+  { id: 'hibe-yazimi', label: 'Hibe Yazımı (TÜBİTAK)' },
+  { id: 'system', label: 'System' },
+]
+
 /** Built-in bundle ids per domain pack (matches domain-packs bundle JSON files). */
 export const BUNDLES_BY_DOMAIN: Record<string, { id: string; label: string }[]> = {
   'market-intel': [{ id: 'weekly', label: 'weekly' }],
@@ -37,4 +47,47 @@ export function defaultPlaybookIdForPack(domainPack: string): string {
 
 export function bundleIdsForPack(domainPack: string): string[] {
   return (BUNDLES_BY_DOMAIN[domainPack] ?? []).map((b) => b.id)
+}
+
+export function mergeDomainPackOptions(dbPacks: { id: string; name: string }[]): PackOption[] {
+  const map = new Map<string, string>()
+  for (const p of BUILTIN_DOMAIN_PACKS) {
+    map.set(p.id, p.label)
+  }
+  for (const row of dbPacks) {
+    if (row.id) map.set(row.id, row.name?.trim() || row.id)
+  }
+  return [...map.entries()]
+    .map(([id, label]) => ({ id, label }))
+    .sort((a, b) => a.label.localeCompare(b.label, 'tr'))
+}
+
+export function mergeBundleOptions(
+  packId: string,
+  dbBundles: { slug: string; name: string }[],
+): PackOption[] {
+  const map = new Map<string, string>()
+  for (const b of BUNDLES_BY_DOMAIN[packId] ?? []) {
+    map.set(b.id, b.label)
+  }
+  for (const row of dbBundles) {
+    const slug = row.slug?.trim()
+    if (slug) map.set(slug, row.name?.trim() || slug)
+  }
+  return [...map.entries()].map(([id, label]) => ({ id, label }))
+}
+
+export function mergePlaybookOptions(
+  packId: string,
+  dbPlaybooks: { slug: string; name: string }[],
+): PackOption[] {
+  const map = new Map<string, string>()
+  for (const slug of PLAYBOOKS_BY_DOMAIN[packId] ?? []) {
+    map.set(slug, slug)
+  }
+  for (const row of dbPlaybooks) {
+    const slug = row.slug?.trim()
+    if (slug) map.set(slug, row.name?.trim() || slug)
+  }
+  return [...map.entries()].map(([id, label]) => ({ id, label }))
 }

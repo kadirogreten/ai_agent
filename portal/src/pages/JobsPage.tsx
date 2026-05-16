@@ -6,11 +6,18 @@ import { Card } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
+import { listPlaybookBundles } from '@/lib/bundles'
+import { listDomainPacks, listPlaybooksForPack } from '@/lib/domainPacks'
 import {
-  BUNDLES_BY_DOMAIN,
-  defaultBundleIdForPack,
-  defaultPlaybookIdForPack,
+  BUILTIN_DOMAIN_PACKS,
+  mergeBundleOptions,
+  mergeDomainPackOptions,
+  mergePlaybookOptions,
+  type PackOption,
 } from '@/lib/domainPackDefaults'
+
+const selectClassName =
+  'h-10 w-full rounded-md border border-white/10 bg-white/5 px-3 text-sm text-white outline-none focus:border-blue-400'
 
 type JobStatus = 'pending' | 'running' | 'success' | 'fail' | 'cancelled'
 type JobMode = 'ceo' | 'ceo-iterate' | 'run' | 'bundle'
@@ -75,6 +82,13 @@ export default function JobsPage() {
   const [allowHighRisk, setAllowHighRisk] = useState(false)
   const [saving, setSaving] = useState(false)
   const [formErr, setFormErr] = useState<string | null>(null)
+  const [domainPackOptions, setDomainPackOptions] = useState<PackOption[]>(BUILTIN_DOMAIN_PACKS)
+  const [bundleOptions, setBundleOptions] = useState<PackOption[]>(
+    () => mergeBundleOptions('market-intel', []),
+  )
+  const [playbookOptions, setPlaybookOptions] = useState<PackOption[]>(
+    () => mergePlaybookOptions('market-intel', []),
+  )
 
   const canQuery = initialized && !!user
 
@@ -96,13 +110,71 @@ export default function JobsPage() {
   }, [init])
 
   useEffect(() => {
-    setBundleId(defaultBundleIdForPack(domainPack))
-    setPlaybookId(defaultPlaybookIdForPack(domainPack))
+    if (!formOpen || !canQuery) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const packs = await listDomainPacks()
+        if (!cancelled) {
+          setDomainPackOptions(mergeDomainPackOptions(packs.map((p) => ({ id: p.id, name: p.name }))))
+        }
+      } catch {
+        if (!cancelled) setDomainPackOptions(BUILTIN_DOMAIN_PACKS)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [formOpen, canQuery])
+
+  useEffect(() => {
+    if (!domainPack) return
+    let cancelled = false
+    ;(async () => {
+      const [bundleRes, playbookRows] = await Promise.all([
+        listPlaybookBundles({ q: '', packId: domainPack, limit: 50 }),
+        listPlaybooksForPack(domainPack).catch(() => []),
+      ])
+      if (cancelled) return
+      const bundles = mergeBundleOptions(
+        domainPack,
+        (bundleRes.data ?? []).map((b) => ({ slug: b.slug, name: b.name })),
+      )
+      const playbooks = mergePlaybookOptions(
+        domainPack,
+        playbookRows.map((p) => ({ slug: p.slug, name: p.name })),
+      )
+      setBundleOptions(bundles)
+      setPlaybookOptions(playbooks)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [domainPack])
+
+  useEffect(() => {
     if (domainPack === 'hibe-yazimi') {
       setRisk('R2')
       setAllowHighRisk(true)
+    } else if (domainPack === 'market-intel') {
+      setRisk('R1')
+      setAllowHighRisk(false)
     }
   }, [domainPack])
+
+  useEffect(() => {
+    if (bundleOptions.length === 0) return
+    if (!bundleOptions.some((b) => b.id === bundleId)) {
+      setBundleId(bundleOptions[0].id)
+    }
+  }, [bundleOptions, bundleId])
+
+  useEffect(() => {
+    if (playbookOptions.length === 0) return
+    if (!playbookOptions.some((p) => p.id === playbookId)) {
+      setPlaybookId(playbookOptions[0].id)
+    }
+  }, [playbookOptions, playbookId])
 
   const filters = useMemo(() => ({ q, status, mode }), [q, status, mode])
 
@@ -290,7 +362,15 @@ export default function JobsPage() {
             </div>
             <div>
               <div className="mb-1 text-xs text-white/60">Domain Pack</div>
-              <Input value={domainPack} onChange={(e) => setDomainPack(e.target.value)} />
+              <select
+                value={domainPack}
+                onChange={(e) => setDomainPack(e.target.value)}
+                className={selectClassName}
+              >
+                {domainPackOptions.map((p) => (
+                  <option key={p.id} value={p.id}>{p.label}</option>
+                ))}
+              </select>
             </div>
             <div className="md:col-span-2">
               <div className="mb-1 text-xs text-white/60">
@@ -306,20 +386,32 @@ export default function JobsPage() {
             {formMode === 'run' ? (
               <div>
                 <div className="mb-1 text-xs text-white/60">playbookId</div>
-                <Input value={playbookId} onChange={(e) => setPlaybookId(e.target.value)} placeholder="brand-site" />
+                {playbookOptions.length > 0 ? (
+                  <select
+                    value={playbookId}
+                    onChange={(e) => setPlaybookId(e.target.value)}
+                    className={selectClassName}
+                  >
+                    {playbookOptions.map((p) => (
+                      <option key={p.id} value={p.id}>{p.label}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <Input value={playbookId} onChange={(e) => setPlaybookId(e.target.value)} placeholder="playbook id" />
+                )}
               </div>
             ) : null}
 
             {formMode === 'bundle' ? (
               <div>
                 <div className="mb-1 text-xs text-white/60">bundleId</div>
-                {(BUNDLES_BY_DOMAIN[domainPack] ?? []).length > 0 ? (
+                {bundleOptions.length > 0 ? (
                   <select
                     value={bundleId}
                     onChange={(e) => setBundleId(e.target.value)}
-                    className="h-10 w-full rounded-md border border-white/10 bg-white/5 px-3 text-sm text-white outline-none"
+                    className={selectClassName}
                   >
-                    {(BUNDLES_BY_DOMAIN[domainPack] ?? []).map((b) => (
+                    {bundleOptions.map((b) => (
                       <option key={b.id} value={b.id}>{b.label}</option>
                     ))}
                   </select>
