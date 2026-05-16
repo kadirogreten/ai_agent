@@ -161,9 +161,9 @@ public static class Runner
                 ? new FactsIndex(db, exec.DomainPack.Id)
                 : null;
 
-            // Persona: DB-first (personas tablosu) + disk fallback.
+            // Persona: DB-first profil (behaviors + risk_ceiling overlay) + disk fallback.
             var personaSlug = exec.Args.GetValueOrDefault("persona") ?? playbook.DefaultPersona;
-            var personaText = await PersonaLoader.LoadTextAsync(
+            var personaProfile = await PersonaLoader.LoadProfileAsync(
                 rootDir, exec.DomainPack, personaSlug, supabase, ct);
 
             var orchestrator = new Orchestrator(
@@ -174,7 +174,7 @@ public static class Runner
                 playbook.Id, runId,
                 agentOverrides, images,
                 factsIndex,
-                personaText
+                personaProfile
             );
 
             var contract = BuildContract(exec, playbook);

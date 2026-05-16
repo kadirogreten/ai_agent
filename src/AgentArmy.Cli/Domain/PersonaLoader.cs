@@ -1,16 +1,14 @@
 namespace AgentArmy.Cli;
 
 /// <summary>
-/// Persona content yükleyici — DB-first, dosya fallback.
-/// Tek hakikat kaynağı Supabase personas tablosu; disk eski içerikler için yedek.
+/// Persona yükleyici — DB-first, dosya fallback.
 /// </summary>
 public static class PersonaLoader
 {
     /// <summary>
-    /// Persona içeriğini (system prompt + persona bağlamı) düz metin olarak döner.
-    /// DB'de bulunamazsa repo'daki personas/{slug}.md dosyasına bakar.
+    /// Persona profili: markdown bağlamı + davranış/risk overlay (DB'den).
     /// </summary>
-    public static async Task<string> LoadTextAsync(
+    public static async Task<PersonaProfile> LoadProfileAsync(
         string rootDir,
         DomainPack? domainPack,
         string personaSlug,
@@ -18,16 +16,16 @@ public static class PersonaLoader
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(personaSlug))
-            return string.Empty;
+            return PersonaProfile.FromMarkdownOnly("default", string.Empty);
 
-        // 1. DB önce
         if (supabase?.IsConfigured == true && domainPack is not null)
         {
             try
             {
-                var content = await DomainPackDbLoader.TryLoadPersonaMdAsync(
+                var profile = await DomainPackDbLoader.TryLoadPersonaProfileAsync(
                     supabase, domainPack.Id, personaSlug, ct);
-                if (!string.IsNullOrWhiteSpace(content)) return content!;
+                if (profile is not null)
+                    return profile;
             }
             catch (Exception ex)
             {
@@ -36,11 +34,24 @@ public static class PersonaLoader
             }
         }
 
-        // 2. Disk fallback (repo'daki personas/{slug}.md)
         var path = Path.Combine(rootDir, "personas", personaSlug + ".md");
         if (File.Exists(path))
-            return File.ReadAllText(path);
+            return PersonaProfile.FromMarkdownOnly(personaSlug, File.ReadAllText(path));
 
-        return $"Persona içeriği bulunamadı: {personaSlug}";
+        return PersonaProfile.FromMarkdownOnly(
+            personaSlug,
+            $"Persona içeriği bulunamadı: {personaSlug}");
+    }
+
+    /// <summary>Geriye dönük: yalnızca markdown bağlamı.</summary>
+    public static async Task<string> LoadTextAsync(
+        string rootDir,
+        DomainPack? domainPack,
+        string personaSlug,
+        LocalConfig.SupabaseConfigSection? supabase = null,
+        CancellationToken ct = default)
+    {
+        var profile = await LoadProfileAsync(rootDir, domainPack, personaSlug, supabase, ct);
+        return profile.ContextMarkdown;
     }
 }

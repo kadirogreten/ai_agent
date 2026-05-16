@@ -53,5 +53,26 @@ public static class RiskPolicy
         }
         args["risk"] = code;
     }
+
+    /// <summary>
+    /// Görev/playbook risk seviyesi persona tavanını aşıyorsa hata fırlatır.
+    /// Örn. persona R2 iken görev R3 → reddedilir.
+    /// </summary>
+    public static void EnforceTaskRiskAgainstPersonaCeiling(string taskRisk, PersonaProfile persona)
+    {
+        var taskRank    = Rank(taskRisk);
+        var ceilingRank = Rank(persona.RiskCeiling);
+        if (taskRank <= ceilingRank) return;
+
+        throw new InvalidOperationException(
+            $"Görev riski ({NormalizeRiskLabel(taskRisk)}) persona '{persona.Slug}' tavanını " +
+            $"({NormalizeRiskLabel(persona.RiskCeiling)}) aşıyor. Daha düşük risk seçin veya farklı persona kullanın.");
+    }
+
+    private static string NormalizeRiskLabel(string risk)
+    {
+        var r = (risk ?? "R1").Trim().ToUpperInvariant();
+        return r is "R0" or "R1" or "R2" or "R3" ? r : "R1";
+    }
 }
 

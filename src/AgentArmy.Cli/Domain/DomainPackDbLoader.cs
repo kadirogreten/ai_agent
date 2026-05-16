@@ -116,13 +116,27 @@ public static class DomainPackDbLoader
         string slug,
         CancellationToken ct = default)
     {
+        var profile = await TryLoadPersonaProfileAsync(supabase, packId, slug, ct);
+        if (profile is null) return null;
+        return string.IsNullOrWhiteSpace(profile.ContextMarkdown) ? null : profile.ContextMarkdown;
+    }
+
+    /// <summary>
+    /// Persona tam profili: markdown bağlamı + behaviors/risk_ceiling/cost_class overlay.
+    /// </summary>
+    public static async Task<PersonaProfile?> TryLoadPersonaProfileAsync(
+        LocalConfig.SupabaseConfigSection supabase,
+        string packId,
+        string slug,
+        CancellationToken ct = default)
+    {
         using var http = BuildClient(supabase);
 
         var url = $"{supabase.EffectiveUrl}/rest/v1/personas" +
                   $"?slug=eq.{Uri.EscapeDataString(slug)}" +
                   $"&or=(pack_id.eq.{Uri.EscapeDataString(packId)},pack_id.is.null)" +
-                  $"&select=slug,content_md,system_prompt,role_description" +
-                  $"&limit=2";
+                  $"&select=slug,pack_id,content_md,system_prompt,role_description,behaviors,risk_ceiling,cost_class" +
+                  $"&limit=10";
 
         var response = await http.GetAsync(url, ct);
         response.EnsureSuccessStatusCode();
@@ -131,12 +145,18 @@ public static class DomainPackDbLoader
         var rows = JsonSerializer.Deserialize<List<DbPersonaRow>>(body, _json);
         if (rows is null || rows.Count == 0) return null;
 
-        // pack-spesifik öncelik
-        var primary = rows.Find(r => !string.IsNullOrWhiteSpace(r.ContentMd)) ?? rows[0];
-        if (!string.IsNullOrWhiteSpace(primary.ContentMd)) return primary.ContentMd;
-        if (!string.IsNullOrWhiteSpace(primary.SystemPrompt)) return primary.SystemPrompt;
-        if (!string.IsNullOrWhiteSpace(primary.RoleDescription)) return primary.RoleDescription;
-        return null;
+        var primary = PickPersonaRow(rows, packId);
+        return primary.ToPersonaProfile(slug);
+    }
+
+    private static DbPersonaRow PickPersonaRow(List<DbPersonaRow> rows, string packId)
+    {
+        var packSpecific = rows.Find(r =>
+            string.Equals(r.PackId, packId, StringComparison.OrdinalIgnoreCase));
+        if (packSpecific is not null) return packSpecific;
+
+        var crossDomain = rows.Find(r => string.IsNullOrWhiteSpace(r.PackId));
+        return crossDomain ?? rows[0];
     }
 
     /// <summary>
@@ -258,9 +278,34 @@ public static class DomainPackDbLoader
     public sealed class DbPersonaRow
     {
         [JsonPropertyName("slug")]             public string Slug { get; set; } = "";
+        [JsonPropertyName("pack_id")]          public string? PackId { get; set; }
         [JsonPropertyName("content_md")]       public string? ContentMd { get; set; }
         [JsonPropertyName("system_prompt")]    public string? SystemPrompt { get; set; }
         [JsonPropertyName("role_description")] public string? RoleDescription { get; set; }
+        [JsonPropertyName("behaviors")]        public JsonElement? Behaviors { get; set; }
+        [JsonPropertyName("risk_ceiling")]     public string? RiskCeiling { get; set; }
+        [JsonPropertyName("cost_class")]       public string? CostClass { get; set; }
+
+        public PersonaProfile ToPersonaProfile(string requestedSlug)
+        {
+            var markdown = ResolveMarkdown();
+            var overlay  = BehaviorsJsonMapper.TryMap(Behaviors);
+            var ceiling  = string.IsNullOrWhiteSpace(RiskCeiling) ? "R3" : RiskCeiling.Trim();
+            return new PersonaProfile(
+                string.IsNullOrWhiteSpace(Slug) ? requestedSlug : Slug,
+                markdown,
+                overlay,
+                ceiling,
+                string.IsNullOrWhiteSpace(CostClass) ? null : CostClass.Trim());
+        }
+
+        private string ResolveMarkdown()
+        {
+            if (!string.IsNullOrWhiteSpace(ContentMd)) return ContentMd!;
+            if (!string.IsNullOrWhiteSpace(SystemPrompt)) return SystemPrompt!;
+            if (!string.IsNullOrWhiteSpace(RoleDescription)) return RoleDescription!;
+            return string.Empty;
+        }
     }
 
     public sealed class DbBundleRow

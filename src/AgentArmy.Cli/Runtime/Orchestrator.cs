@@ -18,7 +18,7 @@ public sealed class Orchestrator
     private readonly IReadOnlyDictionary<string, Agent> _agents;
     private readonly OpenAiImageClient? _images;
     private readonly FactsIndex? _factsIndex;
-    private readonly string? _preloadedPersonaText;
+    private readonly PersonaProfile _personaProfile;
 
     // Context budget — sliding window. ~16K char ≈ ~4K token (mixed TR/EN).
     private const int MaxContextChars = 16000;
@@ -38,7 +38,7 @@ public sealed class Orchestrator
         IReadOnlyDictionary<string, Agent>? agentOverrides,
         OpenAiImageClient? images,
         FactsIndex? factsIndex = null,
-        string? preloadedPersonaText = null
+        PersonaProfile? personaProfile = null
     )
     {
         _llm              = llm;
@@ -53,7 +53,7 @@ public sealed class Orchestrator
         _runId            = runId;
         _images               = images;
         _factsIndex           = factsIndex;
-        _preloadedPersonaText = preloadedPersonaText;
+        _personaProfile       = personaProfile ?? PersonaProfile.FromMarkdownOnly("default", string.Empty);
 
         var merged = new Dictionary<string, Agent>(AgentsCatalog.All, StringComparer.OrdinalIgnoreCase);
         if (agentOverrides is not null)
@@ -67,10 +67,11 @@ public sealed class Orchestrator
         if (!string.IsNullOrWhiteSpace(ctx.RunDir))
             Directory.CreateDirectory(ctx.RunDir);
 
-        // Persona: önce DB'den preload edilmiş metin, yoksa disk fallback (eski yol).
-        var personaText = !string.IsNullOrWhiteSpace(_preloadedPersonaText)
-            ? _preloadedPersonaText!
-            : LoadPersonaText(ctx.Contract.Persona, ctx.Playbook.DefaultPersona);
+        var personaText = _personaProfile.ContextMarkdown;
+        if (string.IsNullOrWhiteSpace(personaText))
+            personaText = LoadPersonaText(ctx.Contract.Persona, ctx.Playbook.DefaultPersona);
+
+        RiskPolicy.EnforceTaskRiskAgainstPersonaCeiling(ctx.Contract.Risk, _personaProfile);
 
         // Kapı 1: Hafızalı otonomi — geçmiş run'lardaki facts'leri DB'den bir kere yükle, prompt'a inject et.
         var priorFactsText = await BuildPriorFactsBlockAsync(ctx.Contract.Topic, ct);
@@ -104,7 +105,8 @@ public sealed class Orchestrator
 
         foreach (var step in steps)
         {
-            var agent       = ResolveAgent(step.Agent);
+            var coreAgent   = ResolveAgent(step.Agent);
+            var agent       = AgentBehaviorMerge.Apply(coreAgent, _personaProfile);
             var extraPolicy = BuildExtraPolicy(agent);
             var system      = PromptBuilder.BuildSystemPrompt(agent, personaText, extraPolicy);
 
@@ -194,7 +196,7 @@ public sealed class Orchestrator
                 var writeStep = ctx.Playbook.Steps.FirstOrDefault(s => s.Agent.Equals("Writer", StringComparison.OrdinalIgnoreCase));
                 if (writeStep is not null)
                 {
-                    var writer    = ResolveAgent("Writer");
+                    var writer    = AgentBehaviorMerge.Apply(ResolveAgent("Writer"), _personaProfile);
                     var fixSystem = PromptBuilder.BuildSystemPrompt(writer, personaText, extraPolicy: null);
                     var fixUser   = BuildFixPrompt(ctx, writeStep, verifierReport);
                     var fixResult = await _llm.CompleteAsync(fixSystem, fixUser, ct);
@@ -342,7 +344,7 @@ public sealed class Orchestrator
 
     private async Task RunExtraStepAsync(RunContext ctx, PlaybookStep step, string personaText, CancellationToken ct)
     {
-        var agent       = ResolveAgent(step.Agent);
+        var agent       = AgentBehaviorMerge.Apply(ResolveAgent(step.Agent), _personaProfile);
         var extraPolicy = BuildExtraPolicy(agent);
         var system      = PromptBuilder.BuildSystemPrompt(agent, personaText, extraPolicy);
         var context     = TrimContext(ctx.GetWork());
