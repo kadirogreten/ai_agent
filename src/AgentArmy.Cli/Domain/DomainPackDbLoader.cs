@@ -107,21 +107,6 @@ public static class DomainPackDbLoader
     }
 
     /// <summary>
-    /// Belirli bir persona slug'ının content_md alanını DB'den çeker.
-    /// pack-spesifik persona yoksa cross-domain (pack_id IS NULL) persona aranır.
-    /// </summary>
-    public static async Task<string?> TryLoadPersonaMdAsync(
-        LocalConfig.SupabaseConfigSection supabase,
-        string packId,
-        string slug,
-        CancellationToken ct = default)
-    {
-        var profile = await TryLoadPersonaProfileAsync(supabase, packId, slug, ct);
-        if (profile is null) return null;
-        return string.IsNullOrWhiteSpace(profile.ContextMarkdown) ? null : profile.ContextMarkdown;
-    }
-
-    /// <summary>
     /// Persona tam profili: markdown bağlamı + behaviors/risk_ceiling/cost_class overlay.
     /// </summary>
     public static async Task<PersonaProfile?> TryLoadPersonaProfileAsync(
@@ -147,6 +132,20 @@ public static class DomainPackDbLoader
 
         var primary = PickPersonaRow(rows, packId);
         return primary.ToPersonaProfile(slug);
+    }
+
+    /// <summary>
+    /// Geriye dönük uyumluluk için — yalnızca markdown bağlamını döner.
+    /// </summary>
+    public static async Task<string?> TryLoadPersonaMdAsync(
+        LocalConfig.SupabaseConfigSection supabase,
+        string packId,
+        string slug,
+        CancellationToken ct = default)
+    {
+        var profile = await TryLoadPersonaProfileAsync(supabase, packId, slug, ct);
+        if (profile is null) return null;
+        return string.IsNullOrWhiteSpace(profile.ContextMarkdown) ? null : profile.ContextMarkdown;
     }
 
     private static DbPersonaRow PickPersonaRow(List<DbPersonaRow> rows, string packId)
