@@ -137,8 +137,10 @@ public static partial class CommandDispatcher
         var exec     = Runner.BuildExecution(rootDir, parsed, domainPackId);
         var supabase = GetSupabase(rootDir);
         var topic    = parsed.GetValueOrDefault("topic") ?? string.Empty;
-        var runId    = await Runner.RunBundleAsync(rootDir, exec, bundle, topic, supabase, ct);
-        Console.WriteLine(runId);
+        var result = await Runner.RunBundleAsync(rootDir, exec, bundle, topic, supabase, ct);
+        if (result.PlaybookRunIds.Count > 0)
+            Console.WriteLine("PLAYBOOK_RUN_IDS=" + string.Join(",", result.PlaybookRunIds));
+        Console.WriteLine(result.BundleRunId);
         return 0;
     }
 

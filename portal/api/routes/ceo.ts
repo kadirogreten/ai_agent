@@ -90,6 +90,116 @@ function extractRunDir(resultJson: unknown) {
   return typeof first === 'string' ? first.trim() : null
 }
 
+function extractRunIdsFromResult(resultJson: unknown): string[] {
+  if (!resultJson || typeof resultJson !== 'object') return []
+  const r = resultJson as Record<string, unknown>
+  const ids = new Set<string>()
+  if (typeof r.run_id === 'string' && r.run_id.trim()) ids.add(r.run_id.trim())
+  if (Array.isArray(r.playbook_run_ids)) {
+    for (const x of r.playbook_run_ids) {
+      if (typeof x === 'string' && x.trim()) ids.add(x.trim())
+    }
+  }
+  return [...ids]
+}
+
+function parseClarifyingQuestions(value: unknown): string[] {
+  if (!value) return []
+  if (Array.isArray(value)) {
+    return value
+      .map((q) => (typeof q === 'string' ? q.trim() : ''))
+      .filter(Boolean)
+  }
+  return []
+}
+
+function normalizeRequestKey(text: string | null) {
+  return (text ?? '').toLowerCase().replace(/\s+/g, ' ').trim()
+}
+
+async function readQuestionsFromCeoPlans(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  job: JobRow,
+): Promise<{ questions: string[]; planText: string } | null> {
+  if (!job.domain_pack) return null
+
+  const res = await supabase
+    .from('ceo_plans')
+    .select('request_text,clarifying_questions,rationale,created_at')
+    .eq('domain_pack', job.domain_pack)
+    .order('created_at', { ascending: false })
+    .limit(8)
+
+  if (res.error) throw res.error
+  const rows = res.data ?? []
+  if (rows.length === 0) return null
+
+  const jobKey = normalizeRequestKey(job.request_text)
+  const row =
+    rows.find((r) => {
+      const planKey = normalizeRequestKey(typeof r.request_text === 'string' ? r.request_text : null)
+      if (!jobKey || !planKey) return false
+      return jobKey.includes(planKey) || planKey.includes(jobKey.slice(0, Math.min(80, jobKey.length)))
+    }) ?? rows[0]
+
+  const questions = parseClarifyingQuestions(row.clarifying_questions)
+  if (questions.length === 0) return null
+
+  const planText = typeof row.rationale === 'string' ? row.rationale : ''
+  return { questions, planText }
+}
+
+async function readQuestionsFromRunsTable(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  ownerUserId: string,
+  runIds: string[],
+): Promise<{ questions: string[]; planText: string } | null> {
+  if (runIds.length === 0) return null
+
+  const res = await supabase
+    .from('runs')
+    .select('output_text,external_id')
+    .eq('owner_user_id', ownerUserId)
+    .in('external_id', runIds)
+    .order('created_at', { ascending: false })
+    .limit(10)
+
+  if (res.error) throw res.error
+
+  for (const row of res.data ?? []) {
+    const outputText = typeof row.output_text === 'string' ? row.output_text : ''
+    const questions = parseQuestions(outputText)
+    if (questions.length > 0) {
+      return { questions, planText: extractPlanText(outputText) }
+    }
+  }
+  return null
+}
+
+async function readQuestionsFromRunOutputs(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  runIds: string[],
+): Promise<string[]> {
+  if (runIds.length === 0) return []
+
+  const res = await supabase
+    .from('run_outputs')
+    .select('content_md,output_type')
+    .in('run_id', runIds)
+    .in('output_type', ['report', 'step', 'work'])
+    .order('created_at', { ascending: false })
+    .limit(20)
+
+  if (res.error) throw res.error
+
+  for (const row of res.data ?? []) {
+    const md = typeof row.content_md === 'string' ? row.content_md : ''
+    const questions = parseQuestions(md)
+    if (questions.length > 0) return questions
+  }
+  return []
+}
+
 function parseQuestions(text: string) {
   return text
     .split('\n')
@@ -211,31 +321,50 @@ async function readQuestionsFromJob(
   job: JobRow,
 ): Promise<QuestionData> {
   const runDir = extractRunDir(job.result_json)
-  if (!runDir) {
-    return { runDir: null, questions: [], planText: '' }
+  const resultRunIds = extractRunIdsFromResult(job.result_json)
+
+  if (job.mode === 'ceo' || job.mode === 'ceo-iterate') {
+    const fromPlans = await readQuestionsFromCeoPlans(supabase, job)
+    if (fromPlans && fromPlans.questions.length > 0) {
+      return { runDir, questions: fromPlans.questions, planText: fromPlans.planText }
+    }
   }
 
-  const qPath = path.join(runDir, 'questions.md')
-  const planPath = path.join(runDir, 'plan.json')
-
-  const questionsText = await fs.readFile(qPath, 'utf8').catch(() => '')
-  const planText = await fs.readFile(planPath, 'utf8').catch(() => '')
-  const questions = parseQuestions(questionsText)
-
-  if (questions.length > 0) {
-    return { runDir, questions, planText }
+  const fromRuns = await readQuestionsFromRunsTable(supabase, ownerUserId, resultRunIds)
+  if (fromRuns && fromRuns.questions.length > 0) {
+    return { runDir, questions: fromRuns.questions, planText: fromRuns.planText }
   }
 
-  const imported = await readQuestionsFromImportedRun(supabase, ownerUserId, runDir)
-  if (!imported || imported.questions.length === 0) {
+  const fromOutputs = await readQuestionsFromRunOutputs(supabase, resultRunIds)
+  if (fromOutputs.length > 0) {
+    return { runDir, questions: fromOutputs, planText: '' }
+  }
+
+  if (runDir) {
+    const qPath = path.join(runDir, 'questions.md')
+    const planPath = path.join(runDir, 'plan.json')
+
+    const questionsText = await fs.readFile(qPath, 'utf8').catch(() => '')
+    const planText = await fs.readFile(planPath, 'utf8').catch(() => '')
+    const questions = parseQuestions(questionsText)
+
+    if (questions.length > 0) {
+      return { runDir, questions, planText }
+    }
+
+    const imported = await readQuestionsFromImportedRun(supabase, ownerUserId, runDir)
+    if (imported && imported.questions.length > 0) {
+      return {
+        runDir,
+        questions: imported.questions,
+        planText: imported.planText || planText,
+      }
+    }
+
     return { runDir, questions: [], planText }
   }
 
-  return {
-    runDir,
-    questions: imported.questions,
-    planText: imported.planText || planText,
-  }
+  return { runDir: null, questions: [], planText: '' }
 }
 
 async function loadReviews(supabase: ReturnType<typeof getSupabaseAdmin>, ownerUserId: string, jobId: string) {

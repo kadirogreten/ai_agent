@@ -215,7 +215,9 @@ public static class Runner
         }
     }
 
-    public static async Task<string> RunBundleAsync(
+    public sealed record BundleRunResult(string BundleRunId, IReadOnlyList<string> PlaybookRunIds);
+
+    public static async Task<BundleRunResult> RunBundleAsync(
         string rootDir,
         Execution exec,
         Bundle bundle,
@@ -228,6 +230,8 @@ public static class Runner
 
         var bundleRunId = DateTimeOffset.UtcNow.ToString("yyyyMMdd_HHmmss")
                           + $"_bundle_{exec.DomainPack.Id}_{bundle.Id}";
+        var ownerUserId = Environment.GetEnvironmentVariable("RUN_OWNER_USER_ID");
+        var playbookRunIds = new List<string>();
 
         // bundle manifest DB'ye yaz
         using var db = SupabaseWriter.TryCreate(supabase);
@@ -235,9 +239,10 @@ public static class Runner
         {
             await db.InsertAsync("run_outputs", new
             {
-                run_id      = bundleRunId,
-                output_type = "bundle_manifest",
-                content_json = new
+                run_id         = bundleRunId,
+                owner_user_id  = string.IsNullOrWhiteSpace(ownerUserId) ? null : ownerUserId,
+                output_type    = "bundle_manifest",
+                content_json   = new
                 {
                     id          = bundle.Id,
                     title       = bundle.Title,
@@ -254,12 +259,13 @@ public static class Runner
         {
             var playbook = PlaybookLoader.Load(rootDir, exec.DomainPack, playbookId);
             var runId    = DateTimeOffset.UtcNow.ToString("yyyyMMdd_HHmmss") + "_" + playbook.Id;
+            playbookRunIds.Add(runId);
             var runDir   = Path.Combine(rootDir, "runs", "bundles", bundleRunId, playbook.Id);
 
             exec.Args["topic"] = topic;
             await RunOneAsync(rootDir, exec, playbook, runId, runDir, supabase, ct);
         }
 
-        return bundleRunId;
+        return new BundleRunResult(bundleRunId, playbookRunIds);
     }
 }

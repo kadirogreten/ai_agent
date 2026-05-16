@@ -183,7 +183,8 @@ public sealed class CeoExecutor
         if (planned.Mode.Equals("bundle", StringComparison.OrdinalIgnoreCase))
         {
             var bundle = await BundleLoader.LoadAsync(_rootDir, _pack, planned.Id, _supabase, ct);
-            return await Runner.RunBundleAsync(_rootDir, runExec, bundle, planned.Topic, _supabase, ct);
+            var bundleResult = await Runner.RunBundleAsync(_rootDir, runExec, bundle, planned.Topic, _supabase, ct);
+            return bundleResult.BundleRunId;
         }
         else
         {

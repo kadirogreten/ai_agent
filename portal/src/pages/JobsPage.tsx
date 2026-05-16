@@ -6,6 +6,11 @@ import { Card } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
+import {
+  BUNDLES_BY_DOMAIN,
+  defaultBundleIdForPack,
+  defaultPlaybookIdForPack,
+} from '@/lib/domainPackDefaults'
 
 type JobStatus = 'pending' | 'running' | 'success' | 'fail' | 'cancelled'
 type JobMode = 'ceo' | 'ceo-iterate' | 'run' | 'bundle'
@@ -89,6 +94,15 @@ export default function JobsPage() {
   useEffect(() => {
     init()
   }, [init])
+
+  useEffect(() => {
+    setBundleId(defaultBundleIdForPack(domainPack))
+    setPlaybookId(defaultPlaybookIdForPack(domainPack))
+    if (domainPack === 'hibe-yazimi') {
+      setRisk('R2')
+      setAllowHighRisk(true)
+    }
+  }, [domainPack])
 
   const filters = useMemo(() => ({ q, status, mode }), [q, status, mode])
 
@@ -299,7 +313,19 @@ export default function JobsPage() {
             {formMode === 'bundle' ? (
               <div>
                 <div className="mb-1 text-xs text-white/60">bundleId</div>
-                <Input value={bundleId} onChange={(e) => setBundleId(e.target.value)} placeholder="weekly" />
+                {(BUNDLES_BY_DOMAIN[domainPack] ?? []).length > 0 ? (
+                  <select
+                    value={bundleId}
+                    onChange={(e) => setBundleId(e.target.value)}
+                    className="h-10 w-full rounded-md border border-white/10 bg-white/5 px-3 text-sm text-white outline-none"
+                  >
+                    {(BUNDLES_BY_DOMAIN[domainPack] ?? []).map((b) => (
+                      <option key={b.id} value={b.id}>{b.label}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <Input value={bundleId} onChange={(e) => setBundleId(e.target.value)} placeholder="bundle id" />
+                )}
               </div>
             ) : null}
 

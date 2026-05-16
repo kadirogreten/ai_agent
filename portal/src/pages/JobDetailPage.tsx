@@ -23,18 +23,25 @@ type JobRow = {
   started_at: string | null
   finished_at: string | null
   error_message: string | null
-  result_json: { run_id?: string; metrics?: Record<string, unknown>; sla?: Record<string, unknown> } | null
+  result_json: {
+    run_id?: string
+    playbook_run_ids?: string[]
+    metrics?: Record<string, unknown>
+    sla?: Record<string, unknown>
+  } | null
   created_at: string
   updated_at: string
 }
 
 type RunOutput = {
   id: string
-  step_id: string
+  run_id: string
+  step_id: string | null
   agent_id: string | null
   artifact_name: string | null
   output_type: string
   content_md: string | null
+  content_json: unknown | null
   created_at: string
 }
 
@@ -56,6 +63,28 @@ function fmtDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`
   if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`
   return `${Math.floor(ms / 60_000)}m ${Math.round((ms % 60_000) / 1000)}s`
+}
+
+function collectRunIds(job: JobRow | null): string[] {
+  if (!job?.result_json) return []
+  const ids = new Set<string>()
+  if (job.result_json.run_id) ids.add(job.result_json.run_id)
+  for (const id of job.result_json.playbook_run_ids ?? []) {
+    if (id) ids.add(id)
+  }
+  return [...ids]
+}
+
+function outputBody(o: RunOutput): string | null {
+  if (o.content_md?.trim()) return o.content_md
+  if (o.content_json != null) {
+    try {
+      return JSON.stringify(o.content_json, null, 2)
+    } catch {
+      return String(o.content_json)
+    }
+  }
+  return null
 }
 
 export default function JobDetailPage() {
@@ -81,22 +110,25 @@ export default function JobDetailPage() {
     const job = (r.data ?? null) as unknown as JobRow | null
     setRow(job)
 
-    const runId = job?.result_json?.run_id
-    if (runId) {
+    const runIds = collectRunIds(job)
+    if (runIds.length > 0) {
       const [outRes, evtRes] = await Promise.all([
         supabase
           .from('run_outputs')
-          .select('id,step_id,agent_id,artifact_name,output_type,content_md,created_at')
-          .eq('run_id', runId)
+          .select('id,run_id,step_id,agent_id,artifact_name,output_type,content_md,content_json,created_at')
+          .in('run_id', runIds)
           .order('created_at', { ascending: true }),
         supabase
           .from('run_events')
           .select('id,event_type,payload,created_at')
-          .eq('run_id', runId)
+          .in('run_id', runIds)
           .order('created_at', { ascending: true }),
       ])
       if (!outRes.error) setOutputs((outRes.data ?? []) as RunOutput[])
       if (!evtRes.error) setEvents((evtRes.data ?? []) as RunEvent[])
+    } else {
+      setOutputs([])
+      setEvents([])
     }
   }, [jobId])
 
@@ -189,6 +221,15 @@ export default function JobDetailPage() {
             </pre>
           </Card>
 
+          {row.status === 'success' && outputs.length === 0 ? (
+            <Card className="p-4 md:col-span-3">
+              <div className="text-sm text-white/70">
+                Job tamamlandı ancak bu ekranda çıktı görünmüyor. Eski bundle job’larda yalnızca bundle run id kayıtlı olabilir;
+                yeni çalıştırmalarda tüm playbook adımları listelenir. Supabase <code className="text-white/90">run_outputs</code> tablosunu da kontrol edebilirsiniz.
+              </div>
+            </Card>
+          ) : null}
+
           {/* ── Step Outputs ── */}
           {outputs.length > 0 ? (
             <Card className="p-4 md:col-span-3">
@@ -202,16 +243,17 @@ export default function JobDetailPage() {
                       onClick={() => setExpandedOutput(expandedOutput === o.id ? null : o.id)}
                     >
                       <div className="flex items-center gap-2">
-                        <span className="font-mono text-xs text-white/90">{o.step_id}</span>
+                        <span className="font-mono text-[10px] text-white/40">{o.run_id}</span>
+                        <span className="font-mono text-xs text-white/90">{o.step_id ?? o.output_type}</span>
                         {o.agent_id ? <span className="text-xs text-white/50">{o.agent_id}</span> : null}
                         {o.artifact_name ? <span className="text-xs text-blue-300">{o.artifact_name}</span> : null}
                         <Badge tone="gray">{o.output_type}</Badge>
                       </div>
                       <span className="text-xs text-white/40">{new Date(o.created_at).toLocaleTimeString()}</span>
                     </button>
-                    {expandedOutput === o.id && o.content_md ? (
+                    {expandedOutput === o.id && outputBody(o) ? (
                       <pre className="max-h-[50vh] overflow-auto whitespace-pre-wrap border-t border-white/10 bg-black/20 p-3 text-xs text-white/80">
-                        {o.content_md}
+                        {outputBody(o)}
                       </pre>
                     ) : null}
                   </div>

@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { useAuthStore } from '@/stores/authStore'
+import { parseApiResponse } from '@/lib/parseApiResponse'
 
 type ReviewItem = {
   position: number
@@ -33,14 +34,6 @@ function getErrorMessage(error: unknown, fallback: string) {
     return error.message
   }
   return fallback
-}
-
-function tryParseJson<T>(text: string): T | null {
-  try {
-    return JSON.parse(text) as T
-  } catch {
-    return null
-  }
 }
 
 function buildStatus(answer: string, suggested: string | null): ReviewItem['status'] {
@@ -82,14 +75,13 @@ export default function CeoReviewPage() {
         headers: authHeaders,
       })
       const text = await res.text()
-      const json = tryParseJson<ReviewResponse>(text)
-
-      if (!res.ok || !json?.success) {
-        setErr(json?.error ?? `Review yüklenemedi (HTTP ${res.status})`)
+      const parsed = parseApiResponse<ReviewResponse>(text, res, 'Review yüklenemedi')
+      if (parsed.ok === false) {
+        setErr(parsed.error)
         return
       }
-      setJob(json.job)
-      setItems(json.reviews)
+      setJob(parsed.data.job)
+      setItems(parsed.data.reviews)
     } catch (e) {
       setErr(getErrorMessage(e, 'Review yüklenemedi'))
     } finally {
@@ -116,13 +108,12 @@ export default function CeoReviewPage() {
         headers: authHeaders,
       })
       const text = await res.text()
-      const json = tryParseJson<{ success: boolean; reviews?: ReviewItem[]; error?: string }>(text)
-
-      if (!res.ok || !json?.success) {
-        setErr(json?.error ?? `Ajan önerileri üretilemedi (HTTP ${res.status})`)
+      const parsed = parseApiResponse<{ success: boolean; reviews?: ReviewItem[] }>(text, res, 'Ajan önerileri üretilemedi')
+      if (parsed.ok === false) {
+        setErr(parsed.error)
         return
       }
-      setItems((json.reviews ?? []).map((item) => ({
+      setItems((parsed.data.reviews ?? []).map((item) => ({
         ...item,
         user_answer: item.user_answer ?? item.suggested_answer ?? '',
         status: item.user_answer ? buildStatus(item.user_answer, item.suggested_answer) : 'approved',
@@ -152,13 +143,12 @@ export default function CeoReviewPage() {
         body: JSON.stringify({ items: payload }),
       })
       const text = await res.text()
-      const json = tryParseJson<{ success: boolean; reviews?: ReviewItem[]; error?: string }>(text)
-
-      if (!res.ok || !json?.success) {
-        setErr(json?.error ?? `Cevaplar kaydedilemedi (HTTP ${res.status})`)
+      const parsed = parseApiResponse<{ success: boolean; reviews?: ReviewItem[] }>(text, res, 'Cevaplar kaydedilemedi')
+      if (parsed.ok === false) {
+        setErr(parsed.error)
         return
       }
-      setItems((json.reviews ?? []).map((item) => ({
+      setItems((parsed.data.reviews ?? []).map((item) => ({
         ...item,
         user_answer: item.user_answer ?? '',
       })))
@@ -189,9 +179,9 @@ export default function CeoReviewPage() {
         body: JSON.stringify({ items: savePayload }),
       })
       const saveText = await saveRes.text()
-      const saveJson = tryParseJson<{ success: boolean; error?: string }>(saveText)
-      if (!saveRes.ok || !saveJson?.success) {
-        setErr(saveJson?.error ?? `Iterate öncesi kayıt başarısız (HTTP ${saveRes.status})`)
+      const saveParsed = parseApiResponse<{ success: boolean }>(saveText, saveRes, 'Iterate öncesi kayıt başarısız')
+      if (saveParsed.ok === false) {
+        setErr(saveParsed.error)
         return
       }
 
@@ -200,13 +190,21 @@ export default function CeoReviewPage() {
         headers: authHeaders,
       })
       const iterateText = await iterateRes.text()
-      const iterateJson = tryParseJson<{ success: boolean; jobId?: string; error?: string }>(iterateText)
-      if (!iterateRes.ok || !iterateJson?.success || !iterateJson.jobId) {
-        setErr(iterateJson?.error ?? `CEO iterate job oluşturulamadı (HTTP ${iterateRes.status})`)
+      const iterateParsed = parseApiResponse<{ success: boolean; jobId?: string }>(
+        iterateText,
+        iterateRes,
+        'CEO iterate job oluşturulamadı',
+      )
+      if (iterateParsed.ok === false) {
+        setErr(iterateParsed.error)
+        return
+      }
+      if (!iterateParsed.data.jobId) {
+        setErr('CEO iterate job oluşturulamadı (jobId eksik)')
         return
       }
 
-      navigate(`/app/jobs/${iterateJson.jobId}`)
+      navigate(`/app/jobs/${iterateParsed.data.jobId}`)
     } catch (e) {
       setErr(getErrorMessage(e, 'CEO iterate job oluşturulamadı'))
     } finally {

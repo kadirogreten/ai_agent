@@ -4,6 +4,7 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { getSupabaseAdmin } from './supabaseAdmin.js'
+import { assertBundleExists } from './builtinBundles.js'
 
 type RunRequest = {
   id: string
@@ -302,10 +303,22 @@ function extractRunId(stdout: string): string | null {
   const lines = stdout.split('\n').map((l) => l.trim()).filter(Boolean)
   for (let i = lines.length - 1; i >= 0; i--) {
     const l = lines[i]
+    if (l.startsWith('PLAYBOOK_RUN_IDS=')) continue
     // runId formatı: yyyyMMdd_HHmmss_<playbook-id> veya bundle variant
     if (/^\d{8}_\d{6}_/.test(l)) return l
   }
   return null
+}
+
+function extractPlaybookRunIds(stdout: string): string[] {
+  for (const line of stdout.split('\n')) {
+    const trimmed = line.trim()
+    const m = /^PLAYBOOK_RUN_IDS=(.+)$/.exec(trimmed)
+    if (m?.[1]) {
+      return m[1].split(',').map((s) => s.trim()).filter(Boolean)
+    }
+  }
+  return []
 }
 
 function buildDotnetArgs(job: RunRequest) {
@@ -436,6 +449,13 @@ async function processOne(supabase: ReturnType<typeof getSupabaseAdmin>, job: Ru
       return
     }
 
+    if (job.mode === 'bundle') {
+      const payload = (job.answers_json ?? {}) as Record<string, unknown>
+      const bundleId = typeof payload.bundleId === 'string' ? payload.bundleId.trim() : 'weekly'
+      const packId = job.domain_pack ?? 'market-intel'
+      assertBundleExists(packId, bundleId)
+    }
+
     const dotnetArgs = buildDotnetArgs(job)
 
     const agentsFile = await writeAgentsFile(supabase)
@@ -473,16 +493,22 @@ async function processOne(supabase: ReturnType<typeof getSupabaseAdmin>, job: Ru
 
     // CLI artık runId'yi stdout'a yazar (tam dizin yolu değil)
     const runId = extractRunId(stdout)
-    log('Extracted runId', { runId, stdout_tail: stdout.trim().split('\n').slice(-5).join('\n') })
+    const playbookRunIds = extractPlaybookRunIds(stdout)
+    log('Extracted runId', { runId, playbook_run_ids: playbookRunIds, stdout_tail: stdout.trim().split('\n').slice(-5).join('\n') })
 
-    // Metrikler artık run_events tablosundan okunur
-    const metrics    = runId ? await readMetricsFromDb(supabase, runId) : null
+    const metricsRunId = playbookRunIds.length > 0 ? playbookRunIds[playbookRunIds.length - 1] : runId
+    const metrics    = metricsRunId ? await readMetricsFromDb(supabase, metricsRunId) : null
     const latencyMs  = Date.now() - started
 
     // runs tablosuna INSERT et (importFromRunDir artık yok)
     if (runId) {
       await upsertRunsRow(supabase, job, runId, started, metrics, latencyMs)
       log('runs row upserted', { runId, ...metrics })
+    }
+    for (const childRunId of playbookRunIds) {
+      if (childRunId === runId) continue
+      await upsertRunsRow(supabase, job, childRunId, started, null, latencyMs)
+      log('runs row upserted (bundle child)', { runId: childRunId })
     }
 
     // Sector discovery: scaffold adımından domain_pack_drafts'a yaz
@@ -506,6 +532,7 @@ async function processOne(supabase: ReturnType<typeof getSupabaseAdmin>, job: Ru
         sla_breach:    slaBreached,
         result_json: {
           run_id:             runId,
+          playbook_run_ids:   playbookRunIds.length > 0 ? playbookRunIds : undefined,
           dotnet_stdout_tail: stdout.trim().split('\n').slice(-5).join('\n'),
           metrics,
           sla: { total_ms: totalMs, queue_latency_ms: queueLatencyMs, sla_threshold_ms: SLA_THRESHOLD_MS },
