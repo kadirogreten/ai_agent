@@ -111,7 +111,7 @@ export function useOfficeSimulation({ scene, dbAgents = [] }: UseOfficeSimulatio
     setAgents(agentsToInit)
   }, [scene, dbAgents])
 
-  // Create 3D mesh for agent - humanoid character
+  // Create 3D mesh for agent - humanoid character SITTING AT DESK
   function createAgentMesh(agent: AgentPosition, scene: THREE.Scene) {
     const group = new THREE.Group()
     group.position.copy(agent.position)
@@ -126,71 +126,100 @@ export function useOfficeSimulation({ scene, dbAgents = [] }: UseOfficeSimulatio
       metalness: 0.4,
     })
 
-    // Head
+    // Head - higher position for sitting
     const head = new THREE.Mesh(
       new THREE.SphereGeometry(0.25, 16, 16),
       bodyMaterial
     )
-    head.position.y = 0.85
+    head.position.y = 0.65 // Sitting position - lower than standing
     head.castShadow = true
     head.receiveShadow = true
     group.add(head)
 
-    // Body (torso)
+    // Body (torso) - sitting posture
     const torso = new THREE.Mesh(
-      new THREE.CapsuleGeometry(0.2, 0.6, 8, 8),
+      new THREE.CapsuleGeometry(0.2, 0.5, 8, 8),
       bodyMaterial
     )
-    torso.position.y = 0.4
+    torso.position.y = 0.25 // Lower for sitting
+    torso.rotation.z = 0.1 // Slight lean back
     torso.castShadow = true
     torso.receiveShadow = true
     group.add(torso)
 
-    // Left arm
+    // Left arm - relaxed on desk
     const leftArm = new THREE.Mesh(
-      new THREE.CapsuleGeometry(0.1, 0.6, 8, 8),
+      new THREE.CapsuleGeometry(0.08, 0.5, 8, 8),
       bodyMaterial
     )
-    leftArm.position.set(-0.3, 0.5, 0)
-    leftArm.rotation.z = Math.PI / 6
+    leftArm.position.set(-0.25, 0.3, 0.15)
+    leftArm.rotation.z = Math.PI / 3 // More horizontal for desk work
     leftArm.castShadow = true
     group.add(leftArm)
 
-    // Right arm
+    // Right arm - on desk/keyboard
     const rightArm = new THREE.Mesh(
-      new THREE.CapsuleGeometry(0.1, 0.6, 8, 8),
+      new THREE.CapsuleGeometry(0.08, 0.5, 8, 8),
       bodyMaterial
     )
-    rightArm.position.set(0.3, 0.5, 0)
-    rightArm.rotation.z = -Math.PI / 6
+    rightArm.position.set(0.25, 0.3, 0.15)
+    rightArm.rotation.z = -Math.PI / 3 // Reaching toward keyboard
     rightArm.castShadow = true
     group.add(rightArm)
 
-    // Left leg
+    // Left leg - sitting under desk
     const leftLeg = new THREE.Mesh(
-      new THREE.CapsuleGeometry(0.12, 0.65, 8, 8),
+      new THREE.CapsuleGeometry(0.1, 0.5, 8, 8),
       new THREE.MeshStandardMaterial({
         color: 0x1a1a1a,
         roughness: 0.6,
         metalness: 0.1,
       })
     )
-    leftLeg.position.set(-0.15, -0.35, 0)
+    leftLeg.position.set(-0.15, -0.15, 0) // Angled under desk
+    leftLeg.rotation.x = Math.PI / 4
     leftLeg.castShadow = true
     group.add(leftLeg)
 
-    // Right leg
+    // Right leg - sitting under desk
     const rightLeg = new THREE.Mesh(
-      new THREE.CapsuleGeometry(0.12, 0.65, 8, 8),
+      new THREE.CapsuleGeometry(0.1, 0.5, 8, 8),
       new THREE.MeshStandardMaterial({
         color: 0x1a1a1a,
         roughness: 0.6,
         metalness: 0.1,
       })
     )
-    rightLeg.position.set(0.15, -0.35, 0)
+    rightLeg.position.set(0.15, -0.15, 0) // Angled under desk
+    rightLeg.rotation.x = Math.PI / 4
     rightLeg.castShadow = true
     group.add(rightLeg)
+
+    // Office chair back rest - behind agent
+    const chairBackrest = new THREE.Mesh(
+      new THREE.BoxGeometry(0.5, 0.6, 0.08),
+      new THREE.MeshStandardMaterial({
+        color: 0x2a2a2a,
+        roughness: 0.5,
+        metalness: 0.2,
+      })
+    )
+    chairBackrest.position.set(0, 0.35, -0.35)
+    chairBackrest.castShadow = true
+    group.add(chairBackrest)
+
+    // Office chair - base
+    const chairBase = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.35, 0.35, 0.05),
+      new THREE.MeshStandardMaterial({
+        color: 0x1a1a1a,
+        roughness: 0.4,
+        metalness: 0.3,
+      })
+    )
+    chairBase.position.y = -0.35
+    chairBase.castShadow = true
+    group.add(chairBase)
 
     // Glow aura
     const glowGeometry = new THREE.SphereGeometry(0.8, 16, 16)
@@ -204,7 +233,7 @@ export function useOfficeSimulation({ scene, dbAgents = [] }: UseOfficeSimulatio
 
     // Light above agent
     const light = new THREE.PointLight(roleColor, 2, 12)
-    light.position.y = 1.2
+    light.position.y = 0.8
     group.add(light)
 
     // Store metadata
