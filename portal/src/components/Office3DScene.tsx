@@ -42,33 +42,62 @@ export default function Office3DScene({ onSceneReady, children }: Office3DSceneP
     containerRef.current.appendChild(renderer.domElement)
     rendererRef.current = renderer
 
-    // Realistic office lighting
-    // Ambient light - simulates overall office illumination
-    const ambientLight = new THREE.AmbientLight(0xd4d4d4, 0.6)
+    // Realistic office lighting system
+    // Ambient light - overall office illumination
+    const ambientLight = new THREE.AmbientLight(0xd0d8e0, 0.7)
     scene.add(ambientLight)
 
-    // Main overhead directional light - simulates ceiling lights
-    const directionalLight = new THREE.DirectionalLight(0xf5f5dc, 1.1)
-    directionalLight.position.set(10, 22, 5)
+    // Main overhead directional light - primary ceiling light
+    const directionalLight = new THREE.DirectionalLight(0xf8f6f0, 1.2)
+    directionalLight.position.set(8, 24, 8)
     directionalLight.castShadow = true
     directionalLight.shadow.mapSize.width = 2048
     directionalLight.shadow.mapSize.height = 2048
-    directionalLight.shadow.camera.far = 50
-    directionalLight.shadow.camera.left = -30
-    directionalLight.shadow.camera.right = 30
-    directionalLight.shadow.camera.top = 30
-    directionalLight.shadow.camera.bottom = -30
+    directionalLight.shadow.camera.far = 60
+    directionalLight.shadow.camera.left = -35
+    directionalLight.shadow.camera.right = 35
+    directionalLight.shadow.camera.top = 35
+    directionalLight.shadow.camera.bottom = -35
     scene.add(directionalLight)
 
-    // Subtle fill light from window - natural light effect
-    const fillLight = new THREE.PointLight(0xe8eef5, 0.4, 50)
-    fillLight.position.set(-25, 12, 0)
-    scene.add(fillLight)
+    // Grid of ceiling lights across the office
+    const ceilingHeight = 20
+    const gridSize = 10
+    const lightIntensity = 0.6
 
-    // Light from the side to create depth
-    const sideLight = new THREE.PointLight(0xd4d4d4, 0.3, 40)
-    sideLight.position.set(25, 10, 0)
-    scene.add(sideLight)
+    for (let i = -15; i <= 15; i += gridSize) {
+      for (let j = -15; j <= 15; j += gridSize) {
+        const ceilingLight = new THREE.PointLight(0xf5f5f0, lightIntensity, 25)
+        ceilingLight.position.set(i, ceilingHeight, j)
+        ceilingLight.castShadow = false
+        scene.add(ceilingLight)
+      }
+    }
+
+    // Warm task lighting at desk areas
+    const deskPositions = [
+      { x: -12, z: 0 },
+      { x: -6, z: -10 },
+      { x: 0, z: -15 },
+      { x: 6, z: -10 },
+      { x: 12, z: 0 },
+    ]
+
+    deskPositions.forEach((pos) => {
+      const taskLight = new THREE.PointLight(0xf5e6d3, 0.8, 12) // Warm light
+      taskLight.position.set(pos.x, 2.5, pos.z)
+      scene.add(taskLight)
+    })
+
+    // Window light effect - soft natural light from left
+    const windowLight = new THREE.PointLight(0xe8eef8, 0.5, 60)
+    windowLight.position.set(-28, 10, 0)
+    scene.add(windowLight)
+
+    // Fill light from opposite side for balanced lighting
+    const fillLight = new THREE.PointLight(0xd4d8e0, 0.3, 50)
+    fillLight.position.set(25, 8, 0)
+    scene.add(fillLight)
 
     // Notify parent that scene is ready
     if (onSceneReady) {
