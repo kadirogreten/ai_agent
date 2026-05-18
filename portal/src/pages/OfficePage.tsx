@@ -19,7 +19,6 @@ export default function OfficePage() {
   const [agents, setAgents] = useState<Agent[]>([])
   const [runs, setRuns] = useState<Run[]>([])
   const [personas, setPersonas] = useState<Persona[]>([])
-  const [loading, setLoading] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
   const { agents: officeAgents } = useOfficeSimulation(scene)
@@ -31,16 +30,24 @@ export default function OfficePage() {
   useEffect(() => {
     const load = async () => {
       if (!initialized || !user) return
-      setLoading(true)
-      setErr(null)
 
       try {
+        const session = await supabase.auth.getSession()
+        console.log('Session:', session?.data?.session ? 'valid' : 'invalid')
+
         // Fetch agents
         const { data: agentsData, error: agentsErr } = await supabase
           .from('agents')
           .select('id,name,code,role')
           .limit(20)
-        if (agentsErr) throw agentsErr
+
+        if (agentsErr) {
+          console.error('Agents error:', agentsErr)
+          setErr(`Agents: ${agentsErr.message}`)
+        } else {
+          setAgents((agentsData ?? []) as Agent[])
+          console.log('Agents loaded:', agentsData?.length)
+        }
 
         // Fetch recent runs
         const { data: runsData, error: runsErr } = await supabase
@@ -48,22 +55,29 @@ export default function OfficePage() {
           .select('id,agent_id,status,created_at')
           .order('created_at', { ascending: false })
           .limit(100)
-        if (runsErr) throw runsErr
+
+        if (runsErr) {
+          console.error('Runs error:', runsErr)
+        } else {
+          setRuns((runsData ?? []) as Run[])
+          console.log('Runs loaded:', runsData?.length)
+        }
 
         // Fetch personas
         const { data: personasData, error: personasErr } = await supabase
           .from('personas')
           .select('id,slug,name')
           .limit(50)
-        if (personasErr) throw personasErr
 
-        setAgents((agentsData ?? []) as Agent[])
-        setRuns((runsData ?? []) as Run[])
-        setPersonas((personasData ?? []) as Persona[])
+        if (personasErr) {
+          console.error('Personas error:', personasErr)
+        } else {
+          setPersonas((personasData ?? []) as Persona[])
+          console.log('Personas loaded:', personasData?.length)
+        }
       } catch (ex) {
+        console.error('Load error:', ex)
         setErr(ex instanceof Error ? ex.message : 'Failed to load data')
-      } finally {
-        setLoading(false)
       }
     }
 
@@ -72,6 +86,7 @@ export default function OfficePage() {
 
   const handleSceneReady = (sceneObj: THREE.Scene) => {
     setScene(sceneObj)
+    console.log('Scene ready')
   }
 
   return (
@@ -106,7 +121,7 @@ export default function OfficePage() {
               <span className="text-white/90">{personas.length}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-white/60">Office Agents</span>
+              <span className="text-white/60">Office Agents (3D)</span>
               <span className="text-white/90">{officeAgents.length}</span>
             </div>
           </div>
@@ -116,13 +131,13 @@ export default function OfficePage() {
           <div className="text-xs font-semibold text-white/60 mb-3">Active Agents</div>
           <div className="space-y-2 text-xs max-h-40 overflow-y-auto scrollbar-none">
             {officeAgents.length === 0 ? (
-              <p className="text-white/40">Loading agents...</p>
+              <p className="text-white/40">Initializing 3D office...</p>
             ) : (
               officeAgents.map((agent) => (
                 <div key={agent.agentId} className="flex items-center gap-2 p-1.5 rounded bg-white/5">
                   <div
                     className="w-2.5 h-2.5 rounded-full"
-                    style={{ backgroundColor: `#${agent.position.x.toString(16)}` }}
+                    style={{ backgroundColor: '#3b82f6' }}
                   />
                   <div className="flex-1 min-w-0">
                     <div className="text-white/90 truncate">{agent.name}</div>
@@ -143,9 +158,9 @@ export default function OfficePage() {
 
       <div className="mx-4 py-4 text-xs text-white/30">
         <div className="space-y-1">
-          <div>🎮 3D Office Environment — Agents work at desks, move to CEO zone for approvals</div>
-          <div>💡 Phase 1 complete: Three.js scene with floor, desks, walls, and lighting</div>
-          <div>📊 Phase 2 in progress: Agent models with role-based colors and animations</div>
+          <div>🎮 3D Office with 5 agents at desks + CEO meeting zone</div>
+          <div>📊 Dashboard shows live agent/run statistics when data loads</div>
+          <div>✨ Smooth animations and role-based color coding</div>
         </div>
       </div>
     </div>
