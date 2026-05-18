@@ -32,13 +32,12 @@ export default function OfficeAssets({ scene }: OfficeAssetsProps) {
 }
 
 function createDetailedDesk(scene: THREE.Scene, x: number, z: number, index: number) {
-  // Main desk surface - wood material
+  // Main desk surface - realistic wood with better material properties
   const deskSurfaceGeom = new THREE.BoxGeometry(3.8, 0.06, 3.8)
   const deskSurfaceMat = new THREE.MeshStandardMaterial({
-    color: 0x6d5d4f,
-    roughness: 0.6,
-    metalness: 0.0,
-    map: null,
+    color: 0x8b7355, // Warmer wood tone
+    roughness: 0.5, // Less rough for a polished wood look
+    metalness: 0.05, // Slight metallic sheen
   })
   const deskSurface = new THREE.Mesh(deskSurfaceGeom, deskSurfaceMat)
   deskSurface.position.set(x, 0.95, z)
@@ -138,57 +137,61 @@ function createMonitorSetup(
   z: number,
   frameMat: THREE.Material
 ) {
-  // Monitor stand base
+  // Monitor stand base - more stable, realistic proportions
   const standBase = new THREE.Mesh(
-    new THREE.BoxGeometry(0.6, 0.08, 0.5),
-    frameMat
+    new THREE.BoxGeometry(0.65, 0.1, 0.55),
+    new THREE.MeshStandardMaterial({
+      color: 0x2a2a2a,
+      roughness: 0.6,
+      metalness: 0.2,
+    })
   )
-  standBase.position.set(x, 0.98, z)
+  standBase.position.set(x, 0.97, z)
   standBase.castShadow = true
   scene.add(standBase)
 
-  // Stand arm
-  const standArm = new THREE.Mesh(
-    new THREE.BoxGeometry(0.12, 0.4, 0.12),
+  // Stand column - vertical support
+  const standColumn = new THREE.Mesh(
+    new THREE.BoxGeometry(0.08, 0.35, 0.08),
     frameMat
   )
-  standArm.position.set(x, 1.25, z)
-  standArm.castShadow = true
-  scene.add(standArm)
+  standColumn.position.set(x, 1.28, z)
+  standColumn.castShadow = true
+  scene.add(standColumn)
 
-  // Monitor bezel - dark frame
+  // Monitor bezel - modern thin frame with slight depth
   const bezelMat = new THREE.MeshStandardMaterial({
-    color: 0x1a1a1a,
-    roughness: 0.5,
-    metalness: 0.3,
+    color: 0x1f1f1f,
+    roughness: 0.4,
+    metalness: 0.4,
   })
   const bezel = new THREE.Mesh(
-    new THREE.BoxGeometry(1.4, 0.95, 0.15),
+    new THREE.BoxGeometry(1.5, 0.95, 0.08),
     bezelMat
   )
-  bezel.position.set(x, 1.65, z)
+  bezel.position.set(x, 1.68, z)
   bezel.castShadow = true
   scene.add(bezel)
 
-  // Monitor screen - glowing blue
+  // Monitor screen - modern display with subtle glow
   const screenMat = new THREE.MeshStandardMaterial({
-    color: 0x0a1929,
-    roughness: 0.1,
+    color: 0x121212, // Darker for more realistic screen
+    roughness: 0.08,
     metalness: 0.0,
-    emissive: 0x1e3a5f,
-    emissiveIntensity: 0.4,
+    emissive: 0x2a4a6a, // Subtle blue glow
+    emissiveIntensity: 0.3,
   })
   const screen = new THREE.Mesh(
-    new THREE.BoxGeometry(1.3, 0.85, 0.02),
+    new THREE.BoxGeometry(1.4, 0.85, 0.01),
     screenMat
   )
-  screen.position.set(x, 1.65, z + 0.08)
+  screen.position.set(x, 1.68, z + 0.045)
   screen.castShadow = true
   scene.add(screen)
 
-  // Screen glow light
-  const screenLight = new THREE.PointLight(0x1e90ff, 0.6, 5)
-  screenLight.position.set(x, 1.65, z + 0.5)
+  // Subtle screen reflection light - very dim
+  const screenLight = new THREE.PointLight(0x4a7aba, 0.3, 3)
+  screenLight.position.set(x, 1.68, z + 0.5)
   scene.add(screenLight)
 }
 
