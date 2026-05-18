@@ -9,12 +9,12 @@ export default function OfficeGeometry({ scene }: OfficeGeometryProps) {
   useEffect(() => {
     console.log('OfficeGeometry: Creating floor and geometry...')
 
-    // Floor - polished concrete/tile with grid pattern
+    // Floor - light polished concrete/tile for modern office
     const floorGeometry = new THREE.PlaneGeometry(40, 40, 20, 20)
     const floorMaterial = new THREE.MeshStandardMaterial({
-      color: 0x2a3d52,
-      roughness: 0.4,
-      metalness: 0.1,
+      color: 0x9ca3af, // Light gray office floor
+      roughness: 0.5,
+      metalness: 0.0,
       wireframe: false,
     })
     const floor = new THREE.Mesh(floorGeometry, floorMaterial)
@@ -24,19 +24,19 @@ export default function OfficeGeometry({ scene }: OfficeGeometryProps) {
     scene.add(floor)
     console.log('OfficeGeometry: Floor added to scene')
 
-    // Floor grid lines for tile effect
-    const gridHelper = new THREE.GridHelper(40, 10, 0x3d5a7a, 0x1a2d42)
+    // Floor grid lines for subtle tile pattern
+    const gridHelper = new THREE.GridHelper(40, 10, 0xb0b8c1, 0xa0a8b1)
     gridHelper.position.y = 0.02
     scene.add(gridHelper)
 
-    // Add subtle floor tiles shadow/texture
+    // Add subtle floor tile variation
     for (let i = -20; i < 20; i += 4) {
       for (let j = -20; j < 20; j += 4) {
         const tileGeometry = new THREE.PlaneGeometry(3.8, 3.8)
         const tileMaterial = new THREE.MeshStandardMaterial({
-          color: (i + j) % 8 === 0 ? 0x1f3349 : 0x2a3d52,
-          roughness: 0.45,
-          metalness: 0.08,
+          color: (i + j) % 8 === 0 ? 0x8f97a3 : 0x9ca3af,
+          roughness: 0.5,
+          metalness: 0.0,
         })
         const tile = new THREE.Mesh(tileGeometry, tileMaterial)
         tile.rotation.x = -Math.PI / 2
@@ -45,11 +45,11 @@ export default function OfficeGeometry({ scene }: OfficeGeometryProps) {
       }
     }
 
-    // Walls - drywall/concrete with detail
+    // Walls - light drywall for modern office
     const wallMaterial = new THREE.MeshStandardMaterial({
-      color: 0x3a4a5a,
-      roughness: 0.75,
-      metalness: 0.05,
+      color: 0xd1d8e0, // Light gray office wall
+      roughness: 0.8,
+      metalness: 0.0,
     })
 
     // North wall - with windows
@@ -106,10 +106,11 @@ export default function OfficeGeometry({ scene }: OfficeGeometryProps) {
     // West wall shelving
     addShelvingToWall(scene, -20, 40)
 
-    // Wall trim/baseboard
+    // Wall trim/baseboard - light trim for modern office
     const baseboardMaterial = new THREE.MeshStandardMaterial({
-      color: 0x2a3a4a,
-      roughness: 0.6,
+      color: 0xb8c0ca, // Light gray trim
+      roughness: 0.7,
+      metalness: 0.0,
     })
 
     // Front baseboard
@@ -204,15 +205,15 @@ export default function OfficeGeometry({ scene }: OfficeGeometryProps) {
       scene.add(neonLight)
     })
 
-    // CEO Meeting Zone (center area) - more prominent
+    // CEO Meeting Zone (center area) - meeting area with subtle accent
     const ceoZone = new THREE.Mesh(
       new THREE.CylinderGeometry(7, 7, 0.15, 32),
       new THREE.MeshStandardMaterial({
-        color: 0xa78bfa,
-        emissive: 0x8b5cf6,
-        emissiveIntensity: 0.5,
-        roughness: 0.3,
-        metalness: 0.5,
+        color: 0x7dd3fc, // Light blue accent
+        emissive: 0x38bdf8, // Subtle sky blue glow
+        emissiveIntensity: 0.4,
+        roughness: 0.4,
+        metalness: 0.2,
       })
     )
     ceoZone.position.set(0, 0.08, 5)
@@ -224,18 +225,18 @@ export default function OfficeGeometry({ scene }: OfficeGeometryProps) {
     // Ring around CEO zone for better visibility
     const ringGeometry = new THREE.TorusGeometry(7.2, 0.3, 16, 100)
     const ringMaterial = new THREE.MeshStandardMaterial({
-      color: 0x7c3aed,
-      emissive: 0xa78bfa,
-      emissiveIntensity: 0.8,
+      color: 0x38bdf8, // Sky blue ring
+      emissive: 0x0ea5e9,
+      emissiveIntensity: 0.6,
     })
     const ring = new THREE.Mesh(ringGeometry, ringMaterial)
     ring.position.set(0, 0.5, 5)
     ring.rotation.x = Math.PI / 2
     scene.add(ring)
 
-    // Brighter glow for CEO zone
-    const ceoGlow = new THREE.PointLight(0xa78bfa, 3, 25)
-    ceoGlow.position.set(0, 4, 5)
+    // Subtle glow for CEO zone - not too bright
+    const ceoGlow = new THREE.PointLight(0x0ea5e9, 1.5, 20)
+    ceoGlow.position.set(0, 3.5, 5)
     scene.add(ceoGlow)
 
     // Task Pipeline Display Area (right side)
