@@ -9,32 +9,50 @@ export default function OfficeGeometry({ scene }: OfficeGeometryProps) {
   useEffect(() => {
     console.log('OfficeGeometry: Creating floor and geometry...')
 
-    // Floor - enhanced with checkerboard pattern
-    const floorGeometry = new THREE.PlaneGeometry(40, 40, 4, 4)
+    // Floor - polished concrete/tile with grid pattern
+    const floorGeometry = new THREE.PlaneGeometry(40, 40, 20, 20)
     const floorMaterial = new THREE.MeshStandardMaterial({
-      color: 0x1a2332,
-      roughness: 0.5,
-      metalness: 0.2,
+      color: 0x2a3d52,
+      roughness: 0.4,
+      metalness: 0.1,
+      wireframe: false,
     })
     const floor = new THREE.Mesh(floorGeometry, floorMaterial)
     floor.rotation.x = -Math.PI / 2
     floor.receiveShadow = true
+    floor.userData.type = 'floor'
     scene.add(floor)
     console.log('OfficeGeometry: Floor added to scene')
 
-    // Grid helper for visual reference - brighter colors
-    const gridHelper = new THREE.GridHelper(40, 8, 0x6b7280, 0x2d3748)
+    // Floor grid lines for tile effect
+    const gridHelper = new THREE.GridHelper(40, 10, 0x3d5a7a, 0x1a2d42)
     gridHelper.position.y = 0.02
     scene.add(gridHelper)
 
-    // Walls - more visible with better contrast
+    // Add subtle floor tiles shadow/texture
+    for (let i = -20; i < 20; i += 4) {
+      for (let j = -20; j < 20; j += 4) {
+        const tileGeometry = new THREE.PlaneGeometry(3.8, 3.8)
+        const tileMaterial = new THREE.MeshStandardMaterial({
+          color: (i + j) % 8 === 0 ? 0x1f3349 : 0x2a3d52,
+          roughness: 0.45,
+          metalness: 0.08,
+        })
+        const tile = new THREE.Mesh(tileGeometry, tileMaterial)
+        tile.rotation.x = -Math.PI / 2
+        tile.position.set(i + 2, 0.01, j + 2)
+        scene.add(tile)
+      }
+    }
+
+    // Walls - drywall/concrete with detail
     const wallMaterial = new THREE.MeshStandardMaterial({
-      color: 0x1e2d42,
-      roughness: 0.7,
-      metalness: 0.15,
+      color: 0x3a4a5a,
+      roughness: 0.75,
+      metalness: 0.05,
     })
 
-    // North wall
+    // North wall - with windows
     const northWall = new THREE.Mesh(
       new THREE.BoxGeometry(40, 4, 0.2),
       wallMaterial
@@ -44,7 +62,10 @@ export default function OfficeGeometry({ scene }: OfficeGeometryProps) {
     northWall.receiveShadow = true
     scene.add(northWall)
 
-    // South wall
+    // North wall windows
+    addWindowsToWall(scene, 0, 2.5, -20, true, 8)
+
+    // South wall - with glass doors
     const southWall = new THREE.Mesh(
       new THREE.BoxGeometry(40, 4, 0.2),
       wallMaterial
@@ -54,7 +75,10 @@ export default function OfficeGeometry({ scene }: OfficeGeometryProps) {
     southWall.receiveShadow = true
     scene.add(southWall)
 
-    // East wall
+    // South wall - office exit doors
+    addDoorsToWall(scene, 0, 2, 20, true, 4)
+
+    // East wall - with accent lighting
     const eastWall = new THREE.Mesh(
       new THREE.BoxGeometry(0.2, 4, 40),
       wallMaterial
@@ -64,7 +88,12 @@ export default function OfficeGeometry({ scene }: OfficeGeometryProps) {
     eastWall.receiveShadow = true
     scene.add(eastWall)
 
-    // West wall
+    // Add accent light on east wall
+    const eastLight = new THREE.PointLight(0x4a7ba7, 0.4, 30)
+    eastLight.position.set(19, 2, 0)
+    scene.add(eastLight)
+
+    // West wall - with shelving
     const westWall = new THREE.Mesh(
       new THREE.BoxGeometry(0.2, 4, 40),
       wallMaterial
@@ -73,6 +102,30 @@ export default function OfficeGeometry({ scene }: OfficeGeometryProps) {
     westWall.castShadow = true
     westWall.receiveShadow = true
     scene.add(westWall)
+
+    // West wall shelving
+    addShelvingToWall(scene, -20, 40)
+
+    // Wall trim/baseboard
+    const baseboardMaterial = new THREE.MeshStandardMaterial({
+      color: 0x2a3a4a,
+      roughness: 0.6,
+    })
+    const baseboards = [
+      { pos: [0, 0.2, -20], size: [40, 0.3, 0.2] },
+      { pos: [0, 0.2, 20], size: [40, 0.3, 0.2] },
+      { pos: [20, 0.2, 0], size: [0.2, 0.3, 40] },
+      { pos: [-20, 0.2, 0], size: [0.2, 0.3, 40] },
+    ]
+    baseboards.forEach((b) => {
+      const baseboard = new THREE.Mesh(
+        new THREE.BoxGeometry(...b.size),
+        baseboardMaterial
+      )
+      baseboard.position.set(...b.pos)
+      baseboard.castShadow = true
+      scene.add(baseboard)
+    })
 
     // Desk positions (agent work areas) - 5 desks in a semi-circle
     const deskPositions = [
@@ -221,4 +274,151 @@ export default function OfficeGeometry({ scene }: OfficeGeometryProps) {
   }, [scene])
 
   return null
+}
+
+function addWindowsToWall(
+  scene: THREE.Scene,
+  x: number,
+  y: number,
+  z: number,
+  isHorizontal: boolean,
+  count: number
+) {
+  const windowSpacing = 40 / (count + 1)
+  for (let i = 1; i <= count; i++) {
+    const windowX = isHorizontal ? -20 + i * windowSpacing : x
+    const windowZ = isHorizontal ? z : -20 + i * windowSpacing
+
+    // Window frame
+    const frameMat = new THREE.MeshStandardMaterial({
+      color: 0x1a1a1a,
+      roughness: 0.3,
+      metalness: 0.5,
+    })
+    const frame = new THREE.Mesh(
+      new THREE.BoxGeometry(1.2, 1.2, 0.15),
+      frameMat
+    )
+    frame.position.set(windowX, y, z)
+    frame.castShadow = true
+    scene.add(frame)
+
+    // Glass pane - with sky reflection
+    const glassMat = new THREE.MeshStandardMaterial({
+      color: 0x4a7ba7,
+      roughness: 0.1,
+      metalness: 0.3,
+      transparent: true,
+      opacity: 0.6,
+    })
+    const glass = new THREE.Mesh(
+      new THREE.BoxGeometry(1.0, 1.0, 0.02),
+      glassMat
+    )
+    glass.position.set(windowX, y, z + 0.08)
+    scene.add(glass)
+
+    // Window light
+    const windowLight = new THREE.PointLight(0xffffff, 0.5, 8)
+    windowLight.position.set(windowX, y, z + 1)
+    scene.add(windowLight)
+  }
+}
+
+function addDoorsToWall(
+  scene: THREE.Scene,
+  x: number,
+  y: number,
+  z: number,
+  isHorizontal: boolean,
+  count: number
+) {
+  const doorSpacing = 40 / (count + 1)
+  for (let i = 1; i <= count; i++) {
+    const doorX = isHorizontal ? -20 + i * doorSpacing : x
+    const doorZ = isHorizontal ? z : -20 + i * doorSpacing
+
+    // Door frame
+    const doorFrameMat = new THREE.MeshStandardMaterial({
+      color: 0x1a1a1a,
+      roughness: 0.4,
+      metalness: 0.6,
+    })
+    const doorFrame = new THREE.Mesh(
+      new THREE.BoxGeometry(0.9, 2.4, 0.1),
+      doorFrameMat
+    )
+    doorFrame.position.set(doorX, 1.2, z)
+    doorFrame.castShadow = true
+    scene.add(doorFrame)
+
+    // Glass door
+    const doorMat = new THREE.MeshStandardMaterial({
+      color: 0x3d5a7a,
+      roughness: 0.2,
+      metalness: 0.2,
+      transparent: true,
+      opacity: 0.5,
+    })
+    const door = new THREE.Mesh(
+      new THREE.BoxGeometry(0.8, 2.3, 0.02),
+      doorMat
+    )
+    door.position.set(doorX, 1.2, z + 0.06)
+    scene.add(door)
+
+    // Door handle
+    const handleMat = new THREE.MeshStandardMaterial({
+      color: 0xc0a080,
+      roughness: 0.3,
+      metalness: 0.7,
+    })
+    const handle = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.03, 0.03, 0.1),
+      handleMat
+    )
+    handle.rotation.z = Math.PI / 2
+    handle.position.set(doorX + 0.35, 1.2, z + 0.1)
+    scene.add(handle)
+  }
+}
+
+function addShelvingToWall(scene: THREE.Scene, x: number, wallLength: number) {
+  const shelfCount = 4
+  const shelfSpacing = 0.9
+  const shelfMat = new THREE.MeshStandardMaterial({
+    color: 0x5a4a3a,
+    roughness: 0.6,
+    metalness: 0.1,
+  })
+
+  for (let shelf = 0; shelf < shelfCount; shelf++) {
+    const shelfY = 1.0 + shelf * shelfSpacing
+
+    // Shelf
+    const shelf3D = new THREE.Mesh(
+      new THREE.BoxGeometry(0.3, 0.04, wallLength - 4),
+      shelfMat
+    )
+    shelf3D.position.set(x - 0.15, shelfY, 0)
+    shelf3D.castShadow = true
+    scene.add(shelf3D)
+
+    // Books on shelf
+    for (let i = 0; i < 5; i++) {
+      const bookColors = [0x8b4513, 0xa0522d, 0x6b5344, 0x7f6946, 0x9a7b5b]
+      const bookMat = new THREE.MeshStandardMaterial({
+        color: bookColors[i],
+        roughness: 0.7,
+      })
+      const book = new THREE.Mesh(
+        new THREE.BoxGeometry(0.04, 0.15 + Math.random() * 0.05, 0.08),
+        bookMat
+      )
+      const zPos = -wallLength / 2 + 2 + i * 2
+      book.position.set(x - 0.12, shelfY + 0.1, zPos)
+      book.castShadow = true
+      scene.add(book)
+    }
+  }
 }

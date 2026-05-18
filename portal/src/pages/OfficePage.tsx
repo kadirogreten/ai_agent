@@ -74,18 +74,29 @@ export default function OfficePage() {
           console.log('Agents loaded:', agentsData?.length)
         }
 
-        // Fetch recent jobs
-        const { data: jobsData, error: jobsErr } = await supabase
-          .from('jobs')
-          .select('id,agent_id,status,created_at')
-          .order('created_at', { ascending: false })
-          .limit(10)
+        // Fetch recent runs (instead of jobs table which doesn't exist)
+        try {
+          const { data: runsData, error: runsErr } = await supabase
+            .from('runs')
+            .select('id,status,created_at')
+            .order('created_at', { ascending: false })
+            .limit(10)
 
-        if (jobsErr) {
-          console.error('Jobs error:', jobsErr)
-        } else {
-          setJobs((jobsData ?? []) as Job[])
-          console.log('Jobs loaded:', jobsData?.length)
+          if (!runsErr && runsData) {
+            // Convert runs to job format
+            setJobs(
+              (runsData ?? []).map((r: any) => ({
+                id: r.id,
+                agent_id: null,
+                status: r.status,
+                created_at: r.created_at,
+              }))
+            )
+            console.log('Runs loaded:', runsData?.length)
+          }
+        } catch (e) {
+          // Silently fail - runs table may not be available
+          console.log('Runs table not available, showing demo mode')
         }
 
         // Fetch personas
