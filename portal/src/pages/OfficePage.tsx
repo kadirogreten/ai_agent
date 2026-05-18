@@ -9,6 +9,7 @@ import * as THREE from 'three'
 type Agent = { id: string; name: string | null; code: string | null; role: string | null }
 type Run = { id: string; agent_id: string | null; status: string; created_at: string }
 type Persona = { id: string; slug: string; name: string | null }
+type Job = { id: string; agent_id: string | null; status: string; created_at: string }
 
 export default function OfficePage() {
   const init = useAuthStore((s) => s.init)
@@ -19,13 +20,36 @@ export default function OfficePage() {
   const [agents, setAgents] = useState<Agent[]>([])
   const [runs, setRuns] = useState<Run[]>([])
   const [personas, setPersonas] = useState<Persona[]>([])
+  const [jobs, setJobs] = useState<Job[]>([])
   const [err, setErr] = useState<string | null>(null)
 
-  const { agents: officeAgents } = useOfficeSimulation(scene)
+  const { agents: officeAgents, moveAgentTo, moveAgentToCeoZone, returnAgentToDesk } = useOfficeSimulation({
+    scene,
+    dbAgents: agents,
+  })
 
   useEffect(() => {
     init()
   }, [init])
+
+  // Animate agents based on job status
+  useEffect(() => {
+    if (!moveAgentToCeoZone || !returnAgentToDesk) return
+
+    jobs.forEach((job) => {
+      if (!job.agent_id) return
+      const deskIndex = agents.findIndex((a) => a.id === job.agent_id)
+      if (deskIndex < 0) return
+
+      if (job.status === 'running' || job.status === 'pending') {
+        // Move agent to CEO zone when working
+        moveAgentToCeoZone(job.agent_id)
+      } else if (job.status === 'completed' || job.status === 'failed') {
+        // Return agent to desk when done
+        returnAgentToDesk(job.agent_id, deskIndex)
+      }
+    })
+  }, [jobs, agents, moveAgentToCeoZone, returnAgentToDesk])
 
   useEffect(() => {
     const load = async () => {
@@ -49,9 +73,19 @@ export default function OfficePage() {
           console.log('Agents loaded:', agentsData?.length)
         }
 
-        // Fetch recent runs (skip for now - agent_id column doesn't exist)
-        // TODO: Check actual runs table schema
-        setRuns([])
+        // Fetch recent jobs
+        const { data: jobsData, error: jobsErr } = await supabase
+          .from('jobs')
+          .select('id,agent_id,status,created_at')
+          .order('created_at', { ascending: false })
+          .limit(10)
+
+        if (jobsErr) {
+          console.error('Jobs error:', jobsErr)
+        } else {
+          setJobs((jobsData ?? []) as Job[])
+          console.log('Jobs loaded:', jobsData?.length)
+        }
 
         // Fetch personas
         const { data: personasData, error: personasErr } = await supabase
@@ -103,8 +137,8 @@ export default function OfficePage() {
               <span className="text-white/90">{agents.length}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-white/60">Active Runs</span>
-              <span className="text-emerald-400">{runs.filter((r) => r.status === 'running').length}</span>
+              <span className="text-white/60">Active Jobs</span>
+              <span className="text-emerald-400">{jobs.filter((j) => j.status === 'running').length}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-white/60">Personas</span>
@@ -140,10 +174,40 @@ export default function OfficePage() {
         </div>
       </div>
 
-      <div className="mx-4 flex-1 rounded-lg border border-white/[0.06] bg-gradient-to-b from-[#0f1829] to-[#0a1020] overflow-hidden">
-        <Office3DScene onSceneReady={handleSceneReady}>
-          {scene && <OfficeGeometry scene={scene} />}
-        </Office3DScene>
+      <div className="mx-4 flex gap-4 flex-1 overflow-hidden">
+        <div className="flex-1 rounded-lg border border-white/[0.06] bg-gradient-to-b from-[#0f1829] to-[#0a1020] overflow-hidden">
+          <Office3DScene onSceneReady={handleSceneReady}>
+            {scene && <OfficeGeometry scene={scene} />}
+          </Office3DScene>
+        </div>
+
+        <div className="w-64 rounded-lg border border-white/[0.06] bg-gradient-to-b from-[#0f1829] to-[#0a1020] p-4 overflow-y-auto">
+          <div className="text-xs font-semibold text-white/60 mb-3">Active Jobs</div>
+          <div className="space-y-2 text-xs">
+            {jobs.length === 0 ? (
+              <p className="text-white/40">No active jobs</p>
+            ) : (
+              jobs.slice(0, 10).map((job) => {
+                const agent = agents.find((a) => a.id === job.agent_id)
+                const statusColor =
+                  job.status === 'running'
+                    ? 'text-emerald-400'
+                    : job.status === 'completed'
+                      ? 'text-blue-400'
+                      : job.status === 'failed'
+                        ? 'text-red-400'
+                        : 'text-amber-400'
+                return (
+                  <div key={job.id} className="p-2 rounded bg-white/5 border border-white/10">
+                    <div className="text-white/90 truncate">{job.id.slice(0, 8)}</div>
+                    <div className="text-white/60 text-[10px]">{agent?.name || 'Unassigned'}</div>
+                    <div className={`${statusColor} text-[10px] mt-1`}>{job.status}</div>
+                  </div>
+                )
+              })
+            )}
+          </div>
+        </div>
       </div>
 
       <div className="mx-4 py-4 text-xs text-white/30">

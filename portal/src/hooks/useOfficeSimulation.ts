@@ -22,7 +22,12 @@ const ROLE_COLORS: Record<string, number> = {
   default: 0x6366f1,        // indigo
 }
 
-export function useOfficeSimulation(scene: THREE.Scene | null) {
+interface UseOfficeSimulationProps {
+  scene: THREE.Scene | null
+  dbAgents?: Array<{ id: string; name: string | null; code: string | null; role: string | null }>
+}
+
+export function useOfficeSimulation({ scene, dbAgents = [] }: UseOfficeSimulationProps) {
   const [agents, setAgents] = useState<AgentPosition[]>([])
   const agentsRef = useRef<Map<string, AgentPosition>>(new Map())
   const animationIdRef = useRef<number | null>(null)
@@ -39,61 +44,72 @@ export function useOfficeSimulation(scene: THREE.Scene | null) {
       { x: 12, z: 0 },
     ]
 
-    const initAgents: AgentPosition[] = [
-      {
-        agentId: 'agent-1',
-        name: 'Research Bot',
-        code: 'rb-001',
-        role: 'researcher',
-        position: new THREE.Vector3(deskPositions[0].x, 2, deskPositions[0].z),
-        targetPosition: new THREE.Vector3(deskPositions[0].x, 2, deskPositions[0].z),
-        isMoving: false,
-      },
-      {
-        agentId: 'agent-2',
-        name: 'Analysis Bot',
-        code: 'ab-001',
-        role: 'analyst',
-        position: new THREE.Vector3(deskPositions[1].x, 2, deskPositions[1].z),
-        targetPosition: new THREE.Vector3(deskPositions[1].x, 2, deskPositions[1].z),
-        isMoving: false,
-      },
-      {
-        agentId: 'agent-3',
-        name: 'Writing Bot',
-        code: 'wb-001',
-        role: 'writer',
-        position: new THREE.Vector3(deskPositions[2].x, 2, deskPositions[2].z),
-        targetPosition: new THREE.Vector3(deskPositions[2].x, 2, deskPositions[2].z),
-        isMoving: false,
-      },
-      {
-        agentId: 'agent-4',
-        name: 'Edit Bot',
-        code: 'eb-001',
-        role: 'editor',
-        position: new THREE.Vector3(deskPositions[3].x, 2, deskPositions[3].z),
-        targetPosition: new THREE.Vector3(deskPositions[3].x, 2, deskPositions[3].z),
-        isMoving: false,
-      },
-      {
-        agentId: 'agent-5',
-        name: 'Plan Bot',
-        code: 'pb-001',
-        role: 'planner',
-        position: new THREE.Vector3(deskPositions[4].x, 2, deskPositions[4].z),
-        targetPosition: new THREE.Vector3(deskPositions[4].x, 2, deskPositions[4].z),
-        isMoving: false,
-      },
-    ]
+    // Use database agents if available, otherwise use demo agents
+    const agentsToInit = dbAgents.length > 0
+      ? dbAgents.slice(0, 5).map((dbAgent, idx) => ({
+          agentId: dbAgent.id,
+          name: dbAgent.name || `Agent ${idx + 1}`,
+          code: dbAgent.code || `agent-${idx + 1}`,
+          role: dbAgent.role || 'executor',
+          position: new THREE.Vector3(deskPositions[idx].x, 2, deskPositions[idx].z),
+          targetPosition: new THREE.Vector3(deskPositions[idx].x, 2, deskPositions[idx].z),
+          isMoving: false,
+        }))
+      : [
+          {
+            agentId: 'agent-1',
+            name: 'Research Bot',
+            code: 'rb-001',
+            role: 'researcher',
+            position: new THREE.Vector3(deskPositions[0].x, 2, deskPositions[0].z),
+            targetPosition: new THREE.Vector3(deskPositions[0].x, 2, deskPositions[0].z),
+            isMoving: false,
+          },
+          {
+            agentId: 'agent-2',
+            name: 'Analysis Bot',
+            code: 'ab-001',
+            role: 'analyst',
+            position: new THREE.Vector3(deskPositions[1].x, 2, deskPositions[1].z),
+            targetPosition: new THREE.Vector3(deskPositions[1].x, 2, deskPositions[1].z),
+            isMoving: false,
+          },
+          {
+            agentId: 'agent-3',
+            name: 'Writing Bot',
+            code: 'wb-001',
+            role: 'writer',
+            position: new THREE.Vector3(deskPositions[2].x, 2, deskPositions[2].z),
+            targetPosition: new THREE.Vector3(deskPositions[2].x, 2, deskPositions[2].z),
+            isMoving: false,
+          },
+          {
+            agentId: 'agent-4',
+            name: 'Edit Bot',
+            code: 'eb-001',
+            role: 'editor',
+            position: new THREE.Vector3(deskPositions[3].x, 2, deskPositions[3].z),
+            targetPosition: new THREE.Vector3(deskPositions[3].x, 2, deskPositions[3].z),
+            isMoving: false,
+          },
+          {
+            agentId: 'agent-5',
+            name: 'Plan Bot',
+            code: 'pb-001',
+            role: 'planner',
+            position: new THREE.Vector3(deskPositions[4].x, 2, deskPositions[4].z),
+            targetPosition: new THREE.Vector3(deskPositions[4].x, 2, deskPositions[4].z),
+            isMoving: false,
+          },
+        ]
 
-    initAgents.forEach((agent) => {
+    agentsToInit.forEach((agent) => {
       agentsRef.current.set(agent.agentId, agent)
       createAgentMesh(agent, scene)
     })
 
-    setAgents(initAgents)
-  }, [scene])
+    setAgents(agentsToInit)
+  }, [scene, dbAgents])
 
   // Create 3D mesh for agent
   function createAgentMesh(agent: AgentPosition, scene: THREE.Scene) {
