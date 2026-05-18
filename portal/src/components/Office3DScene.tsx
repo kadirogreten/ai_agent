@@ -6,7 +6,7 @@ interface Office3DSceneProps {
   children?: React.ReactNode
 }
 
-export default function Office3DScene({ onSceneReady }: Office3DSceneProps) {
+export default function Office3DScene({ onSceneReady, children }: Office3DSceneProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const sceneRef = useRef<THREE.Scene | null>(null)
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null)
