@@ -183,7 +183,7 @@ function DeskCard({
                         border: '1px solid rgba(255,255,255,0.08)',
                       }}
                     >
-                      {p.name}
+                      {p.name ?? '—'}
                     </div>
                   ))}
                   {personas.length > 3 && (
@@ -283,13 +283,13 @@ function PersonaPanel({ agent, personas, onClose }: { agent: AgentRow; personas:
                       style={{ border: '1px solid rgba(255,255,255,0.07)' }}
                     >
                       <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium text-white/80">{p.name}</span>
+                        <span className="text-sm font-medium text-white/80">{p.name ?? '—'}</span>
                         <span className="rounded px-1.5 py-0.5 font-mono text-[9px] text-white/40"
                           style={{ background: 'rgba(255,255,255,0.05)' }}>
                           {p.risk_ceiling}
                         </span>
                       </div>
-                      <div className="mt-1 font-mono text-[10px] text-white/30">{p.slug}</div>
+                      <div className="mt-1 font-mono text-[10px] text-white/30">{p.slug ?? '—'}</div>
                       {activeBehaviors.length > 0 && (
                         <div className="mt-2 flex flex-wrap gap-1">
                           {activeBehaviors.slice(0, 4).map((b) => (
@@ -364,15 +364,16 @@ export default function AgentsPage() {
 
   function personasForAgent(agent: AgentRow): PersonaRow[] {
     if (!agent.role) return []
-    const roleKw = ROLE_LABELS[agent.role].toLowerCase()
+    const roleKw = (ROLE_LABELS[agent.role] ?? agent.role ?? '').toLowerCase()
     return personas.filter((p) => {
       const desc = (p.role_description ?? '').toLowerCase()
-      const packMatch = agent.role === 'research' && desc.includes('araştırma')
+      const name = (p.name ?? '').toLowerCase()
+      const packMatch = agent.role === 'research' && (desc.includes('araştırma') || name.includes('araştırma'))
         || agent.role === 'analysis'  && (desc.includes('analiz') || desc.includes('analyst'))
         || agent.role === 'writing'   && (desc.includes('yaz') || desc.includes('writer'))
         || agent.role === 'editing'   && (desc.includes('edit') || desc.includes('düzelt'))
         || agent.role === 'verification' && (desc.includes('verif') || desc.includes('denetç'))
-        || desc.includes(roleKw)
+        || (roleKw.length > 0 && desc.includes(roleKw))
       return packMatch
     })
   }
@@ -544,9 +545,9 @@ export default function AgentsPage() {
                     ) : filtered.map((a) => (
                       <tr key={a.id} className="border-b border-white/5 hover:bg-white/5">
                         <td className="px-4 py-2">
-                          <Link to={`/app/agents/${a.id}/edit`} className="text-blue-300 hover:underline">{a.name}</Link>
+                          <Link to={`/app/agents/${a.id}/edit`} className="text-blue-300 hover:underline">{a.name ?? '—'}</Link>
                         </td>
-                        <td className="px-4 py-2 font-mono text-xs text-white/50">{a.code}</td>
+                        <td className="px-4 py-2 font-mono text-xs text-white/50">{a.code ?? '—'}</td>
                         <td className="px-4 py-2">
                           {a.role && (
                             <span className="inline-flex items-center gap-1 rounded border border-white/10 bg-white/5 px-1.5 py-0.5 text-xs text-white/60">
