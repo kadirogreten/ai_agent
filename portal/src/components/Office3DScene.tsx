@@ -89,7 +89,7 @@ export default function Office3DScene({ onSceneReady, children }: Office3DSceneP
       renderer.dispose()
       containerRef.current?.removeChild(renderer.domElement)
     }
-  }, [onSceneReady])
+  }, [])
 
   return (
     <div ref={containerRef} className="w-full h-full">
