@@ -18,6 +18,7 @@ export default function Office3DScene({ onSceneReady, children }: Office3DSceneP
 
     const width = containerRef.current.clientWidth
     const height = containerRef.current.clientHeight
+    console.log('Canvas size:', { width, height })
 
     // Scene setup
     const scene = new THREE.Scene()
