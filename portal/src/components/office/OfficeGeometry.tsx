@@ -7,6 +7,8 @@ interface OfficeGeometryProps {
 
 export default function OfficeGeometry({ scene }: OfficeGeometryProps) {
   useEffect(() => {
+    console.log('OfficeGeometry: Creating floor and geometry...')
+
     // Floor
     const floorGeometry = new THREE.PlaneGeometry(40, 40)
     const floorMaterial = new THREE.MeshStandardMaterial({
@@ -18,6 +20,7 @@ export default function OfficeGeometry({ scene }: OfficeGeometryProps) {
     floor.rotation.x = -Math.PI / 2
     floor.receiveShadow = true
     scene.add(floor)
+    console.log('OfficeGeometry: Floor added to scene')
 
     // Grid helper for visual reference
     const gridHelper = new THREE.GridHelper(40, 40, 0x3b82f6, 0x1e3a8a)

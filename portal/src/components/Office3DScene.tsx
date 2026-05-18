@@ -26,9 +26,10 @@ export default function Office3DScene({ onSceneReady }: Office3DSceneProps) {
 
     // Camera setup
     const camera = new THREE.PerspectiveCamera(75, width / height, 0.1, 1000)
-    camera.position.set(0, 15, 20)
+    camera.position.set(0, 20, 30)
     camera.lookAt(0, 0, 0)
     cameraRef.current = camera
+    console.log('Camera positioned:', camera.position)
 
     // Renderer setup
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false })

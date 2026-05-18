@@ -49,19 +49,9 @@ export default function OfficePage() {
           console.log('Agents loaded:', agentsData?.length)
         }
 
-        // Fetch recent runs
-        const { data: runsData, error: runsErr } = await supabase
-          .from('runs')
-          .select('id,agent_id,status,created_at')
-          .order('created_at', { ascending: false })
-          .limit(100)
-
-        if (runsErr) {
-          console.error('Runs error:', runsErr)
-        } else {
-          setRuns((runsData ?? []) as Run[])
-          console.log('Runs loaded:', runsData?.length)
-        }
+        // Fetch recent runs (skip for now - agent_id column doesn't exist)
+        // TODO: Check actual runs table schema
+        setRuns([])
 
         // Fetch personas
         const { data: personasData, error: personasErr } = await supabase
