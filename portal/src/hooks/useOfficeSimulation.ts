@@ -12,6 +12,8 @@ export interface AgentPosition {
   mesh?: THREE.Group
   positionHistory: THREE.Vector3[]
   trailMesh?: THREE.Line
+  statusIndicator?: THREE.Mesh
+  currentJobStatus?: string
 }
 
 const ROLE_COLORS: Record<string, number> = {
@@ -333,9 +335,47 @@ export function useOfficeSimulation({ scene, dbAgents = [] }: UseOfficeSimulatio
     }
   }
 
+  // Update agent status indicator
+  const updateAgentStatus = (agentId: string, status: string) => {
+    const agent = agentsRef.current.get(agentId)
+    if (!agent) return
+
+    agent.currentJobStatus = status
+
+    const statusColors: Record<string, number> = {
+      pending: 0x6b7280,    // gray
+      running: 0xf59e0b,    // amber
+      completed: 0x10b981,  // emerald
+      failed: 0xef4444,     // red
+    }
+
+    const color = statusColors[status] ?? statusColors.pending
+
+    // Create or update status indicator
+    if (!agent.statusIndicator && agent.mesh) {
+      const geometry = new THREE.SphereGeometry(0.15, 16, 16)
+      const material = new THREE.MeshStandardMaterial({
+        color,
+        emissive: color,
+        emissiveIntensity: 0.8,
+        roughness: 0.3,
+        metalness: 0.5,
+      })
+      const indicator = new THREE.Mesh(geometry, material)
+      indicator.position.y = 1.3
+      agent.mesh.add(indicator)
+      agent.statusIndicator = indicator
+    } else if (agent.statusIndicator) {
+      const material = agent.statusIndicator.material as THREE.MeshStandardMaterial
+      material.color.setHex(color)
+      material.emissive.setHex(color)
+    }
+  }
+
   // Move agent to CEO zone
   const moveAgentToCeoZone = (agentId: string) => {
     moveAgentTo(agentId, new THREE.Vector3(0, 2, 5))
+    updateAgentStatus(agentId, 'running')
   }
 
   // Return agent to desk
@@ -349,6 +389,7 @@ export function useOfficeSimulation({ scene, dbAgents = [] }: UseOfficeSimulatio
     ]
     if (deskIndex < deskPositions.length) {
       moveAgentTo(agentId, deskPositions[deskIndex])
+      updateAgentStatus(agentId, 'idle')
     }
   }
 
@@ -357,5 +398,6 @@ export function useOfficeSimulation({ scene, dbAgents = [] }: UseOfficeSimulatio
     moveAgentTo,
     moveAgentToCeoZone,
     returnAgentToDesk,
+    updateAgentStatus,
   }
 }

@@ -24,7 +24,7 @@ export default function OfficePage() {
   const [jobs, setJobs] = useState<Job[]>([])
   const [err, setErr] = useState<string | null>(null)
 
-  const { agents: officeAgents, moveAgentTo, moveAgentToCeoZone, returnAgentToDesk } = useOfficeSimulation({
+  const { agents: officeAgents, moveAgentTo, moveAgentToCeoZone, returnAgentToDesk, updateAgentStatus } = useOfficeSimulation({
     scene,
     dbAgents: agents,
   })
@@ -35,7 +35,7 @@ export default function OfficePage() {
 
   // Animate agents based on job status
   useEffect(() => {
-    if (!moveAgentToCeoZone || !returnAgentToDesk) return
+    if (!moveAgentToCeoZone || !returnAgentToDesk || !updateAgentStatus) return
 
     jobs.forEach((job) => {
       if (!job.agent_id) return
@@ -45,12 +45,14 @@ export default function OfficePage() {
       if (job.status === 'running' || job.status === 'pending') {
         // Move agent to CEO zone when working
         moveAgentToCeoZone(job.agent_id)
+        updateAgentStatus(job.agent_id, job.status)
       } else if (job.status === 'completed' || job.status === 'failed') {
         // Return agent to desk when done
         returnAgentToDesk(job.agent_id, deskIndex)
+        updateAgentStatus(job.agent_id, job.status)
       }
     })
-  }, [jobs, agents, moveAgentToCeoZone, returnAgentToDesk])
+  }, [jobs, agents, moveAgentToCeoZone, returnAgentToDesk, updateAgentStatus])
 
   useEffect(() => {
     const load = async () => {
