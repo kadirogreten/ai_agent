@@ -314,6 +314,12 @@ export function useOfficeSimulation({ scene, dbAgents = [] }: UseOfficeSimulatio
 
         // Gentle bob animation
         agent.mesh.position.y += Math.sin(Date.now() * 0.002) * 0.02
+
+        // Pulsing animation for status indicator
+        if (agent.statusIndicator && agent.currentJobStatus === 'running') {
+          const pulse = 1 + Math.sin(Date.now() * 0.003) * 0.3
+          agent.statusIndicator.scale.set(pulse, pulse, pulse)
+        }
       })
     }
 
