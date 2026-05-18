@@ -6,6 +6,9 @@ import { Card } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
+import { PageHeader } from '@/components/PageHeader'
+import { DataTable, type Column } from '@/components/DataTable'
+import { EmptyState } from '@/components/EmptyState'
 import { listPlaybookBundles } from '@/lib/bundles'
 import { listDomainPacks, listPlaybooksForPack } from '@/lib/domainPacks'
 import {
@@ -15,9 +18,7 @@ import {
   mergePlaybookOptions,
   type PackOption,
 } from '@/lib/domainPackDefaults'
-
-const selectClassName =
-  'h-10 w-full rounded-md border border-white/10 bg-white/5 px-3 text-sm text-white outline-none focus:border-blue-400'
+import { Zap, Plus } from 'lucide-react'
 
 type JobStatus = 'pending' | 'running' | 'success' | 'fail' | 'cancelled'
 type JobMode = 'ceo' | 'ceo-iterate' | 'run' | 'bundle'
@@ -53,42 +54,39 @@ function statusTone(s: JobStatus): 'green' | 'red' | 'yellow' | 'gray' {
   return 'gray'
 }
 
+const SELECT_CLS = 'h-9 rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 text-sm text-white outline-none focus:border-blue-500/60'
+
 export default function JobsPage() {
-  const init = useAuthStore((s) => s.init)
-  const user = useAuthStore((s) => s.user)
+  const init        = useAuthStore((s) => s.init)
+  const user        = useAuthStore((s) => s.user)
   const initialized = useAuthStore((s) => s.initialized)
 
-  const [rows, setRows] = useState<JobRow[]>([])
+  const [rows,   setRows]   = useState<JobRow[]>([])
   const [loading, setLoading] = useState(false)
-  const [err, setErr] = useState<string | null>(null)
-
-  const [q, setQ] = useState('')
+  const [err,    setErr]    = useState<string | null>(null)
+  const [q,      setQ]      = useState('')
   const [status, setStatus] = useState<'all' | JobStatus>('all')
-  const [mode, setMode] = useState<'all' | JobMode>('all')
+  const [mode,   setMode]   = useState<'all' | JobMode>('all')
 
-  const [formOpen, setFormOpen] = useState(false)
-  const [formMode, setFormMode] = useState<JobMode>('ceo')
-  const [domainPack, setDomainPack] = useState('market-intel')
-  const [requestText, setRequestText] = useState('')
-  const [answersJson, setAnswersJson] = useState('{}')
-  const [playbookId, setPlaybookId] = useState('brand-site')
-  const [bundleId, setBundleId] = useState('weekly')
+  const [formOpen,     setFormOpen]     = useState(false)
+  const [formMode,     setFormMode]     = useState<JobMode>('ceo')
+  const [domainPack,   setDomainPack]   = useState('market-intel')
+  const [requestText,  setRequestText]  = useState('')
+  const [answersJson,  setAnswersJson]  = useState('{}')
+  const [playbookId,   setPlaybookId]   = useState('brand-site')
+  const [bundleId,     setBundleId]     = useState('weekly')
   const [availableAgents, setAvailableAgents] = useState<AgentRow[]>([])
   const [selectedAgents, setSelectedAgents] = useState<string[]>([])
-  const [modelText, setModelText] = useState('gpt-4.1')
-  const [web, setWeb] = useState(true)
-  const [contrarian, setContrarian] = useState(false)
-  const [risk, setRisk] = useState<'R0' | 'R1' | 'R2' | 'R3'>('R1')
+  const [modelText,    setModelText]    = useState('gpt-4.1')
+  const [web,         setWeb]          = useState(true)
+  const [contrarian,   setContrarian]   = useState(false)
+  const [risk,        setRisk]         = useState<'R0' | 'R1' | 'R2' | 'R3'>('R1')
   const [allowHighRisk, setAllowHighRisk] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [formErr, setFormErr] = useState<string | null>(null)
+  const [saving,      setSaving]       = useState(false)
+  const [formErr,     setFormErr]      = useState<string | null>(null)
   const [domainPackOptions, setDomainPackOptions] = useState<PackOption[]>(BUILTIN_DOMAIN_PACKS)
-  const [bundleOptions, setBundleOptions] = useState<PackOption[]>(
-    () => mergeBundleOptions('market-intel', []),
-  )
-  const [playbookOptions, setPlaybookOptions] = useState<PackOption[]>(
-    () => mergePlaybookOptions('market-intel', []),
-  )
+  const [bundleOptions, setBundleOptions] = useState<PackOption[]>(() => mergeBundleOptions('market-intel', []))
+  const [playbookOptions, setPlaybookOptions] = useState<PackOption[]>(() => mergePlaybookOptions('market-intel', []))
 
   const canQuery = initialized && !!user
 
@@ -105,9 +103,7 @@ export default function JobsPage() {
     loadAgents()
   }, [canQuery, formOpen])
 
-  useEffect(() => {
-    init()
-  }, [init])
+  useEffect(() => { init() }, [init])
 
   useEffect(() => {
     if (!formOpen || !canQuery) return
@@ -115,16 +111,12 @@ export default function JobsPage() {
     ;(async () => {
       try {
         const packs = await listDomainPacks()
-        if (!cancelled) {
-          setDomainPackOptions(mergeDomainPackOptions(packs.map((p) => ({ id: p.id, name: p.name }))))
-        }
+        if (!cancelled) setDomainPackOptions(mergeDomainPackOptions(packs.map((p) => ({ id: p.id, name: p.name }))))
       } catch {
         if (!cancelled) setDomainPackOptions(BUILTIN_DOMAIN_PACKS)
       }
     })()
-    return () => {
-      cancelled = true
-    }
+    return () => { cancelled = true }
   }, [formOpen, canQuery])
 
   useEffect(() => {
@@ -136,57 +128,40 @@ export default function JobsPage() {
         listPlaybooksForPack(domainPack).catch(() => []),
       ])
       if (cancelled) return
-      const bundles = mergeBundleOptions(
-        domainPack,
-        (bundleRes.data ?? []).map((b) => ({ slug: b.slug, name: b.name })),
-      )
-      const playbooks = mergePlaybookOptions(
-        domainPack,
-        playbookRows.map((p) => ({ slug: p.slug, name: p.name })),
-      )
+      const bundles = mergeBundleOptions(domainPack, (bundleRes.data ?? []).map((b) => ({ slug: b.slug, name: b.name })))
+      const playbooks = mergePlaybookOptions(domainPack, playbookRows.map((p) => ({ slug: p.slug, name: p.name })))
       setBundleOptions(bundles)
       setPlaybookOptions(playbooks)
     })()
-    return () => {
-      cancelled = true
-    }
+    return () => { cancelled = true }
   }, [domainPack])
 
   useEffect(() => {
     if (domainPack === 'hibe-yazimi') {
-      setRisk('R2')
-      setAllowHighRisk(true)
+      setRisk('R2'); setAllowHighRisk(true)
     } else if (domainPack === 'market-intel') {
-      setRisk('R1')
-      setAllowHighRisk(false)
+      setRisk('R1'); setAllowHighRisk(false)
     }
   }, [domainPack])
 
   useEffect(() => {
     if (bundleOptions.length === 0) return
-    if (!bundleOptions.some((b) => b.id === bundleId)) {
-      setBundleId(bundleOptions[0].id)
-    }
+    if (!bundleOptions.some((b) => b.id === bundleId)) setBundleId(bundleOptions[0].id)
   }, [bundleOptions, bundleId])
 
   useEffect(() => {
     if (playbookOptions.length === 0) return
-    if (!playbookOptions.some((p) => p.id === playbookId)) {
-      setPlaybookId(playbookOptions[0].id)
-    }
+    if (!playbookOptions.some((p) => p.id === playbookId)) setPlaybookId(playbookOptions[0].id)
   }, [playbookOptions, playbookId])
 
   const filters = useMemo(() => ({ q, status, mode }), [q, status, mode])
 
   const load = useCallback(async () => {
     if (!canQuery) return
-    setLoading(true)
-    setErr(null)
+    setLoading(true); setErr(null)
     let query = supabase
       .from('run_requests')
-      .select(
-        'id,status,mode,domain_pack,request_text,model,web,contrarian,risk,allow_high_risk,started_at,finished_at,error_message,created_at,updated_at',
-      )
+      .select('id,status,mode,domain_pack,request_text,model,web,contrarian,risk,allow_high_risk,started_at,finished_at,error_message,created_at,updated_at')
       .order('created_at', { ascending: false })
       .limit(200)
 
@@ -199,32 +174,26 @@ export default function JobsPage() {
 
     const res = await query
     if (res.error) {
-      setErr(res.error.message)
-      setRows([])
+      setErr(res.error.message); setRows([])
     } else {
       setRows((res.data ?? []) as unknown as JobRow[])
     }
     setLoading(false)
   }, [canQuery, filters.mode, filters.q, filters.status])
 
-  useEffect(() => {
-    load()
-  }, [load])
+  useEffect(() => { load() }, [load])
 
   const hasActive = useMemo(() => rows.some((r) => r.status === 'pending' || r.status === 'running'), [rows])
 
   useEffect(() => {
     if (!canQuery || !hasActive) return
-    const id = window.setInterval(() => {
-      load()
-    }, 5000)
+    const id = window.setInterval(() => { load() }, 5000)
     return () => window.clearInterval(id)
   }, [canQuery, hasActive, load])
 
   async function createJob() {
     if (!user) return
-    setSaving(true)
-    setFormErr(null)
+    setSaving(true); setFormErr(null)
     try {
       let answers: unknown = null
       if (formMode === 'ceo-iterate') {
@@ -236,15 +205,9 @@ export default function JobsPage() {
           return
         }
       } else if (formMode === 'run') {
-        answers = {
-          playbookId: playbookId.trim(),
-          topic: requestText.trim(),
-        }
+        answers = { playbookId: playbookId.trim(), topic: requestText.trim() }
       } else if (formMode === 'bundle') {
-        answers = {
-          bundleId: bundleId.trim(),
-          topic: requestText.trim(),
-        }
+        answers = { bundleId: bundleId.trim(), topic: requestText.trim() }
       }
 
       const requestForRow = requestText.trim()
@@ -263,9 +226,7 @@ export default function JobsPage() {
         answers_json: answers,
         selected_agents: selectedAgents.length > 0 ? selectedAgents : null,
         model: modelText.trim() || null,
-        web,
-        contrarian,
-        risk,
+        web, contrarian, risk,
         allow_high_risk: allowHighRisk,
       })
 
@@ -276,11 +237,7 @@ export default function JobsPage() {
       }
 
       setFormOpen(false)
-      setRequestText('')
-      setAnswersJson('{}')
-      setRisk('R1')
-      setAllowHighRisk(false)
-      setSelectedAgents([])
+      setRequestText(''); setAnswersJson('{}'); setRisk('R1'); setAllowHighRisk(false); setSelectedAgents([])
       setSaving(false)
       load()
     } catch (e: unknown) {
@@ -289,71 +246,85 @@ export default function JobsPage() {
     }
   }
 
+  const columns: Column<JobRow>[] = [
+    {
+      key: 'status', header: 'Durum', width: '100px',
+      render: (r) => <Badge tone={statusTone(r.status)}>{r.status}</Badge>,
+    },
+    {
+      key: 'mode', header: 'Mode', width: '80px',
+      render: (r) => <span className="text-xs text-white/60">{r.mode}</span>,
+    },
+    {
+      key: 'domain_pack', header: 'Domain', width: '120px',
+      render: (r) => <span className="text-xs text-white/60">{r.domain_pack ?? '—'}</span>,
+    },
+    {
+      key: 'request_text', header: 'Request',
+      render: (r) => (
+        <div>
+          <Link to={`/app/jobs/${r.id}`} className="text-blue-300 hover:underline text-xs">
+            {(r.request_text ?? '').slice(0, 60) || '(empty)'}
+          </Link>
+          {r.error_message && <div className="mt-0.5 text-xs text-red-300">{r.error_message.slice(0, 50)}</div>}
+        </div>
+      ),
+    },
+    {
+      key: 'updated_at', header: 'Güncelleme', width: '140px',
+      render: (r) => <span className="text-xs text-white/40">{new Date(r.updated_at).toLocaleString()}</span>,
+    },
+  ]
+
   return (
     <div className="space-y-4">
-      <Card className="p-4">
-        <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-          <div className="grid flex-1 gap-3 md:grid-cols-3">
-            <div>
-              <div className="mb-1 text-xs text-white/60">Arama</div>
-              <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="request/domain..." />
-            </div>
-            <div>
-              <div className="mb-1 text-xs text-white/60">Status</div>
-              <select
-                value={status}
-                onChange={(e) => setStatus(e.target.value as 'all' | JobStatus)}
-                className="h-10 w-full rounded-md border border-white/10 bg-white/5 px-3 text-sm text-white outline-none"
-              >
-                <option value="all">all</option>
-                <option value="pending">pending</option>
-                <option value="running">running</option>
-                <option value="success">success</option>
-                <option value="fail">fail</option>
-                <option value="cancelled">cancelled</option>
-              </select>
-            </div>
-            <div>
-              <div className="mb-1 text-xs text-white/60">Mode</div>
-              <select
-                value={mode}
-                onChange={(e) => setMode(e.target.value as 'all' | JobMode)}
-                className="h-10 w-full rounded-md border border-white/10 bg-white/5 px-3 text-sm text-white outline-none"
-              >
-                <option value="all">all</option>
-                <option value="ceo">ceo</option>
-                <option value="ceo-iterate">ceo-iterate</option>
-                <option value="run">run</option>
-                <option value="bundle">bundle</option>
-              </select>
-            </div>
-          </div>
-          <div className="flex gap-2">
-            <Button variant="secondary" onClick={() => load()} disabled={loading}>
-              Yenile
-            </Button>
-            <Button variant="secondary" onClick={() => { setQ(''); setStatus('all'); setMode('all') }}>
-              Temizle
-            </Button>
-            <Button onClick={() => setFormOpen((v) => !v)}>{formOpen ? 'Kapat' : 'Yeni Job'}</Button>
-          </div>
-        </div>
-        <div className="mt-3 text-xs text-white/60">
-          Worker işleri periyodik olarak alır; pending/running durumları otomatik yenilenir.
+      <PageHeader
+        title="Run Jobs"
+        description="Tüm agent job'ları"
+        actions={
+          <Button size="sm" onClick={() => setFormOpen(!formOpen)}>
+            <Plus size={13} className="mr-1" /> {formOpen ? 'Kapat' : 'Yeni Job'}
+          </Button>
+        }
+      />
+
+      <Card className="p-3">
+        <div className="flex flex-wrap gap-2">
+          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Request veya domain ara…" className="w-64" />
+          <select
+            value={status}
+            onChange={(e) => setStatus(e.target.value as 'all' | JobStatus)}
+            className={SELECT_CLS + ' w-40'}
+          >
+            <option value="all">Tüm durumlar</option>
+            <option value="pending">pending</option>
+            <option value="running">running</option>
+            <option value="success">success</option>
+            <option value="fail">fail</option>
+            <option value="cancelled">cancelled</option>
+          </select>
+          <select
+            value={mode}
+            onChange={(e) => setMode(e.target.value as 'all' | JobMode)}
+            className={SELECT_CLS + ' w-40'}
+          >
+            <option value="all">Tüm mode'ler</option>
+            <option value="ceo">ceo</option>
+            <option value="ceo-iterate">ceo-iterate</option>
+            <option value="run">run</option>
+            <option value="bundle">bundle</option>
+          </select>
+          <Button variant="ghost" size="sm" onClick={() => { setQ(''); setStatus('all'); setMode('all') }}>Temizle</Button>
         </div>
       </Card>
 
-      {formOpen ? (
-        <Card className="p-4">
-          <div className="text-sm font-medium">Yeni Job</div>
-          <div className="mt-3 grid gap-3 md:grid-cols-2">
+      {formOpen && (
+        <Card className="p-4 space-y-3">
+          <h3 className="text-sm font-semibold">Yeni Job</h3>
+          <div className="grid gap-3 md:grid-cols-2">
             <div>
-              <div className="mb-1 text-xs text-white/60">Mode</div>
-              <select
-                value={formMode}
-                onChange={(e) => setFormMode(e.target.value as JobMode)}
-                className="h-10 w-full rounded-md border border-white/10 bg-white/5 px-3 text-sm text-white outline-none"
-              >
+              <label className="mb-1 block text-xs text-white/40">Mode</label>
+              <select value={formMode} onChange={(e) => setFormMode(e.target.value as JobMode)} className={SELECT_CLS}>
                 <option value="ceo">ceo</option>
                 <option value="ceo-iterate">ceo-iterate</option>
                 <option value="run">run</option>
@@ -361,37 +332,29 @@ export default function JobsPage() {
               </select>
             </div>
             <div>
-              <div className="mb-1 text-xs text-white/60">Domain Pack</div>
-              <select
-                value={domainPack}
-                onChange={(e) => setDomainPack(e.target.value)}
-                className={selectClassName}
-              >
+              <label className="mb-1 block text-xs text-white/40">Domain Pack</label>
+              <select value={domainPack} onChange={(e) => setDomainPack(e.target.value)} className={SELECT_CLS}>
                 {domainPackOptions.map((p) => (
                   <option key={p.id} value={p.id}>{p.label}</option>
                 ))}
               </select>
             </div>
             <div className="md:col-span-2">
-              <div className="mb-1 text-xs text-white/60">
+              <label className="mb-1 block text-xs text-white/40">
                 {formMode === 'run' || formMode === 'bundle' ? 'Topic' : 'Request'}
-              </div>
+              </label>
               <textarea
                 value={requestText}
                 onChange={(e) => setRequestText(e.target.value)}
-                className="min-h-24 w-full rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-400/30"
+                className="min-h-20 w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-sm text-white outline-none focus:border-blue-500/60"
               />
             </div>
 
-            {formMode === 'run' ? (
+            {formMode === 'run' && (
               <div>
-                <div className="mb-1 text-xs text-white/60">playbookId</div>
+                <label className="mb-1 block text-xs text-white/40">playbookId</label>
                 {playbookOptions.length > 0 ? (
-                  <select
-                    value={playbookId}
-                    onChange={(e) => setPlaybookId(e.target.value)}
-                    className={selectClassName}
-                  >
+                  <select value={playbookId} onChange={(e) => setPlaybookId(e.target.value)} className={SELECT_CLS}>
                     {playbookOptions.map((p) => (
                       <option key={p.id} value={p.id}>{p.label}</option>
                     ))}
@@ -400,17 +363,13 @@ export default function JobsPage() {
                   <Input value={playbookId} onChange={(e) => setPlaybookId(e.target.value)} placeholder="playbook id" />
                 )}
               </div>
-            ) : null}
+            )}
 
-            {formMode === 'bundle' ? (
+            {formMode === 'bundle' && (
               <div>
-                <div className="mb-1 text-xs text-white/60">bundleId</div>
+                <label className="mb-1 block text-xs text-white/40">bundleId</label>
                 {bundleOptions.length > 0 ? (
-                  <select
-                    value={bundleId}
-                    onChange={(e) => setBundleId(e.target.value)}
-                    className={selectClassName}
-                  >
+                  <select value={bundleId} onChange={(e) => setBundleId(e.target.value)} className={SELECT_CLS}>
                     {bundleOptions.map((b) => (
                       <option key={b.id} value={b.id}>{b.label}</option>
                     ))}
@@ -419,149 +378,76 @@ export default function JobsPage() {
                   <Input value={bundleId} onChange={(e) => setBundleId(e.target.value)} placeholder="bundle id" />
                 )}
               </div>
-            ) : null}
+            )}
 
-            {formMode === 'ceo-iterate' ? (
+            {formMode === 'ceo-iterate' && (
               <div className="md:col-span-2">
-                <div className="mb-1 text-xs text-white/60">answers_json</div>
+                <label className="mb-1 block text-xs text-white/40">answers_json</label>
                 <textarea
                   value={answersJson}
                   onChange={(e) => setAnswersJson(e.target.value)}
-                  className="min-h-24 w-full rounded-md border border-white/10 bg-white/5 px-3 py-2 font-mono text-xs text-white outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-400/30"
+                  className="min-h-20 w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2 font-mono text-xs text-white outline-none focus:border-blue-500/60"
                 />
               </div>
-            ) : null}
+            )}
+
             <div>
-              <div className="mb-1 text-xs text-white/60">Model</div>
+              <label className="mb-1 block text-xs text-white/40">Model</label>
               <Input value={modelText} onChange={(e) => setModelText(e.target.value)} />
             </div>
             <div>
-              <div className="mb-1 text-xs text-white/60">Risk</div>
-              <select
-                value={risk}
-                onChange={(e) => setRisk(e.target.value as 'R0' | 'R1' | 'R2' | 'R3')}
-                className="h-10 w-full rounded-md border border-white/10 bg-white/5 px-3 text-sm text-white outline-none"
-              >
+              <label className="mb-1 block text-xs text-white/40">Risk</label>
+              <select value={risk} onChange={(e) => setRisk(e.target.value as 'R0' | 'R1' | 'R2' | 'R3')} className={SELECT_CLS}>
                 <option value="R0">R0</option>
                 <option value="R1">R1</option>
                 <option value="R2">R2</option>
                 <option value="R3">R3</option>
               </select>
             </div>
-            <div className="flex items-center gap-3">
-              <label className="flex items-center gap-2 text-sm text-white/70">
-                <input type="checkbox" checked={web} onChange={(e) => setWeb(e.target.checked)} />
+
+            <div className="md:col-span-2 flex flex-wrap gap-4">
+              <label className="flex items-center gap-2 text-xs text-white/60">
+                <input type="checkbox" checked={web} onChange={(e) => setWeb(e.target.checked)} className="rounded" />
                 web
               </label>
-              <label className="flex items-center gap-2 text-sm text-white/70">
-                <input type="checkbox" checked={contrarian} onChange={(e) => setContrarian(e.target.checked)} />
+              <label className="flex items-center gap-2 text-xs text-white/60">
+                <input type="checkbox" checked={contrarian} onChange={(e) => setContrarian(e.target.checked)} className="rounded" />
                 contrarian
               </label>
-              <label className="flex items-center gap-2 text-sm text-white/70">
-                <input type="checkbox" checked={allowHighRisk} onChange={(e) => setAllowHighRisk(e.target.checked)} />
+              <label className="flex items-center gap-2 text-xs text-white/60">
+                <input type="checkbox" checked={allowHighRisk} onChange={(e) => setAllowHighRisk(e.target.checked)} className="rounded" />
                 allow_high_risk
               </label>
             </div>
-
-            <div className="md:col-span-2">
-              <div className="mb-1 text-xs text-white/60">Ajanlar (seçmezsen tümü çalışır)</div>
-              {availableAgents.length === 0 ? (
-                <div className="text-xs text-white/60">Ajan bulunamadı</div>
-              ) : (
-                <div className="grid gap-2 md:grid-cols-3">
-                  {availableAgents.map((a) => {
-                    const checked = selectedAgents.includes(a.code)
-                    return (
-                      <label key={a.code} className="flex items-center gap-2 rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/80">
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={(e) => {
-                            const on = e.target.checked
-                            setSelectedAgents((prev) => {
-                              if (on) return Array.from(new Set(prev.concat([a.code])))
-                              return prev.filter((x) => x !== a.code)
-                            })
-                          }}
-                        />
-                        <span className="truncate">{a.name} <span className="text-xs text-white/50">({a.code})</span></span>
-                      </label>
-                    )
-                  })}
-                </div>
-              )}
-              {availableAgents.length > 0 ? (
-                <div className="mt-2 flex gap-2">
-                  <Button
-                    variant="secondary"
-                    onClick={() => setSelectedAgents(availableAgents.map((a) => a.code))}
-                    disabled={saving}
-                  >
-                    Tümünü seç
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    onClick={() => setSelectedAgents([])}
-                    disabled={saving}
-                  >
-                    Temizle
-                  </Button>
-                </div>
-              ) : null}
-            </div>
           </div>
-          {formErr ? <div className="mt-3 text-sm text-red-200">{formErr}</div> : null}
-          <div className="mt-4 flex gap-2">
-            <Button variant="secondary" onClick={() => setFormOpen(false)} disabled={saving}>İptal</Button>
-            <Button onClick={createJob} disabled={saving || !requestText.trim() || (formMode === 'run' && !playbookId.trim()) || (formMode === 'bundle' && !bundleId.trim())}>
+
+          {formErr && <div className="rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-300">{formErr}</div>}
+
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="secondary" size="sm" onClick={() => setFormOpen(false)} disabled={saving}>İptal</Button>
+            <Button
+              size="sm"
+              onClick={createJob}
+              disabled={saving || !requestText.trim() || (formMode === 'run' && !playbookId.trim()) || (formMode === 'bundle' && !bundleId.trim())}
+            >
               Oluştur
             </Button>
           </div>
         </Card>
-      ) : null}
+      )}
+
+      {err && <div className="rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">{err}</div>}
 
       <Card className="overflow-hidden">
-        <div className="border-b border-white/10 px-4 py-3 text-sm font-medium">Jobs</div>
-        {err ? <div className="px-4 py-3 text-sm text-red-200">{err}</div> : null}
-        <div className="max-h-[65vh] overflow-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="sticky top-0 bg-[#0B1020]">
-              <tr className="border-b border-white/10 text-xs text-white/60">
-                <th className="px-4 py-2">Status</th>
-                <th className="px-4 py-2">Mode</th>
-                <th className="px-4 py-2">Domain</th>
-                <th className="px-4 py-2">Request</th>
-                <th className="px-4 py-2">Updated</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr>
-                  <td className="px-4 py-3 text-white/60" colSpan={5}>Yükleniyor...</td>
-                </tr>
-              ) : rows.length === 0 ? (
-                <tr>
-                  <td className="px-4 py-3 text-white/60" colSpan={5}>Kayıt yok</td>
-                </tr>
-              ) : (
-                rows.map((r) => (
-                  <tr key={r.id} className="border-b border-white/5 hover:bg-white/5">
-                    <td className="px-4 py-2"><Badge tone={statusTone(r.status)}>{r.status}</Badge></td>
-                    <td className="px-4 py-2 text-xs text-white/70">{r.mode}</td>
-                    <td className="px-4 py-2 text-xs text-white/70">{r.domain_pack ?? '-'}</td>
-                    <td className="px-4 py-2">
-                      <Link to={`/app/jobs/${r.id}`} className="text-blue-200 hover:underline">
-                        {(r.request_text ?? '').slice(0, 80) || '(empty)'}
-                      </Link>
-                      {r.error_message ? <div className="mt-1 text-xs text-red-200">{r.error_message}</div> : null}
-                    </td>
-                    <td className="px-4 py-2 text-xs text-white/60">{new Date(r.updated_at).toLocaleString()}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+        <div className="border-b border-white/[0.06] px-4 py-3 text-sm font-medium text-white/60">
+          {rows.length} job
         </div>
+        <DataTable
+          columns={columns}
+          rows={rows}
+          loading={loading}
+          empty={<EmptyState icon={<Zap size={24} />} title="Job bulunamadı" />}
+        />
       </Card>
     </div>
   )

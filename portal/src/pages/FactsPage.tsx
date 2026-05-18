@@ -10,7 +10,7 @@ import { DataTable, type Column } from '@/components/DataTable'
 import { EmptyState } from '@/components/EmptyState'
 import { Brain } from 'lucide-react'
 
-type FactRow = { id: string; key: string | null; value: string | null; scope: string | null; created_at: string }
+type FactRow = { id: string; title: string | null; value: string | null; scope: string | null; created_at: string }
 
 export default function FactsPage() {
   const init        = useAuthStore((s) => s.init)
@@ -28,8 +28,8 @@ export default function FactsPage() {
   const load = useCallback(async () => {
     if (!initialized || !user) return
     setLoading(true); setErr(null)
-    let query = supabase.from('knowledge_facts').select('id,key,value,scope,created_at').order('created_at', { ascending: false }).limit(300)
-    if (q.trim()) { const t = `%${q.trim()}%`; query = query.or(`key.ilike.${t},value.ilike.${t}`) }
+    let query = supabase.from('knowledge_facts').select('id,title,value,scope,created_at').order('created_at', { ascending: false }).limit(300)
+    if (q.trim()) { const t = `%${q.trim()}%`; query = query.or(`title.ilike.${t},value.ilike.${t}`) }
     const res = await query
     if (res.error) { setErr(res.error.message); setRows([]) }
     else           { setRows((res.data ?? []) as FactRow[]) }
@@ -40,8 +40,8 @@ export default function FactsPage() {
 
   const columns: Column<FactRow>[] = [
     {
-      key: 'key', header: 'Anahtar', width: '200px',
-      render: (r) => <span className="font-mono text-xs text-blue-300">{r.key ?? '—'}</span>,
+      key: 'title', header: 'Anahtar', width: '200px',
+      render: (r) => <span className="font-mono text-xs text-blue-300">{r.title ?? '—'}</span>,
     },
     {
       key: 'value', header: 'Değer',

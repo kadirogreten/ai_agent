@@ -10,7 +10,7 @@ import { DataTable, type Column } from '@/components/DataTable'
 import { EmptyState } from '@/components/EmptyState'
 import { Layers } from 'lucide-react'
 
-type BundleRow = { id: string; external_id: string | null; title: string | null; run_count: number | null; created_at: string }
+type BundleRow = { id: string; external_id: string | null; name: string | null; run_count: number | null; created_at: string }
 
 export default function BundlesPage() {
   const init        = useAuthStore((s) => s.init)
@@ -28,8 +28,8 @@ export default function BundlesPage() {
   const load = useCallback(async () => {
     if (!initialized || !user) return
     setLoading(true); setErr(null)
-    let query = supabase.from('bundles').select('id,external_id,title,run_count,created_at').order('created_at', { ascending: false }).limit(200)
-    if (q.trim()) { const t = `%${q.trim()}%`; query = query.or(`title.ilike.${t},external_id.ilike.${t}`) }
+    let query = supabase.from('bundles').select('id,external_id,name,run_count,created_at').order('created_at', { ascending: false }).limit(200)
+    if (q.trim()) { const t = `%${q.trim()}%`; query = query.or(`name.ilike.${t},external_id.ilike.${t}`) }
     const res = await query
     if (res.error) { setErr(res.error.message); setRows([]) }
     else           { setRows((res.data ?? []) as BundleRow[]) }
@@ -40,8 +40,8 @@ export default function BundlesPage() {
 
   const columns: Column<BundleRow>[] = [
     {
-      key: 'title', header: 'Başlık',
-      render: (r) => <span className="font-medium text-white/80">{r.title ?? r.external_id ?? r.id.slice(0, 8)}</span>,
+      key: 'name', header: 'Başlık',
+      render: (r) => <span className="font-medium text-white/80">{r.name ?? r.external_id ?? r.id.slice(0, 8)}</span>,
     },
     {
       key: 'external_id', header: 'External ID', width: '180px',

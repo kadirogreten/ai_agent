@@ -4,12 +4,10 @@ import { useAuthStore } from '@/stores/authStore'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
-
-// Strateji §6.5: "Approval Queue: R2/R3 adımlarda insan onayını bekler, onay alana kadar çalışmayı durdurur"
-// Strateji §7.2 Onay Kuralı:
-//   R2 → Denetçi onayı + gerekçe
-//   R3 → İnsan onayı zorunlu + geri alma planı
-// KPI Hedef: Approval Queue P50 bekleme < 4 saat
+import { PageHeader } from '@/components/PageHeader'
+import { DataTable, type Column } from '@/components/DataTable'
+import { useNavigate } from 'react-router-dom'
+import { CheckCircle, XCircle, Clock } from 'lucide-react'
 
 type ApprovalItem = {
   id: string
@@ -41,23 +39,22 @@ function timeUntilExpiry(expiresAt: string) {
 }
 
 export default function ApprovalQueuePage() {
-  const init = useAuthStore((s) => s.init)
-  const user = useAuthStore((s) => s.user)
+  const init        = useAuthStore((s) => s.init)
+  const user        = useAuthStore((s) => s.user)
   const initialized = useAuthStore((s) => s.initialized)
 
-  const [pending, setPending] = useState<ApprovalItem[]>([])
-  const [history, setHistory] = useState<ApprovalItem[]>([])
-  const [loading, setLoading] = useState(false)
-  const [acting, setActing] = useState<string | null>(null)
-  const [notes, setNotes] = useState<Record<string, string>>({})
-  const [err, setErr] = useState<string | null>(null)
+  const [pending,  setPending]  = useState<ApprovalItem[]>([])
+  const [history,  setHistory]  = useState<ApprovalItem[]>([])
+  const [loading,  setLoading]  = useState(false)
+  const [acting,   setActing]   = useState<string | null>(null)
+  const [notes,    setNotes]    = useState<Record<string, string>>({})
+  const [err,      setErr]      = useState<string | null>(null)
 
   useEffect(() => { init() }, [init])
 
   const load = useCallback(async () => {
     if (!initialized || !user) return
-    setLoading(true)
-    setErr(null)
+    setLoading(true); setErr(null)
     const { data, error } = await supabase
       .from('approval_queue')
       .select('*')
@@ -77,7 +74,6 @@ export default function ApprovalQueuePage() {
   async function decide(id: string, decision: 'approved' | 'rejected') {
     setActing(id)
     setErr(null)
-    // IP1.5b: Atomik RPC — approval_queue günceller + run_request re-queue (onay) veya fail (red)
     const rpc = decision === 'approved' ? 'approve_run_request' : 'reject_run_request'
     const { error } = await supabase.rpc(rpc, {
       p_approval_id:   id,
@@ -89,96 +85,125 @@ export default function ApprovalQueuePage() {
     setActing(null)
   }
 
+  const historyColumns: Column<ApprovalItem>[] = [
+    {
+      key: 'risk_level', header: 'Risk', width: '70px',
+      render: (r) => (
+        <span className={`inline-flex items-center rounded border px-1.5 py-0.5 text-xs font-mono ${RISK_COLORS[r.risk_level]}`}>
+          {r.risk_level}
+        </span>
+      ),
+    },
+    {
+      key: 'agent_code', header: 'Ajan', width: '100px',
+      render: (r) => <span className="font-mono text-xs text-white/50">{r.agent_code ?? '—'}</span>,
+    },
+    {
+      key: 'action_summary', header: 'Özet',
+      render: (r) => <span className="text-xs text-white/70">{r.action_summary.slice(0, 60)}</span>,
+    },
+    {
+      key: 'status', header: 'Karar', width: '90px',
+      render: (r) => (
+        <Badge tone={r.status === 'approved' ? 'green' : r.status === 'rejected' ? 'red' : 'yellow'}>
+          {r.status}
+        </Badge>
+      ),
+    },
+    {
+      key: 'reviewer_note', header: 'Not', width: '120px',
+      render: (r) => <span className="text-xs text-white/40">{r.reviewer_note ?? '—'}</span>,
+    },
+    {
+      key: 'decided_at', header: 'Tarih', width: '100px',
+      render: (r) => <span className="text-xs text-white/30">{r.decided_at ? new Date(r.decided_at).toLocaleDateString('tr-TR') : '—'}</span>,
+    },
+  ]
+
   const pendingCount = pending.length
 
   return (
     <div className="space-y-4">
-      {/* Başlık */}
-      <div className="flex items-center justify-between">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="text-lg font-semibold">Approval Queue</span>
-            {pendingCount > 0 && (
-              <span className="rounded-full bg-red-500/20 px-2 py-0.5 text-xs font-medium text-red-300 border border-red-500/30">
-                {pendingCount} bekliyor
-              </span>
-            )}
-          </div>
-          <div className="text-xs text-white/50">
-            R2/R3 adımları onay bekliyor — KPI hedefi: P50 bekleme &lt;4 saat
-          </div>
-        </div>
-        <Button variant="outline" onClick={load} disabled={loading}>Yenile</Button>
-      </div>
+      <PageHeader
+        title="Approval Queue"
+        description="R2/R3 adımları onay bekliyor — KPI hedefi: P50 <4 saat"
+        actions={
+          <button onClick={load} disabled={loading} className="flex items-center gap-1.5 rounded-lg border border-white/10 px-3 py-1.5 text-xs text-white/50 hover:text-white/80 transition-colors">
+            Yenile
+          </button>
+        }
+      />
 
-      {err && <div className="rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">{err}</div>}
+      {err && <div className="rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">{err}</div>}
 
       {/* Bekleyen Onaylar */}
       <Card className="overflow-hidden">
-        <div className="border-b border-white/10 px-4 py-3 text-sm font-medium">
-          Bekleyen Onaylar {pendingCount > 0 && <span className="ml-1 text-amber-400">({pendingCount})</span>}
+        <div className="border-b border-white/[0.06] px-4 py-3 text-sm font-medium text-white/60">
+          Bekleyen Onaylar
+          {pendingCount > 0 && <span className="ml-2 text-amber-400">({pendingCount})</span>}
         </div>
-        {loading ? (
-          <div className="px-4 py-6 text-sm text-white/50">Yükleniyor...</div>
+
+        {loading && pending.length === 0 ? (
+          <div className="px-4 py-12 text-center text-sm text-white/40">Yükleniyor...</div>
         ) : pending.length === 0 ? (
-          <div className="px-4 py-6 text-center">
-            <div className="text-sm font-medium text-emerald-400">Bekleyen onay yok</div>
-            <div className="mt-1 text-xs text-white/40">Tüm R2/R3 adımlar onaylandı veya henüz tetiklenmedi.</div>
+          <div className="px-4 py-12 text-center">
+            <div className="flex flex-col items-center gap-2">
+              <CheckCircle size={24} className="text-emerald-400/40" />
+              <span className="text-sm font-medium text-emerald-400">Bekleyen onay yok</span>
+              <span className="text-xs text-white/40">Tüm R2/R3 adımlar onaylandı veya henüz tetiklenmedi.</span>
+            </div>
           </div>
         ) : (
-          <div className="divide-y divide-white/5">
+          <div className="divide-y divide-white/[0.06]">
             {pending.map((item) => (
               <div key={item.id} className="p-4 space-y-3">
-                {/* Başlık satırı */}
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <div className="flex items-center gap-2 flex-wrap">
+                    <div className="flex flex-wrap items-center gap-2">
                       <span className={`inline-flex items-center rounded border px-1.5 py-0.5 text-xs font-mono ${RISK_COLORS[item.risk_level]}`}>
                         {item.risk_level}
                       </span>
                       {item.agent_code && (
-                        <span className="text-xs font-mono text-white/60 border border-white/10 rounded px-1.5 py-0.5">{item.agent_code}</span>
+                        <span className="rounded border border-white/10 px-1.5 py-0.5 font-mono text-xs text-white/50">{item.agent_code}</span>
                       )}
-                      {item.step_name && <span className="text-xs text-white/50">Adım: {item.step_name}</span>}
+                      {item.step_name && <span className="text-xs text-white/40">Adım: {item.step_name}</span>}
                     </div>
-                    <div className="mt-1 text-sm text-white/90">{item.action_summary}</div>
+                    <div className="mt-1 text-sm text-white/80">{item.action_summary}</div>
                   </div>
                   <div className="shrink-0 text-right">
-                    <div className="text-xs text-amber-400/80">{timeUntilExpiry(item.expires_at)}</div>
-                    <div className="text-xs text-white/30">{new Date(item.created_at).toLocaleString('tr-TR')}</div>
+                    <div className="flex items-center gap-1 text-xs text-amber-400/70">
+                      <Clock size={12} /> {timeUntilExpiry(item.expires_at)}
+                    </div>
+                    <div className="mt-0.5 text-xs text-white/25">{new Date(item.created_at).toLocaleString('tr-TR')}</div>
                   </div>
                 </div>
 
-                {/* Detay (opsiyonel) */}
                 {item.action_detail && (
-                  <pre className="whitespace-pre-wrap rounded border border-white/10 bg-black/20 px-3 py-2 text-xs text-white/60">
+                  <pre className="whitespace-pre-wrap rounded-lg border border-white/[0.06] bg-black/20 px-3 py-2 text-xs text-white/40">
                     {JSON.stringify(item.action_detail, null, 2)}
                   </pre>
                 )}
 
-                {/* Not + Aksiyon */}
-                <div className="flex gap-2 flex-wrap">
+                <div className="flex flex-wrap gap-2">
                   <input
                     type="text"
                     value={notes[item.id] ?? ''}
                     onChange={(e) => setNotes((prev) => ({ ...prev, [item.id]: e.target.value }))}
                     placeholder="Geri alma planı / gerekçe notu (opsiyonel)"
-                    className="flex-1 min-w-[200px] rounded-md border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white outline-none focus:border-blue-400"
+                    className="flex-1 min-w-[200px] rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-1.5 text-xs text-white outline-none focus:border-blue-500/60"
                   />
                   <Button
                     size="sm"
                     onClick={() => decide(item.id, 'approved')}
                     disabled={acting === item.id}
-                    title="Onaylanırsa iş yeniden kuyruğa alınır ve allow_high_risk=true ile çalıştırılır"
                   >
-                    {acting === item.id ? '...' : 'Onayla & Yeniden Kuyruğa Al'}
+                    {acting === item.id ? '...' : 'Onayla'}
                   </Button>
                   <Button
                     size="sm"
                     variant="secondary"
                     onClick={() => decide(item.id, 'rejected')}
                     disabled={acting === item.id}
-                    title="Reddedilirse iş iptal edilir ve hata olarak işaretlenir"
                   >
                     Reddet
                   </Button>
@@ -192,43 +217,15 @@ export default function ApprovalQueuePage() {
       {/* Geçmiş */}
       {history.length > 0 && (
         <Card className="overflow-hidden">
-          <div className="border-b border-white/10 px-4 py-3 text-sm font-medium">Geçmiş</div>
-          <div className="max-h-[40vh] overflow-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="sticky top-0 bg-[#0B1020]">
-                <tr className="border-b border-white/10 text-xs text-white/50">
-                  <th className="px-4 py-2">Risk</th>
-                  <th className="px-4 py-2">Ajan</th>
-                  <th className="px-4 py-2">Özet</th>
-                  <th className="px-4 py-2">Karar</th>
-                  <th className="px-4 py-2">Not</th>
-                  <th className="px-4 py-2">Tarih</th>
-                </tr>
-              </thead>
-              <tbody>
-                {history.map((item) => (
-                  <tr key={item.id} className="border-b border-white/5 hover:bg-white/5">
-                    <td className="px-4 py-2">
-                      <span className={`inline-flex items-center rounded border px-1.5 py-0.5 text-xs font-mono ${RISK_COLORS[item.risk_level]}`}>
-                        {item.risk_level}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2 font-mono text-xs text-white/60">{item.agent_code ?? '—'}</td>
-                    <td className="px-4 py-2 text-xs text-white/70">{item.action_summary.slice(0, 60)}</td>
-                    <td className="px-4 py-2">
-                      <Badge tone={item.status === 'approved' ? 'green' : item.status === 'rejected' ? 'red' : 'yellow'}>
-                        {item.status}
-                      </Badge>
-                    </td>
-                    <td className="px-4 py-2 text-xs text-white/50">{item.reviewer_note ?? '—'}</td>
-                    <td className="px-4 py-2 text-xs text-white/40">
-                      {item.decided_at ? new Date(item.decided_at).toLocaleDateString('tr-TR') : '—'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="border-b border-white/[0.06] px-4 py-3 text-sm font-medium text-white/60">
+            {history.length} Geçmiş Karar
           </div>
+          <DataTable
+            columns={historyColumns}
+            rows={history}
+            loading={false}
+            empty={<div />}
+          />
         </Card>
       )}
     </div>
