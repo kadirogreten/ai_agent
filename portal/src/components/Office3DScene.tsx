@@ -90,5 +90,9 @@ export default function Office3DScene({ onSceneReady }: Office3DSceneProps) {
     }
   }, [onSceneReady])
 
-  return <div ref={containerRef} className="w-full h-full" />
+  return (
+    <div ref={containerRef} className="w-full h-full">
+      {children}
+    </div>
+  )
 }
