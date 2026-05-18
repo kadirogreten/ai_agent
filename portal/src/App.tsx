@@ -30,6 +30,7 @@ import PlaybookBundlesPage from '@/pages/PlaybookBundlesPage'
 import DomainPacksPage from '@/pages/DomainPacksPage'
 import RunWizardPage from '@/pages/RunWizardPage'
 import SchedulesPage from '@/pages/SchedulesPage'
+import OfficePage from '@/pages/OfficePage'
 
 export default function App() {
   const init = useAuthStore((s) => s.init)
@@ -60,6 +61,7 @@ export default function App() {
         >
           <Route index element={<Navigate to="/app/dashboard" replace />} />
           <Route path="dashboard" element={<DashboardPage />} />
+          <Route path="office" element={<OfficePage />} />
           <Route path="runs" element={<RunsPage />} />
           <Route path="runs/:runId" element={<RunDetailPage />} />
           <Route path="reports/:runId" element={<ReportPage />} />

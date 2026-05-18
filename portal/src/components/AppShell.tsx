@@ -9,7 +9,7 @@ import {
   Bot, UserCircle, BookOpen, Wrench,
   Package, Layers, Database, Brain,
   DollarSign, ScrollText,
-  Compass, FileStack,
+  Compass, FileStack, Boxes,
   Download, LogOut, ChevronDown, ChevronRight,
 } from 'lucide-react'
 
@@ -21,6 +21,7 @@ const navGroups: NavGroup[] = [
     title: '',
     items: [
       { to: '/app/dashboard', label: 'Dashboard', icon: <LayoutDashboard size={15} /> },
+      { to: '/app/office', label: '3D Office', icon: <Boxes size={15} /> },
       { to: '/app/run', label: 'Yeni Çalıştırma', icon: <Play size={15} /> },
     ],
   },
