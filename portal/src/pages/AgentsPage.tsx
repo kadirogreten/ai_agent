@@ -136,7 +136,7 @@ function DeskCard({
                 <div className="flex items-center gap-2">
                   <Cpu size={12} style={{ color: roleColor }} />
                   <span className="text-[11px] font-bold tracking-widest" style={{ color: roleColor }}>
-                    {agent.code}
+                    {agent.code ?? '—'}
                   </span>
                 </div>
                 {/* Risk ışığı */}
@@ -150,7 +150,7 @@ function DeskCard({
                 </span>
               </div>
 
-              <div className="mt-1.5 text-xs text-white/50 truncate">{agent.name}</div>
+              <div className="mt-1.5 text-xs text-white/50 truncate">{agent.name ?? '—'}</div>
             </div>
 
             {/* İsim plakası */}
@@ -247,8 +247,8 @@ function PersonaPanel({ agent, personas, onClose }: { agent: AgentRow; personas:
     >
       <div className="flex items-start justify-between">
         <div>
-          <div className="text-sm font-semibold text-white/90">{agent.name}</div>
-          <div className="font-mono text-xs" style={{ color: roleColor }}>{agent.code}</div>
+          <div className="text-sm font-semibold text-white/90">{agent.name ?? '—'}</div>
+          <div className="font-mono text-xs" style={{ color: roleColor }}>{agent.code ?? '—'}</div>
         </div>
         <button onClick={onClose} className="text-white/30 hover:text-white/70 transition-colors">
           <X size={16} />
@@ -355,8 +355,8 @@ export default function AgentsPage() {
   const filtered = useMemo(() =>
     q.trim()
       ? agents.filter((a) =>
-          a.name.toLowerCase().includes(q.toLowerCase()) ||
-          a.code.toLowerCase().includes(q.toLowerCase())
+          (a.name ?? '').toLowerCase().includes(q.toLowerCase()) ||
+          (a.code ?? '').toLowerCase().includes(q.toLowerCase())
         )
       : agents,
     [agents, q]
