@@ -10,7 +10,7 @@ import { DataTable, type Column } from '@/components/DataTable'
 import { EmptyState } from '@/components/EmptyState'
 import { Layers } from 'lucide-react'
 
-type BundleRow = { id: string; external_id: string | null; name: string | null; run_count: number | null; created_at: string }
+type BundleRow = { id: string; external_id: string | null; name: string | null; created_at: string }
 
 export default function BundlesPage() {
   const init        = useAuthStore((s) => s.init)
@@ -28,7 +28,7 @@ export default function BundlesPage() {
   const load = useCallback(async () => {
     if (!initialized || !user) return
     setLoading(true); setErr(null)
-    let query = supabase.from('bundles').select('id,external_id,name,run_count,created_at').order('created_at', { ascending: false }).limit(200)
+    let query = supabase.from('bundles').select('id,external_id,name,created_at').order('created_at', { ascending: false }).limit(200)
     if (q.trim()) { const t = `%${q.trim()}%`; query = query.or(`name.ilike.${t},external_id.ilike.${t}`) }
     const res = await query
     if (res.error) { setErr(res.error.message); setRows([]) }
@@ -46,10 +46,6 @@ export default function BundlesPage() {
     {
       key: 'external_id', header: 'External ID', width: '180px',
       render: (r) => <span className="font-mono text-xs text-white/35">{r.external_id ?? '—'}</span>,
-    },
-    {
-      key: 'run_count', header: 'Run', width: '80px',
-      render: (r) => r.run_count != null ? <Badge tone="blue">{String(r.run_count)}</Badge> : <span className="text-white/25">—</span>,
     },
     {
       key: 'created_at', header: 'Tarih', width: '140px',
