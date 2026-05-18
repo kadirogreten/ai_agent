@@ -22,13 +22,13 @@ export default function Office3DScene({ onSceneReady, children }: Office3DSceneP
 
     // Scene setup
     const scene = new THREE.Scene()
-    scene.background = new THREE.Color(0x080e1c)
+    scene.background = new THREE.Color(0xc5d3e0) // Light gray-blue office wall color
     sceneRef.current = scene
 
-    // Camera setup
-    const camera = new THREE.PerspectiveCamera(75, width / height, 0.1, 1000)
-    camera.position.set(0, 20, 30)
-    camera.lookAt(0, 0, 0)
+    // Camera setup - positioned as if standing in office looking across space
+    const camera = new THREE.PerspectiveCamera(70, width / height, 0.1, 1000)
+    camera.position.set(15, 7, 25)
+    camera.lookAt(0, 2, 0)
     cameraRef.current = camera
     console.log('Camera positioned:', camera.position)
 
@@ -41,12 +41,14 @@ export default function Office3DScene({ onSceneReady, children }: Office3DSceneP
     containerRef.current.appendChild(renderer.domElement)
     rendererRef.current = renderer
 
-    // Lighting setup - enhanced for visibility
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.7)
+    // Realistic office lighting
+    // Ambient light - simulates overall office illumination
+    const ambientLight = new THREE.AmbientLight(0xd4d4d4, 0.6)
     scene.add(ambientLight)
 
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 1.0)
-    directionalLight.position.set(15, 25, 15)
+    // Main overhead directional light - simulates ceiling lights
+    const directionalLight = new THREE.DirectionalLight(0xf5f5dc, 1.1)
+    directionalLight.position.set(10, 22, 5)
     directionalLight.castShadow = true
     directionalLight.shadow.mapSize.width = 2048
     directionalLight.shadow.mapSize.height = 2048
@@ -57,10 +59,15 @@ export default function Office3DScene({ onSceneReady, children }: Office3DSceneP
     directionalLight.shadow.camera.bottom = -30
     scene.add(directionalLight)
 
-    // Additional fill light for better visibility
-    const fillLight = new THREE.PointLight(0x7c3aed, 0.8, 50)
-    fillLight.position.set(-20, 15, 20)
+    // Subtle fill light from window - natural light effect
+    const fillLight = new THREE.PointLight(0xe8eef5, 0.4, 50)
+    fillLight.position.set(-25, 12, 0)
     scene.add(fillLight)
+
+    // Light from the side to create depth
+    const sideLight = new THREE.PointLight(0xd4d4d4, 0.3, 40)
+    sideLight.position.set(25, 10, 0)
+    scene.add(sideLight)
 
     // Notify parent that scene is ready
     if (onSceneReady) {

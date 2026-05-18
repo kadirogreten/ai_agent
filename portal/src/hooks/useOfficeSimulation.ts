@@ -128,80 +128,100 @@ export function useOfficeSimulation({ scene, dbAgents = [] }: UseOfficeSimulatio
 
     const roleColor = ROLE_COLORS[agent.role] ?? ROLE_COLORS.default
 
+    // Body material - skin tone base with role color accent
     const bodyMaterial = new THREE.MeshStandardMaterial({
-      color: roleColor,
+      color: 0xc8a882, // Natural skin tone
       emissive: roleColor,
-      emissiveIntensity: 0.4,
-      roughness: 0.5,
-      metalness: 0.4,
+      emissiveIntensity: 0.3,
+      roughness: 0.6,
+      metalness: 0.0,
     })
 
-    // Head - higher position for sitting
+    // Head - proportionally smaller than torso
     const head = new THREE.Mesh(
-      new THREE.SphereGeometry(0.25, 16, 16),
+      new THREE.SphereGeometry(0.18, 16, 16),
       bodyMaterial
     )
-    head.position.y = 0.65 // Sitting position - lower than standing
+    head.position.y = 0.68 // Sitting position
     head.castShadow = true
     head.receiveShadow = true
     group.add(head)
 
-    // Body (torso) - sitting posture
+    // Body (torso) - larger, more realistic proportion
     const torso = new THREE.Mesh(
-      new THREE.CapsuleGeometry(0.2, 0.5, 8, 8),
+      new THREE.CapsuleGeometry(0.25, 0.55, 8, 8),
       bodyMaterial
     )
-    torso.position.y = 0.25 // Lower for sitting
-    torso.rotation.z = 0.1 // Slight lean back
+    torso.position.y = 0.2 // Lower for sitting
+    torso.rotation.z = 0.08 // Slight lean back
     torso.castShadow = true
     torso.receiveShadow = true
     group.add(torso)
 
-    // Left arm - relaxed on desk
+    // Left arm - relaxed on desk (better proportions)
     const leftArm = new THREE.Mesh(
-      new THREE.CapsuleGeometry(0.08, 0.5, 8, 8),
+      new THREE.CapsuleGeometry(0.07, 0.48, 8, 8),
       bodyMaterial
     )
-    leftArm.position.set(-0.25, 0.3, 0.15)
-    leftArm.rotation.z = Math.PI / 3 // More horizontal for desk work
+    leftArm.position.set(-0.3, 0.25, 0.1)
+    leftArm.rotation.z = Math.PI / 3.2 // More horizontal for desk work
     leftArm.castShadow = true
     group.add(leftArm)
 
-    // Right arm - on desk/keyboard
-    const rightArm = new THREE.Mesh(
-      new THREE.CapsuleGeometry(0.08, 0.5, 8, 8),
+    // Left hand
+    const leftHand = new THREE.Mesh(
+      new THREE.SphereGeometry(0.08, 12, 12),
       bodyMaterial
     )
-    rightArm.position.set(0.25, 0.3, 0.15)
-    rightArm.rotation.z = -Math.PI / 3 // Reaching toward keyboard
+    leftHand.position.set(-0.55, 0.05, 0.35)
+    leftHand.scale.set(0.9, 1.0, 1.2) // Elongated for hand shape
+    leftHand.castShadow = true
+    group.add(leftHand)
+
+    // Right arm - on desk/keyboard
+    const rightArm = new THREE.Mesh(
+      new THREE.CapsuleGeometry(0.07, 0.48, 8, 8),
+      bodyMaterial
+    )
+    rightArm.position.set(0.3, 0.25, 0.1)
+    rightArm.rotation.z = -Math.PI / 3.2 // Reaching toward keyboard
     rightArm.castShadow = true
     group.add(rightArm)
 
+    // Right hand
+    const rightHand = new THREE.Mesh(
+      new THREE.SphereGeometry(0.08, 12, 12),
+      bodyMaterial
+    )
+    rightHand.position.set(0.55, 0.05, 0.35)
+    rightHand.scale.set(0.9, 1.0, 1.2) // Elongated for hand shape
+    rightHand.castShadow = true
+    group.add(rightHand)
+
+    // Pants material - dark office attire
+    const pantsMaterial = new THREE.MeshStandardMaterial({
+      color: 0x2d2d2d, // Dark pants
+      roughness: 0.7,
+      metalness: 0.0,
+    })
+
     // Left leg - sitting under desk
     const leftLeg = new THREE.Mesh(
-      new THREE.CapsuleGeometry(0.1, 0.5, 8, 8),
-      new THREE.MeshStandardMaterial({
-        color: 0x1a1a1a,
-        roughness: 0.6,
-        metalness: 0.1,
-      })
+      new THREE.CapsuleGeometry(0.1, 0.55, 8, 8),
+      pantsMaterial
     )
-    leftLeg.position.set(-0.15, -0.15, 0) // Angled under desk
-    leftLeg.rotation.x = Math.PI / 4
+    leftLeg.position.set(-0.18, -0.1, 0) // Angled under desk
+    leftLeg.rotation.x = Math.PI / 4.5
     leftLeg.castShadow = true
     group.add(leftLeg)
 
     // Right leg - sitting under desk
     const rightLeg = new THREE.Mesh(
-      new THREE.CapsuleGeometry(0.1, 0.5, 8, 8),
-      new THREE.MeshStandardMaterial({
-        color: 0x1a1a1a,
-        roughness: 0.6,
-        metalness: 0.1,
-      })
+      new THREE.CapsuleGeometry(0.1, 0.55, 8, 8),
+      pantsMaterial
     )
-    rightLeg.position.set(0.15, -0.15, 0) // Angled under desk
-    rightLeg.rotation.x = Math.PI / 4
+    rightLeg.position.set(0.18, -0.1, 0) // Angled under desk
+    rightLeg.rotation.x = Math.PI / 4.5
     rightLeg.castShadow = true
     group.add(rightLeg)
 
@@ -241,9 +261,9 @@ export function useOfficeSimulation({ scene, dbAgents = [] }: UseOfficeSimulatio
     const glow = new THREE.Mesh(glowGeometry, glowMaterial)
     group.add(glow)
 
-    // Light above agent
-    const light = new THREE.PointLight(roleColor, 2, 12)
-    light.position.y = 0.8
+    // Light above agent - accent light based on role
+    const light = new THREE.PointLight(roleColor, 1.5, 10)
+    light.position.y = 0.9
     group.add(light)
 
     // Store metadata
