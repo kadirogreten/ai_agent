@@ -5,11 +5,16 @@ import { useAuthStore } from '@/stores/authStore'
 import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
+import { motion, type Variants } from 'framer-motion'
+import {
+  CheckCircle, XCircle, Clock, DollarSign,
+  Zap, AlertTriangle, RefreshCw, ArrowRight,
+  TrendingUp, Package, Brain,
+} from 'lucide-react'
 
-// Strateji §11.1 KPI hedefleri
-const KPI_COST_USD   = 0.40   // P50 run başına
-const KPI_LATENCY_MS = 8 * 60_000 // 8 dk P50
-const KPI_FAIL_RATE  = 0.15   // Verifier FAIL <%15
+const KPI_COST_USD   = 0.40
+const KPI_LATENCY_MS = 8 * 60_000
+const KPI_FAIL_RATE  = 0.15
 
 type RunRow = {
   id: string
@@ -62,6 +67,72 @@ function fmtMs(ms: number | null) {
   return `${(ms / 60_000).toFixed(1)} dk`
 }
 
+const container: Variants = {
+  hidden: {},
+  show: { transition: { staggerChildren: 0.07 } },
+}
+const item: Variants = {
+  hidden: { opacity: 0, y: 16 },
+  show:   { opacity: 1, y: 0, transition: { type: 'spring' as const, stiffness: 300, damping: 28 } },
+}
+
+function StatCard({
+  label, value, sub, icon, accent, href,
+}: {
+  label: string
+  value: string | number
+  sub?: string
+  icon: React.ReactNode
+  accent?: string
+  href?: string
+}) {
+  const inner = (
+    <motion.div variants={item} whileHover={{ y: -3 }} transition={{ type: 'spring', stiffness: 400, damping: 30 }}>
+      <Card className="relative overflow-hidden p-4">
+        <div className={`absolute right-3 top-3 rounded-lg p-1.5 ${accent ?? 'bg-white/5'}`}>
+          {icon}
+        </div>
+        <div className="text-xs text-white/40">{label}</div>
+        <div className={`mt-1.5 text-2xl font-bold tracking-tight ${accent ? '' : 'text-white'}`}>
+          {value}
+        </div>
+        {sub && <div className="mt-1 text-xs text-white/30">{sub}</div>}
+      </Card>
+    </motion.div>
+  )
+  return href ? <Link to={href}>{inner}</Link> : inner
+}
+
+function RunStatusDot({ status }: { status: RunRow['status'] }) {
+  if (status === 'running') {
+    return (
+      <span className="relative flex h-2 w-2">
+        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-75" />
+        <span className="relative inline-flex h-2 w-2 rounded-full bg-blue-400" />
+      </span>
+    )
+  }
+  if (status === 'success') return <CheckCircle size={14} className="text-emerald-400 shrink-0" />
+  return <XCircle size={14} className="text-red-400 shrink-0" />
+}
+
+function Skeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <Card key={i} className="h-24 animate-pulse bg-white/[0.04]" />
+        ))}
+      </div>
+      <div className="grid gap-3 sm:grid-cols-3">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <Card key={i} className="h-20 animate-pulse bg-white/[0.04]" />
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export default function DashboardPage() {
   const init        = useAuthStore((s) => s.init)
   const user        = useAuthStore((s) => s.user)
@@ -80,66 +151,47 @@ export default function DashboardPage() {
 
     try {
       const uid = user.id
-
-      const [
-        runsRes,
-        bundlesRes,
-        factsRes,
-        jobsRes,
-        approvalRes,
-      ] = await Promise.all([
+      const [runsRes, bundlesRes, factsRes, jobsRes, approvalRes] = await Promise.all([
         supabase
           .from('runs')
           .select('id,external_id,title,status,cost_usd,latency_ms,verifier_outcome,created_at')
           .eq('owner_user_id', uid)
           .order('created_at', { ascending: false })
           .limit(50),
-        supabase
-          .from('bundles')
-          .select('*', { count: 'exact', head: true })
-          .eq('owner_user_id', uid),
-        supabase
-          .from('knowledge_facts')
-          .select('*', { count: 'exact', head: true })
-          .eq('owner_user_id', uid),
+        supabase.from('bundles').select('*', { count: 'exact', head: true }).eq('owner_user_id', uid),
+        supabase.from('knowledge_facts').select('*', { count: 'exact', head: true }).eq('owner_user_id', uid),
         supabase
           .from('run_requests')
           .select('id,mode,status,request_text,created_at')
           .eq('owner_user_id', uid)
           .order('created_at', { ascending: false })
           .limit(5),
-        supabase
-          .from('approval_queue')
-          .select('*', { count: 'exact', head: true })
-          .eq('owner_user_id', uid)
-          .eq('status', 'pending'),
+        supabase.from('approval_queue').select('*', { count: 'exact', head: true }).eq('owner_user_id', uid).eq('status', 'pending'),
       ])
 
       if (runsRes.error)    throw runsRes.error
       if (bundlesRes.error) throw bundlesRes.error
       if (factsRes.error)   throw factsRes.error
       if (jobsRes.error)    throw jobsRes.error
-      // approval_queue henüz yoksa hata görmezden gel
 
-      const runs = (runsRes.data ?? []) as RunRow[]
-
-      const withCost    = runs.filter((r) => r.cost_usd != null)
-      const withLatency = runs.filter((r) => r.latency_ms != null)
-      const verRuns     = runs.filter((r) => r.verifier_outcome != null)
-      const failCount   = verRuns.filter((r) => r.verifier_outcome === 'fail').length
+      const runs      = (runsRes.data ?? []) as RunRow[]
+      const withCost  = runs.filter((r) => r.cost_usd != null)
+      const withLat   = runs.filter((r) => r.latency_ms != null)
+      const verRuns   = runs.filter((r) => r.verifier_outcome != null)
+      const failCount = verRuns.filter((r) => r.verifier_outcome === 'fail').length
 
       setStats({
-        totalRuns:       runs.length,
-        successfulRuns:  runs.filter((r) => r.status === 'success').length,
-        failedRuns:      runs.filter((r) => r.status === 'fail').length,
-        totalBundles:    bundlesRes.count ?? 0,
-        totalFacts:      factsRes.count   ?? 0,
+        totalRuns:        runs.length,
+        successfulRuns:   runs.filter((r) => r.status === 'success').length,
+        failedRuns:       runs.filter((r) => r.status === 'fail').length,
+        totalBundles:     bundlesRes.count ?? 0,
+        totalFacts:       factsRes.count   ?? 0,
         pendingApprovals: !approvalRes.error ? (approvalRes.count ?? 0) : 0,
-        avgCostUsd:      withCost.length    ? withCost.reduce((s, r) => s + (r.cost_usd ?? 0), 0) / withCost.length : null,
-        avgLatencyMs:    withLatency.length ? withLatency.reduce((s, r) => s + (r.latency_ms ?? 0), 0) / withLatency.length : null,
-        verifierFailRate: verRuns.length    ? failCount / verRuns.length : null,
-        recentRuns:      runs.slice(0, 5),
-        recentJobs:      (jobsRes.data ?? []) as JobRow[],
+        avgCostUsd:       withCost.length ? withCost.reduce((s, r) => s + (r.cost_usd ?? 0), 0) / withCost.length : null,
+        avgLatencyMs:     withLat.length  ? withLat.reduce((s,  r) => s + (r.latency_ms ?? 0), 0) / withLat.length : null,
+        verifierFailRate: verRuns.length  ? failCount / verRuns.length : null,
+        recentRuns:       runs.slice(0, 5),
+        recentJobs:       (jobsRes.data ?? []) as JobRow[],
       })
     } catch (e: unknown) {
       setErr(e instanceof Error ? e.message : 'Veri yüklenemedi')
@@ -150,18 +202,12 @@ export default function DashboardPage() {
 
   useEffect(() => { load() }, [load])
 
-  if (loading) {
-    return (
-      <div className="flex h-64 items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-blue-400" />
-      </div>
-    )
-  }
+  if (loading) return <Skeleton />
 
   if (!stats) {
     return (
-      <div className="space-y-2 text-center text-sm text-white/50 py-12">
-        {err && <p className="text-red-400">{err}</p>}
+      <div className="flex flex-col items-center gap-3 py-16 text-white/40">
+        {err && <p className="text-sm text-red-400">{err}</p>}
         <Button variant="outline" onClick={load}>Tekrar Dene</Button>
       </div>
     )
@@ -173,128 +219,186 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      {/* Başlık */}
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <div className="text-lg font-semibold">CEO Dashboard</div>
-          <div className="text-xs text-white/50">AgentArmy genel görünüm — KPI hedefleri: maliyet &lt;$0.40, süre &lt;8 dk, Verifier FAIL &lt;%15</div>
+          <h1 className="text-lg font-semibold text-white">Dashboard</h1>
+          <p className="text-xs text-white/40">Hedefler: maliyet &lt;$0.40 · süre &lt;8 dk · Verifier FAIL &lt;%15</p>
         </div>
-        <Button variant="outline" onClick={load} disabled={loading}>Yenile</Button>
+        <button
+          onClick={load}
+          className="flex items-center gap-1.5 rounded-lg border border-white/10 px-3 py-1.5 text-xs text-white/50 transition-colors hover:border-white/20 hover:text-white/80"
+        >
+          <RefreshCw size={12} />
+          Yenile
+        </button>
       </div>
 
-      {err && <div className="rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">{err}</div>}
+      {err && (
+        <div className="rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+          {err}
+        </div>
+      )}
 
-      {/* Temel Sayaçlar */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Card className="p-4">
-          <div className="text-xs text-white/50">Toplam Run</div>
-          <div className="mt-1 text-2xl font-bold">{stats.totalRuns}</div>
-          <div className="mt-1 text-xs text-white/40">{stats.successfulRuns} başarılı / {stats.failedRuns} başarısız</div>
-        </Card>
+      {/* Ana sayaçlar */}
+      <motion.div
+        variants={container}
+        initial="hidden"
+        animate="show"
+        className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"
+      >
+        <StatCard
+          label="Toplam Run"
+          value={stats.totalRuns}
+          sub={`${stats.successfulRuns} başarılı · ${stats.failedRuns} başarısız`}
+          icon={<TrendingUp size={14} className="text-blue-400" />}
+          accent="bg-blue-500/10"
+          href="/app/runs"
+        />
+        <StatCard
+          label="Başarı Oranı"
+          value={`%${successRate}`}
+          sub="Hedef: >%85"
+          icon={<CheckCircle size={14} className={kpiColor(successRate / 100, 1, false)} />}
+          accent="bg-emerald-500/10"
+        />
+        <StatCard
+          label="Bundle / Fact"
+          value={stats.totalBundles}
+          sub={`${stats.totalFacts} knowledge fact`}
+          icon={<Package size={14} className="text-purple-400" />}
+          accent="bg-purple-500/10"
+          href="/app/bundles"
+        />
+        <StatCard
+          label="Bekleyen Onay"
+          value={stats.pendingApprovals}
+          sub="Approval kuyruğu →"
+          icon={<AlertTriangle size={14} className={stats.pendingApprovals > 0 ? 'text-amber-400' : 'text-white/20'} />}
+          accent={stats.pendingApprovals > 0 ? 'bg-amber-500/10' : 'bg-white/5'}
+          href="/app/approval-queue"
+        />
+      </motion.div>
 
-        <Card className="p-4">
-          <div className="text-xs text-white/50">Başarı Oranı</div>
-          <div className={`mt-1 text-2xl font-bold ${kpiColor(successRate / 100, 1, false)}`}>
-            %{successRate}
-          </div>
-          <div className="mt-1 text-xs text-white/40">Hedef: &gt;%85</div>
-        </Card>
+      {/* KPI kartları */}
+      <motion.div
+        variants={container}
+        initial="hidden"
+        animate="show"
+        className="grid gap-3 sm:grid-cols-3"
+      >
+        <motion.div variants={item}>
+          <Link to="/app/cost-ledger">
+            <Card className="p-4 transition-colors hover:bg-white/[0.06]">
+              <div className="flex items-center gap-2 text-xs text-white/40">
+                <DollarSign size={12} />
+                Ort. Maliyet / Run
+              </div>
+              {stats.avgCostUsd != null ? (
+                <>
+                  <div className={`mt-1.5 text-2xl font-bold font-mono ${kpiColor(stats.avgCostUsd, KPI_COST_USD)}`}>
+                    ${stats.avgCostUsd.toFixed(4)}
+                  </div>
+                  <div className="mt-1 text-xs text-white/30">Hedef: &lt;${KPI_COST_USD}</div>
+                </>
+              ) : (
+                <div className="mt-1.5 text-lg text-white/20">Veri yok</div>
+              )}
+            </Card>
+          </Link>
+        </motion.div>
 
-        <Card className="p-4">
-          <div className="text-xs text-white/50">Bundle / Fact</div>
-          <div className="mt-1 text-2xl font-bold">{stats.totalBundles}</div>
-          <div className="mt-1 text-xs text-white/40">{stats.totalFacts} knowledge fact</div>
-        </Card>
+        <motion.div variants={item}>
+          <Link to="/app/cost-ledger">
+            <Card className="p-4 transition-colors hover:bg-white/[0.06]">
+              <div className="flex items-center gap-2 text-xs text-white/40">
+                <Clock size={12} />
+                Ort. Süre / Run
+              </div>
+              {stats.avgLatencyMs != null ? (
+                <>
+                  <div className={`mt-1.5 text-2xl font-bold ${kpiColor(stats.avgLatencyMs, KPI_LATENCY_MS)}`}>
+                    {fmtMs(stats.avgLatencyMs)}
+                  </div>
+                  <div className="mt-1 text-xs text-white/30">Hedef: &lt;8 dk</div>
+                </>
+              ) : (
+                <div className="mt-1.5 text-lg text-white/20">Veri yok</div>
+              )}
+            </Card>
+          </Link>
+        </motion.div>
 
-        <Link to="/app/approval-queue" className="block">
-          <Card className={`p-4 transition-colors hover:bg-white/5 ${stats.pendingApprovals > 0 ? 'border-amber-500/30' : ''}`}>
-            <div className="text-xs text-white/50">Bekleyen Onay</div>
-            <div className={`mt-1 text-2xl font-bold ${stats.pendingApprovals > 0 ? 'text-amber-400' : 'text-white/30'}`}>
-              {stats.pendingApprovals}
-            </div>
-            <div className="mt-1 text-xs text-white/40">R2/R3 onay kuyruğu →</div>
-          </Card>
-        </Link>
-      </div>
+        <motion.div variants={item}>
+          <Link to="/app/cost-ledger">
+            <Card className="p-4 transition-colors hover:bg-white/[0.06]">
+              <div className="flex items-center gap-2 text-xs text-white/40">
+                <Zap size={12} />
+                Verifier FAIL
+              </div>
+              {stats.verifierFailRate != null ? (
+                <>
+                  <div className={`mt-1.5 text-2xl font-bold ${kpiColor(stats.verifierFailRate, KPI_FAIL_RATE)}`}>
+                    %{Math.round(stats.verifierFailRate * 100)}
+                  </div>
+                  <div className="mt-1 text-xs text-white/30">Hedef: &lt;%15</div>
+                </>
+              ) : (
+                <div className="mt-1.5 text-lg text-white/20">Veri yok</div>
+              )}
+            </Card>
+          </Link>
+        </motion.div>
+      </motion.div>
 
-      {/* KPI Kartları (Cost Ledger özet) */}
-      <div className="grid gap-3 sm:grid-cols-3">
-        <Link to="/app/cost-ledger" className="block">
-          <Card className="p-4 transition-colors hover:bg-white/5">
-            <div className="text-xs text-white/50">Ort. Maliyet / Run</div>
-            {stats.avgCostUsd != null ? (
-              <>
-                <div className={`mt-1 text-2xl font-bold ${kpiColor(stats.avgCostUsd, KPI_COST_USD)}`}>
-                  ${stats.avgCostUsd.toFixed(4)}
-                </div>
-                <div className="mt-1 text-xs text-white/40">Hedef: &lt;${KPI_COST_USD} → Cost Ledger →</div>
-              </>
-            ) : (
-              <div className="mt-1 text-xl text-white/30">Veri yok →</div>
-            )}
-          </Card>
-        </Link>
-
-        <Link to="/app/cost-ledger" className="block">
-          <Card className="p-4 transition-colors hover:bg-white/5">
-            <div className="text-xs text-white/50">Ort. Süre / Run</div>
-            {stats.avgLatencyMs != null ? (
-              <>
-                <div className={`mt-1 text-2xl font-bold ${kpiColor(stats.avgLatencyMs, KPI_LATENCY_MS)}`}>
-                  {fmtMs(stats.avgLatencyMs)}
-                </div>
-                <div className="mt-1 text-xs text-white/40">Hedef: &lt;8 dk →</div>
-              </>
-            ) : (
-              <div className="mt-1 text-xl text-white/30">Veri yok →</div>
-            )}
-          </Card>
-        </Link>
-
-        <Link to="/app/cost-ledger" className="block">
-          <Card className="p-4 transition-colors hover:bg-white/5">
-            <div className="text-xs text-white/50">Verifier FAIL</div>
-            {stats.verifierFailRate != null ? (
-              <>
-                <div className={`mt-1 text-2xl font-bold ${kpiColor(stats.verifierFailRate, KPI_FAIL_RATE)}`}>
-                  %{Math.round(stats.verifierFailRate * 100)}
-                </div>
-                <div className="mt-1 text-xs text-white/40">Hedef: &lt;%15 →</div>
-              </>
-            ) : (
-              <div className="mt-1 text-xl text-white/30">Veri yok →</div>
-            )}
-          </Card>
-        </Link>
-      </div>
-
-      {/* Son Aktivite */}
-      <div className="grid gap-4 lg:grid-cols-2">
+      {/* Son aktivite */}
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.25, duration: 0.3 }}
+        className="grid gap-4 lg:grid-cols-2"
+      >
         {/* Son Runlar */}
         <Card className="overflow-hidden">
-          <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+          <div className="flex items-center justify-between border-b border-white/[0.06] px-4 py-3">
             <span className="text-sm font-medium">Son Runlar</span>
-            <Link to="/app/runs" className="text-xs text-blue-400 hover:underline">Tümü →</Link>
+            <Link to="/app/runs" className="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300">
+              Tümü <ArrowRight size={12} />
+            </Link>
           </div>
-          <div className="divide-y divide-white/5">
+          <div className="divide-y divide-white/[0.04]">
             {stats.recentRuns.length === 0 ? (
-              <div className="px-4 py-6 text-center text-sm text-white/40">Henüz run yok</div>
+              <EmptyFeed icon={<Brain size={20} />} text="Henüz run yok" />
             ) : (
-              stats.recentRuns.map((run) => (
-                <Link key={run.id} to={`/app/runs/${run.id}`} className="flex items-center justify-between px-4 py-2.5 hover:bg-white/5 transition-colors">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <Badge tone={run.status === 'success' ? 'green' : run.status === 'fail' ? 'red' : 'yellow'}>
-                      {run.status === 'success' ? '✓' : run.status === 'fail' ? '✗' : '⏳'}
-                    </Badge>
-                    <span className="text-sm truncate text-white/80">{run.title || run.external_id || run.id.slice(0, 8)}</span>
-                  </div>
-                  <div className="text-right shrink-0 ml-2">
-                    {run.cost_usd != null && (
-                      <span className={`text-xs font-mono ${kpiColor(run.cost_usd, KPI_COST_USD)}`}>${run.cost_usd.toFixed(4)}</span>
-                    )}
-                    <div className="text-xs text-white/30">{new Date(run.created_at).toLocaleDateString('tr-TR')}</div>
-                  </div>
-                </Link>
+              stats.recentRuns.map((run, i) => (
+                <motion.div
+                  key={run.id}
+                  initial={{ opacity: 0, x: -6 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: 0.3 + i * 0.05 }}
+                >
+                  <Link
+                    to={`/app/runs/${run.id}`}
+                    className="flex items-center justify-between px-4 py-2.5 transition-colors hover:bg-white/[0.04]"
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <RunStatusDot status={run.status} />
+                      <span className="truncate text-sm text-white/70">
+                        {run.title ?? run.external_id ?? run.id.slice(0, 8)}
+                      </span>
+                    </div>
+                    <div className="ml-3 shrink-0 text-right">
+                      {run.cost_usd != null && (
+                        <span className={`block font-mono text-xs ${kpiColor(run.cost_usd, KPI_COST_USD)}`}>
+                          ${run.cost_usd.toFixed(4)}
+                        </span>
+                      )}
+                      <span className="text-xs text-white/25">
+                        {new Date(run.created_at).toLocaleDateString('tr-TR')}
+                      </span>
+                    </div>
+                  </Link>
+                </motion.div>
               ))
             )}
           </div>
@@ -302,60 +406,54 @@ export default function DashboardPage() {
 
         {/* Son Joblar */}
         <Card className="overflow-hidden">
-          <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+          <div className="flex items-center justify-between border-b border-white/[0.06] px-4 py-3">
             <span className="text-sm font-medium">Son Joblar</span>
-            <Link to="/app/jobs" className="text-xs text-blue-400 hover:underline">Tümü →</Link>
+            <Link to="/app/jobs" className="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300">
+              Tümü <ArrowRight size={12} />
+            </Link>
           </div>
-          <div className="divide-y divide-white/5">
+          <div className="divide-y divide-white/[0.04]">
             {stats.recentJobs.length === 0 ? (
-              <div className="px-4 py-6 text-center text-sm text-white/40">Henüz job yok</div>
+              <EmptyFeed icon={<Zap size={20} />} text="Henüz job yok" />
             ) : (
-              stats.recentJobs.map((job) => (
-                <Link key={job.id} to={`/app/jobs/${job.id}`} className="flex items-center justify-between px-4 py-2.5 hover:bg-white/5 transition-colors">
-                  <div className="flex items-center gap-2 min-w-0">
+              stats.recentJobs.map((job, i) => (
+                <motion.div
+                  key={job.id}
+                  initial={{ opacity: 0, x: -6 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: 0.3 + i * 0.05 }}
+                >
+                  <Link
+                    to={`/app/jobs/${job.id}`}
+                    className="flex items-center justify-between px-4 py-2.5 transition-colors hover:bg-white/[0.04]"
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <Badge tone={job.status === 'success' ? 'green' : job.status === 'fail' ? 'red' : 'yellow'}>
+                        {job.mode.toUpperCase()}
+                      </Badge>
+                      <span className="truncate text-sm text-white/60">
+                        {job.request_text?.slice(0, 42) ?? '—'}
+                      </span>
+                    </div>
                     <Badge tone={job.status === 'success' ? 'green' : job.status === 'fail' ? 'red' : 'yellow'}>
-                      {job.mode.toUpperCase()}
+                      {job.status}
                     </Badge>
-                    <span className="text-sm truncate text-white/70">
-                      {job.request_text?.slice(0, 45) ?? '—'}
-                    </span>
-                  </div>
-                  <Badge tone={job.status === 'success' ? 'green' : job.status === 'fail' ? 'red' : 'yellow'}>
-                    {job.status}
-                  </Badge>
-                </Link>
+                  </Link>
+                </motion.div>
               ))
             )}
           </div>
         </Card>
-      </div>
+      </motion.div>
+    </div>
+  )
+}
 
-      {/* Hızlı Navigasyon */}
-      <Card className="p-4">
-        <div className="text-xs font-semibold uppercase tracking-widest text-white/40 mb-3">Hızlı Erişim</div>
-        <div className="flex flex-wrap gap-2">
-          <Link to="/app/cost-ledger">
-            <Button variant="outline" size="sm">Cost Ledger</Button>
-          </Link>
-          <Link to="/app/approval-queue">
-            <Button variant={stats.pendingApprovals > 0 ? 'primary' : 'outline'} size="sm">
-              Approval Queue {stats.pendingApprovals > 0 && `(${stats.pendingApprovals})`}
-            </Button>
-          </Link>
-          <Link to="/app/agents">
-            <Button variant="outline" size="sm">Agents</Button>
-          </Link>
-          <Link to="/app/bundles">
-            <Button variant="outline" size="sm">Bundles</Button>
-          </Link>
-          <Link to="/app/facts">
-            <Button variant="outline" size="sm">Knowledge Facts</Button>
-          </Link>
-          <Link to="/app/audit-log">
-            <Button variant="outline" size="sm">Audit Log</Button>
-          </Link>
-        </div>
-      </Card>
+function EmptyFeed({ icon, text }: { icon: React.ReactNode; text: string }) {
+  return (
+    <div className="flex flex-col items-center gap-2 py-8 text-white/20">
+      {icon}
+      <span className="text-xs">{text}</span>
     </div>
   )
 }

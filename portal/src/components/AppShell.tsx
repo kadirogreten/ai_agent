@@ -1,44 +1,142 @@
-import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/Button'
 import { useAuthStore } from '@/stores/authStore'
-import { Download, LogOut } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { PageTransition } from '@/components/PageTransition'
+import { useState } from 'react'
+import {
+  LayoutDashboard, Play, Clock, List, Briefcase, CheckSquare,
+  Bot, UserCircle, BookOpen, Wrench,
+  Package, Layers, Database, Brain,
+  DollarSign, ScrollText,
+  Compass, FileStack,
+  Download, LogOut, ChevronDown, ChevronRight,
+} from 'lucide-react'
 
-type Tab = { to: string; label: string }
+type NavItem = { to: string; label: string; icon: React.ReactNode }
+type NavGroup = { title: string; items: NavItem[] }
 
-const tabs: Tab[] = [
-  { to: '/app/dashboard', label: 'Dashboard' },
-  { to: '/app/run', label: '▶ Yeni Çalıştırma' },
-  { to: '/app/schedules', label: '⏱ Schedules' },
-  { to: '/app/agents', label: 'Agents' },
-  { to: '/app/personas', label: 'Personas' },
-  { to: '/app/playbooks', label: 'Playbooks' },
-  { to: '/app/playbook-bundles', label: 'Bundles (Tpl)' },
-  { to: '/app/domain-packs', label: 'Domain Packs' },
-  { to: '/app/runs', label: 'Runs' },
-  { to: '/app/bundles', label: 'Run Bundles' },
-  { to: '/app/facts', label: 'Knowledge Facts' },
-  { to: '/app/jobs', label: 'Jobs' },
-  { to: '/app/tools', label: 'Tools' },
-  { to: '/app/cost-ledger', label: 'Cost Ledger' },
-  { to: '/app/approval-queue', label: 'Approval Queue' },
-  { to: '/app/audit-log', label: 'Audit Log' },
-  { to: '/app/sector-builder', label: '✦ Sektör Keşif' },
-  { to: '/app/pack-drafts', label: 'Taslaklar' },
+const navGroups: NavGroup[] = [
+  {
+    title: '',
+    items: [
+      { to: '/app/dashboard', label: 'Dashboard', icon: <LayoutDashboard size={15} /> },
+      { to: '/app/run', label: 'Yeni Çalıştırma', icon: <Play size={15} /> },
+    ],
+  },
+  {
+    title: 'Operasyon',
+    items: [
+      { to: '/app/runs', label: 'Runs', icon: <List size={15} /> },
+      { to: '/app/jobs', label: 'Jobs', icon: <Briefcase size={15} /> },
+      { to: '/app/schedules', label: 'Schedules', icon: <Clock size={15} /> },
+      { to: '/app/approval-queue', label: 'Approval Queue', icon: <CheckSquare size={15} /> },
+    ],
+  },
+  {
+    title: 'Yapılandırma',
+    items: [
+      { to: '/app/agents', label: 'Agents', icon: <Bot size={15} /> },
+      { to: '/app/personas', label: 'Personas', icon: <UserCircle size={15} /> },
+      { to: '/app/playbooks', label: 'Playbooks', icon: <BookOpen size={15} /> },
+      { to: '/app/tools', label: 'Tools', icon: <Wrench size={15} /> },
+    ],
+  },
+  {
+    title: 'Bilgi Tabanı',
+    items: [
+      { to: '/app/domain-packs', label: 'Domain Packs', icon: <Package size={15} /> },
+      { to: '/app/playbook-bundles', label: 'Playbook Bundles', icon: <Layers size={15} /> },
+      { to: '/app/bundles', label: 'Run Bundles', icon: <Database size={15} /> },
+      { to: '/app/facts', label: 'Knowledge Facts', icon: <Brain size={15} /> },
+    ],
+  },
+  {
+    title: 'Finans & Denetim',
+    items: [
+      { to: '/app/cost-ledger', label: 'Cost Ledger', icon: <DollarSign size={15} /> },
+      { to: '/app/audit-log', label: 'Audit Log', icon: <ScrollText size={15} /> },
+    ],
+  },
+  {
+    title: 'Builder',
+    items: [
+      { to: '/app/sector-builder', label: 'Sektör Keşif', icon: <Compass size={15} /> },
+      { to: '/app/pack-drafts', label: 'Taslaklar', icon: <FileStack size={15} /> },
+    ],
+  },
 ]
+
+function NavGroup({ group }: { group: NavGroup }) {
+  const [open, setOpen] = useState(true)
+
+  return (
+    <div className="mb-1">
+      {group.title && (
+        <button
+          onClick={() => setOpen((v) => !v)}
+          className="flex w-full items-center justify-between px-3 pb-1 pt-3"
+        >
+          <span className="text-[10px] font-semibold uppercase tracking-widest text-white/30">
+            {group.title}
+          </span>
+          <motion.span
+            animate={{ rotate: open ? 0 : -90 }}
+            transition={{ duration: 0.2 }}
+            className="text-white/20"
+          >
+            <ChevronDown size={12} />
+          </motion.span>
+        </button>
+      )}
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2, ease: 'easeInOut' }}
+            className="overflow-hidden"
+          >
+            {group.items.map((item) => (
+              <NavLink key={item.to} to={item.to} end={item.to === '/app/run'}>
+                {({ isActive }) => (
+                  <motion.div
+                    className={`relative mx-2 mb-0.5 flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm ${
+                      isActive ? 'text-white' : 'text-white/50 hover:text-white/80'
+                    }`}
+                    whileHover={{ x: 2 }}
+                    transition={{ type: 'spring', stiffness: 500, damping: 35 }}
+                  >
+                    {isActive && (
+                      <motion.span
+                        layoutId="sidebar-active"
+                        className="absolute inset-0 rounded-lg ring-1 ring-white/10"
+                        style={{ background: 'rgba(255,255,255,0.07)' }}
+                        transition={{ type: 'spring', stiffness: 350, damping: 30 }}
+                      />
+                    )}
+                    <span className={`relative z-10 ${isActive ? 'text-blue-400' : ''}`}>
+                      {item.icon}
+                    </span>
+                    <span className="relative z-10 font-medium">{item.label}</span>
+                  </motion.div>
+                )}
+              </NavLink>
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
 
 export default function AppShell() {
   const user = useAuthStore((s) => s.user)
   const signOut = useAuthStore((s) => s.signOut)
-  const location = useLocation()
   const navigate = useNavigate()
   const [importing, setImporting] = useState(false)
   const [importMsg, setImportMsg] = useState<string | null>(null)
-
-  const active = useMemo(() => {
-    const t = tabs.find((x) => location.pathname.startsWith(x.to))
-    return t?.label ?? 'App'
-  }, [location.pathname])
 
   async function runImport() {
     const session = useAuthStore.getState().session
@@ -46,7 +144,6 @@ export default function AppShell() {
       setImportMsg('Oturum bulunamadı')
       return
     }
-
     setImporting(true)
     setImportMsg(null)
     try {
@@ -64,7 +161,7 @@ export default function AppShell() {
         return
       }
       const r = json.result
-      setImportMsg(`Import tamamlandı: runs=${r.runs}, bundles=${r.bundles}, facts=${r.facts}`)
+      setImportMsg(`runs=${r.runs}, bundles=${r.bundles}, facts=${r.facts}`)
       navigate('/app/runs')
     } catch (e: unknown) {
       setImportMsg(e instanceof Error ? e.message : 'Import hata')
@@ -74,57 +171,56 @@ export default function AppShell() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0B1020] text-white">
-      <div className="border-b border-white/10 bg-[#0B1020]/80 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
-          <div className="flex items-center gap-4">
-            <Link to="/app" className="text-sm font-semibold tracking-wide text-white/90">
-              Agent Portal
-            </Link>
-            <div className="text-xs text-white/50">{active}</div>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button variant="secondary" size="sm" onClick={runImport} disabled={importing}>
-              <Download className="mr-2 h-4 w-4" />
-              Local Import
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={async () => {
-                await signOut()
-                navigate('/login')
-              }}
-            >
-              <LogOut className="mr-2 h-4 w-4" />
-              Çıkış
-            </Button>
-            <div className="hidden text-xs text-white/50 md:block">{user?.email}</div>
+    <div className="flex min-h-screen bg-[#0B1020] text-white">
+      {/* Sidebar */}
+      <aside className="flex w-56 flex-shrink-0 flex-col border-r border-white/[0.06] bg-[#080e1c]">
+        {/* Logo */}
+        <div className="flex h-14 items-center border-b border-white/[0.06] px-5">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-500/20 ring-1 ring-blue-500/30">
+              <Bot size={14} className="text-blue-400" />
+            </div>
+            <span className="text-sm font-semibold tracking-tight text-white/90">Agent Portal</span>
           </div>
         </div>
-        {importMsg ? (
-          <div className="mx-auto max-w-6xl px-6 pb-3 text-xs text-white/70">{importMsg}</div>
-        ) : null}
-        <div className="mx-auto max-w-6xl px-6 pb-3">
-          <div className="flex gap-2">
-            {tabs.map((t) => (
-              <NavLink
-                key={t.to}
-                to={t.to}
-                className={({ isActive }) =>
-                  `rounded-md px-3 py-1.5 text-sm transition-colors ${
-                    isActive ? 'bg-white/10 text-white' : 'text-white/70 hover:bg-white/5 hover:text-white'
-                  }`
-                }
-              >
-                {t.label}
-              </NavLink>
-            ))}
-          </div>
+
+        {/* Nav */}
+        <nav className="flex-1 overflow-y-auto py-2 scrollbar-none">
+          {navGroups.map((group, i) => (
+            <NavGroup key={i} group={group} />
+          ))}
+        </nav>
+
+        {/* Footer */}
+        <div className="border-t border-white/[0.06] p-3 space-y-1">
+          {importMsg && (
+            <p className="px-2 pb-1 text-[11px] text-white/40">{importMsg}</p>
+          )}
+          <button
+            onClick={runImport}
+            disabled={importing}
+            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-white/40 transition-colors hover:bg-white/5 hover:text-white/70 disabled:opacity-40"
+          >
+            <Download size={14} />
+            <span>{importing ? 'İçe aktarılıyor…' : 'Local Import'}</span>
+          </button>
+          <button
+            onClick={async () => { await signOut(); navigate('/login') }}
+            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-white/40 transition-colors hover:bg-white/5 hover:text-white/70"
+          >
+            <LogOut size={14} />
+            <span className="truncate">{user?.email ?? 'Çıkış'}</span>
+          </button>
         </div>
-      </div>
-      <div className="mx-auto max-w-6xl px-6 py-6">
-        <Outlet />
+      </aside>
+
+      {/* Main */}
+      <div className="flex min-w-0 flex-1 flex-col">
+        <main className="flex-1 overflow-auto p-6">
+          <PageTransition>
+            <Outlet />
+          </PageTransition>
+        </main>
       </div>
     </div>
   )
