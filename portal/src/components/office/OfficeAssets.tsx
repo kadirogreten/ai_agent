@@ -94,6 +94,18 @@ function createDetailedDesk(scene: THREE.Scene, x: number, z: number, index: num
 
   // Cable management
   createCableManagement(scene, x - 1.5, 0.9, z, frameMat)
+
+  // Desk plant - small potted plant
+  createPlant(scene, x + 1.5, z + 1.2)
+
+  // Coffee cup/mug
+  createCoffeCup(scene, x + 1.8, z + 0.5)
+
+  // Notebook/notepad
+  createNotebook(scene, x - 0.8, z + 1.0, frameMat)
+
+  // Desk organizer/tray
+  createDeskOrganizer(scene, x - 1.2, z + 0.8, frameMat)
 }
 
 function createPedestal(
@@ -407,4 +419,156 @@ function createCableManagement(
   tray.position.set(x, y - 0.02, z)
   tray.castShadow = true
   scene.add(tray)
+}
+
+function createPlant(scene: THREE.Scene, x: number, z: number) {
+  // Plant pot
+  const potMat = new THREE.MeshStandardMaterial({
+    color: 0xa0826d,
+    roughness: 0.7,
+    metalness: 0.0,
+  })
+  const pot = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.12, 0.15, 0.15, 16),
+    potMat
+  )
+  pot.position.set(x, 1.02, z)
+  pot.castShadow = true
+  scene.add(pot)
+
+  // Plant leaves - simple green spheres
+  const leafMat = new THREE.MeshStandardMaterial({
+    color: 0x4a7c59,
+    roughness: 0.6,
+    metalness: 0.0,
+  })
+
+  const leaf1 = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 8), leafMat)
+  leaf1.position.set(x - 0.08, 1.25, z - 0.06)
+  leaf1.scale.set(1.2, 1.4, 0.7)
+  leaf1.castShadow = true
+  scene.add(leaf1)
+
+  const leaf2 = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 8), leafMat)
+  leaf2.position.set(x + 0.1, 1.3, z + 0.05)
+  leaf2.scale.set(1.3, 1.5, 0.7)
+  leaf2.castShadow = true
+  scene.add(leaf2)
+
+  const leaf3 = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 8), leafMat)
+  leaf3.position.set(x + 0.02, 1.35, z - 0.1)
+  leaf3.scale.set(1.1, 1.3, 0.6)
+  leaf3.castShadow = true
+  scene.add(leaf3)
+}
+
+function createCoffeCup(scene: THREE.Scene, x: number, z: number) {
+  // Cup body
+  const cupMat = new THREE.MeshStandardMaterial({
+    color: 0xf5e6d3,
+    roughness: 0.4,
+    metalness: 0.1,
+  })
+  const cup = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.08, 0.09, 0.12, 12),
+    cupMat
+  )
+  cup.position.set(x, 1.05, z)
+  cup.castShadow = true
+  scene.add(cup)
+
+  // Cup handle
+  const handle = new THREE.Mesh(
+    new THREE.TorusGeometry(0.06, 0.015, 8, 8),
+    cupMat
+  )
+  handle.position.set(x + 0.11, 1.08, z)
+  handle.rotation.z = Math.PI / 2
+  scene.add(handle)
+
+  // Coffee inside
+  const coffeeMat = new THREE.MeshStandardMaterial({
+    color: 0x4a3728,
+    roughness: 0.3,
+    metalness: 0.0,
+  })
+  const coffee = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.075, 0.085, 0.08, 12),
+    coffeeMat
+  )
+  coffee.position.set(x, 1.08, z)
+  scene.add(coffee)
+}
+
+function createNotebook(
+  scene: THREE.Scene,
+  x: number,
+  z: number,
+  frameMat: THREE.Material
+) {
+  // Notebook cover - leather-like
+  const notebookMat = new THREE.MeshStandardMaterial({
+    color: 0x2d2416,
+    roughness: 0.8,
+    metalness: 0.0,
+  })
+  const notebook = new THREE.Mesh(
+    new THREE.BoxGeometry(0.25, 0.01, 0.18),
+    notebookMat
+  )
+  notebook.position.set(x, 1.04, z)
+  notebook.rotation.z = 0.2 // Slight angle
+  notebook.castShadow = true
+  scene.add(notebook)
+
+  // Pages inside
+  const pagesMat = new THREE.MeshStandardMaterial({
+    color: 0xfaf8f3,
+    roughness: 0.9,
+    metalness: 0.0,
+  })
+  const pages = new THREE.Mesh(
+    new THREE.BoxGeometry(0.24, 0.009, 0.17),
+    pagesMat
+  )
+  pages.position.set(x, 1.042, z)
+  pages.rotation.z = 0.2
+  scene.add(pages)
+}
+
+function createDeskOrganizer(
+  scene: THREE.Scene,
+  x: number,
+  z: number,
+  frameMat: THREE.Material
+) {
+  // Organizer tray - simple box
+  const organizerMat = new THREE.MeshStandardMaterial({
+    color: 0x4a4a4a,
+    roughness: 0.6,
+    metalness: 0.1,
+  })
+  const organizer = new THREE.Mesh(
+    new THREE.BoxGeometry(0.3, 0.04, 0.15),
+    organizerMat
+  )
+  organizer.position.set(x, 1.03, z)
+  organizer.castShadow = true
+  scene.add(organizer)
+
+  // Dividers inside
+  const dividerMat = new THREE.MeshStandardMaterial({
+    color: 0x3a3a3a,
+    roughness: 0.5,
+    metalness: 0.2,
+  })
+
+  for (let i = 0; i < 3; i++) {
+    const divider = new THREE.Mesh(
+      new THREE.BoxGeometry(0.02, 0.04, 0.12),
+      dividerMat
+    )
+    divider.position.set(x - 0.1 + i * 0.15, 1.035, z)
+    scene.add(divider)
+  }
 }
