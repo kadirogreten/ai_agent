@@ -147,6 +147,81 @@ export function useOfficeSimulation({ scene, dbAgents = [] }: UseOfficeSimulatio
     head.receiveShadow = true
     group.add(head)
 
+    // Eyes
+    const eyeMaterial = new THREE.MeshStandardMaterial({
+      color: 0x1a1a1a, // Dark eyes
+      emissive: 0x333333,
+      emissiveIntensity: 0.2,
+      roughness: 0.3,
+      metalness: 0.1,
+    })
+    const leftEye = new THREE.Mesh(
+      new THREE.SphereGeometry(0.04, 12, 12),
+      eyeMaterial
+    )
+    leftEye.position.set(-0.06, 0.73, 0.15)
+    leftEye.castShadow = true
+    group.add(leftEye)
+
+    const rightEye = new THREE.Mesh(
+      new THREE.SphereGeometry(0.04, 12, 12),
+      eyeMaterial
+    )
+    rightEye.position.set(0.06, 0.73, 0.15)
+    rightEye.castShadow = true
+    group.add(rightEye)
+
+    // Eye highlights for life-like appearance
+    const highlightMat = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      emissive: 0xcccccc,
+      emissiveIntensity: 0.8,
+      roughness: 0.1,
+      metalness: 0.3,
+    })
+    const leftHighlight = new THREE.Mesh(
+      new THREE.SphereGeometry(0.012, 8, 8),
+      highlightMat
+    )
+    leftHighlight.position.set(-0.05, 0.74, 0.18)
+    group.add(leftHighlight)
+
+    const rightHighlight = new THREE.Mesh(
+      new THREE.SphereGeometry(0.012, 8, 8),
+      highlightMat
+    )
+    rightHighlight.position.set(0.07, 0.74, 0.18)
+    group.add(rightHighlight)
+
+    // Nose
+    const noseMaterial = new THREE.MeshStandardMaterial({
+      color: 0xb8927d, // Slightly darker skin tone
+      roughness: 0.7,
+      metalness: 0.0,
+    })
+    const nose = new THREE.Mesh(
+      new THREE.SphereGeometry(0.025, 8, 8),
+      noseMaterial
+    )
+    nose.position.set(0, 0.68, 0.15)
+    nose.scale.set(0.7, 1.0, 1.2) // Elongated for nose shape
+    nose.castShadow = true
+    group.add(nose)
+
+    // Mouth line for subtle expression
+    const mouthMaterial = new THREE.MeshStandardMaterial({
+      color: 0x8b6f47,
+      roughness: 0.8,
+      metalness: 0.0,
+    })
+    const mouth = new THREE.Mesh(
+      new THREE.BoxGeometry(0.08, 0.01, 0.02),
+      mouthMaterial
+    )
+    mouth.position.set(0, 0.62, 0.16)
+    mouth.castShadow = true
+    group.add(mouth)
+
     // Body (torso) - larger, more realistic proportion
     const torso = new THREE.Mesh(
       new THREE.CapsuleGeometry(0.25, 0.55, 8, 8),
