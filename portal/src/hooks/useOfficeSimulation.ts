@@ -111,39 +111,100 @@ export function useOfficeSimulation({ scene, dbAgents = [] }: UseOfficeSimulatio
     setAgents(agentsToInit)
   }, [scene, dbAgents])
 
-  // Create 3D mesh for agent
+  // Create 3D mesh for agent - humanoid character
   function createAgentMesh(agent: AgentPosition, scene: THREE.Scene) {
     const group = new THREE.Group()
     group.position.copy(agent.position)
 
-    // Agent body (sphere)
-    const bodyGeometry = new THREE.SphereGeometry(0.6, 16, 16)
     const roleColor = ROLE_COLORS[agent.role] ?? ROLE_COLORS.default
+
     const bodyMaterial = new THREE.MeshStandardMaterial({
       color: roleColor,
       emissive: roleColor,
-      emissiveIntensity: 0.5,
-      roughness: 0.4,
-      metalness: 0.6,
+      emissiveIntensity: 0.4,
+      roughness: 0.5,
+      metalness: 0.4,
     })
-    const body = new THREE.Mesh(bodyGeometry, bodyMaterial)
-    body.castShadow = true
-    body.receiveShadow = true
-    group.add(body)
 
-    // Glow effect
-    const glowGeometry = new THREE.SphereGeometry(0.7, 16, 16)
+    // Head
+    const head = new THREE.Mesh(
+      new THREE.SphereGeometry(0.25, 16, 16),
+      bodyMaterial
+    )
+    head.position.y = 0.85
+    head.castShadow = true
+    head.receiveShadow = true
+    group.add(head)
+
+    // Body (torso)
+    const torso = new THREE.Mesh(
+      new THREE.CapsuleGeometry(0.2, 0.6, 8, 8),
+      bodyMaterial
+    )
+    torso.position.y = 0.4
+    torso.castShadow = true
+    torso.receiveShadow = true
+    group.add(torso)
+
+    // Left arm
+    const leftArm = new THREE.Mesh(
+      new THREE.CapsuleGeometry(0.1, 0.6, 8, 8),
+      bodyMaterial
+    )
+    leftArm.position.set(-0.3, 0.5, 0)
+    leftArm.rotation.z = Math.PI / 6
+    leftArm.castShadow = true
+    group.add(leftArm)
+
+    // Right arm
+    const rightArm = new THREE.Mesh(
+      new THREE.CapsuleGeometry(0.1, 0.6, 8, 8),
+      bodyMaterial
+    )
+    rightArm.position.set(0.3, 0.5, 0)
+    rightArm.rotation.z = -Math.PI / 6
+    rightArm.castShadow = true
+    group.add(rightArm)
+
+    // Left leg
+    const leftLeg = new THREE.Mesh(
+      new THREE.CapsuleGeometry(0.12, 0.65, 8, 8),
+      new THREE.MeshStandardMaterial({
+        color: 0x1a1a1a,
+        roughness: 0.6,
+        metalness: 0.1,
+      })
+    )
+    leftLeg.position.set(-0.15, -0.35, 0)
+    leftLeg.castShadow = true
+    group.add(leftLeg)
+
+    // Right leg
+    const rightLeg = new THREE.Mesh(
+      new THREE.CapsuleGeometry(0.12, 0.65, 8, 8),
+      new THREE.MeshStandardMaterial({
+        color: 0x1a1a1a,
+        roughness: 0.6,
+        metalness: 0.1,
+      })
+    )
+    rightLeg.position.set(0.15, -0.35, 0)
+    rightLeg.castShadow = true
+    group.add(rightLeg)
+
+    // Glow aura
+    const glowGeometry = new THREE.SphereGeometry(0.8, 16, 16)
     const glowMaterial = new THREE.MeshBasicMaterial({
       color: roleColor,
       transparent: true,
-      opacity: 0.15,
+      opacity: 0.1,
     })
     const glow = new THREE.Mesh(glowGeometry, glowMaterial)
     group.add(glow)
 
     // Light above agent
-    const light = new THREE.PointLight(roleColor, 1.5, 10)
-    light.position.y = 2
+    const light = new THREE.PointLight(roleColor, 2, 12)
+    light.position.y = 1.2
     group.add(light)
 
     // Store metadata

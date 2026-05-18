@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useAuthStore } from '@/stores/authStore'
 import Office3DScene from '@/components/Office3DScene'
 import OfficeGeometry from '@/components/office/OfficeGeometry'
+import OfficeAssets from '@/components/office/OfficeAssets'
 import { useOfficeSimulation } from '@/hooks/useOfficeSimulation'
 import { supabase } from '@/lib/supabaseClient'
 import * as THREE from 'three'
@@ -177,7 +178,12 @@ export default function OfficePage() {
       <div className="mx-4 flex gap-4 flex-1 overflow-hidden">
         <div className="flex-1 rounded-lg border border-white/[0.06] bg-gradient-to-b from-[#0f1829] to-[#0a1020] overflow-hidden">
           <Office3DScene onSceneReady={handleSceneReady}>
-            {scene && <OfficeGeometry scene={scene} />}
+            {scene && (
+              <>
+                <OfficeGeometry scene={scene} />
+                <OfficeAssets scene={scene} />
+              </>
+            )}
           </Office3DScene>
         </div>
 
