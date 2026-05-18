@@ -10,7 +10,7 @@ import { DataTable, type Column } from '@/components/DataTable'
 import { EmptyState } from '@/components/EmptyState'
 import { Brain } from 'lucide-react'
 
-type FactRow = { id: string; title: string | null; scope: string | null; created_at: string }
+type FactRow = { id: string; title: string | null; created_at: string }
 
 export default function FactsPage() {
   const init        = useAuthStore((s) => s.init)
@@ -28,7 +28,7 @@ export default function FactsPage() {
   const load = useCallback(async () => {
     if (!initialized || !user) return
     setLoading(true); setErr(null)
-    let query = supabase.from('knowledge_facts').select('id,title,scope,created_at').order('created_at', { ascending: false }).limit(300)
+    let query = supabase.from('knowledge_facts').select('id,title,created_at').order('created_at', { ascending: false }).limit(300)
     if (q.trim()) { const t = `%${q.trim()}%`; query = query.or(`title.ilike.${t}`) }
     const res = await query
     if (res.error) { setErr(res.error.message); setRows([]) }
@@ -42,10 +42,6 @@ export default function FactsPage() {
     {
       key: 'title', header: 'Anahtar', width: '200px',
       render: (r) => <span className="font-mono text-xs text-blue-300">{r.title ?? '—'}</span>,
-    },
-    {
-      key: 'scope', header: 'Kapsam', width: '120px',
-      render: (r) => r.scope ? <Badge tone="purple">{r.scope}</Badge> : <span className="text-white/25">—</span>,
     },
     {
       key: 'created_at', header: 'Tarih', width: '140px',
