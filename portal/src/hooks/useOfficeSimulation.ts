@@ -10,6 +10,10 @@ export interface AgentPosition {
   targetPosition: THREE.Vector3
   isMoving: boolean
   mesh?: THREE.Group
+  positionHistory: THREE.Vector3[]
+  trailMesh?: THREE.Line
+  statusIndicator?: THREE.Mesh
+  currentJobStatus?: string
 }
 
 const ROLE_COLORS: Record<string, number> = {
@@ -54,6 +58,7 @@ export function useOfficeSimulation({ scene, dbAgents = [] }: UseOfficeSimulatio
           position: new THREE.Vector3(deskPositions[idx].x, 2, deskPositions[idx].z),
           targetPosition: new THREE.Vector3(deskPositions[idx].x, 2, deskPositions[idx].z),
           isMoving: false,
+          positionHistory: [],
         }))
       : [
           {
@@ -64,6 +69,7 @@ export function useOfficeSimulation({ scene, dbAgents = [] }: UseOfficeSimulatio
             position: new THREE.Vector3(deskPositions[0].x, 2, deskPositions[0].z),
             targetPosition: new THREE.Vector3(deskPositions[0].x, 2, deskPositions[0].z),
             isMoving: false,
+            positionHistory: [],
           },
           {
             agentId: 'agent-2',
@@ -73,6 +79,7 @@ export function useOfficeSimulation({ scene, dbAgents = [] }: UseOfficeSimulatio
             position: new THREE.Vector3(deskPositions[1].x, 2, deskPositions[1].z),
             targetPosition: new THREE.Vector3(deskPositions[1].x, 2, deskPositions[1].z),
             isMoving: false,
+            positionHistory: [],
           },
           {
             agentId: 'agent-3',
@@ -82,6 +89,7 @@ export function useOfficeSimulation({ scene, dbAgents = [] }: UseOfficeSimulatio
             position: new THREE.Vector3(deskPositions[2].x, 2, deskPositions[2].z),
             targetPosition: new THREE.Vector3(deskPositions[2].x, 2, deskPositions[2].z),
             isMoving: false,
+            positionHistory: [],
           },
           {
             agentId: 'agent-4',
@@ -91,6 +99,7 @@ export function useOfficeSimulation({ scene, dbAgents = [] }: UseOfficeSimulatio
             position: new THREE.Vector3(deskPositions[3].x, 2, deskPositions[3].z),
             targetPosition: new THREE.Vector3(deskPositions[3].x, 2, deskPositions[3].z),
             isMoving: false,
+            positionHistory: [],
           },
           {
             agentId: 'agent-5',
@@ -100,6 +109,7 @@ export function useOfficeSimulation({ scene, dbAgents = [] }: UseOfficeSimulatio
             position: new THREE.Vector3(deskPositions[4].x, 2, deskPositions[4].z),
             targetPosition: new THREE.Vector3(deskPositions[4].x, 2, deskPositions[4].z),
             isMoving: false,
+            positionHistory: [],
           },
         ]
 
@@ -260,6 +270,42 @@ export function useOfficeSimulation({ scene, dbAgents = [] }: UseOfficeSimulatio
         agent.position.lerp(agent.targetPosition, delta)
         agent.mesh.position.copy(agent.position)
 
+        // Track position history for motion trails
+        if (agent.isMoving) {
+          agent.positionHistory.push(agent.position.clone())
+          // Keep only last 50 points to avoid memory issues
+          if (agent.positionHistory.length > 50) {
+            agent.positionHistory.shift()
+          }
+
+          // Update or create trail mesh
+          if (agent.positionHistory.length > 1) {
+            if (agent.trailMesh) {
+              scene.remove(agent.trailMesh)
+            }
+
+            const geometry = new THREE.BufferGeometry()
+            geometry.setFromPoints(agent.positionHistory)
+            const roleColor = ROLE_COLORS[agent.role] ?? ROLE_COLORS.default
+            const material = new THREE.LineBasicMaterial({
+              color: roleColor,
+              linewidth: 2,
+              transparent: true,
+              opacity: 0.6,
+            })
+            const trail = new THREE.Line(geometry, material)
+            scene.add(trail)
+            agent.trailMesh = trail
+          }
+        } else if (agent.trailMesh) {
+          // Remove trail when agent stops moving
+          scene.remove(agent.trailMesh)
+          agent.trailMesh.geometry.dispose()
+          ;(agent.trailMesh.material as THREE.Material).dispose()
+          agent.trailMesh = undefined
+          agent.positionHistory = []
+        }
+
         // Check if reached target
         const distance = agent.position.distanceTo(agent.targetPosition)
         if (distance < 0.1) {
@@ -268,6 +314,12 @@ export function useOfficeSimulation({ scene, dbAgents = [] }: UseOfficeSimulatio
 
         // Gentle bob animation
         agent.mesh.position.y += Math.sin(Date.now() * 0.002) * 0.02
+
+        // Pulsing animation for status indicator
+        if (agent.statusIndicator && agent.currentJobStatus === 'running') {
+          const pulse = 1 + Math.sin(Date.now() * 0.003) * 0.3
+          agent.statusIndicator.scale.set(pulse, pulse, pulse)
+        }
       })
     }
 
@@ -289,9 +341,47 @@ export function useOfficeSimulation({ scene, dbAgents = [] }: UseOfficeSimulatio
     }
   }
 
+  // Update agent status indicator
+  const updateAgentStatus = (agentId: string, status: string) => {
+    const agent = agentsRef.current.get(agentId)
+    if (!agent) return
+
+    agent.currentJobStatus = status
+
+    const statusColors: Record<string, number> = {
+      pending: 0x6b7280,    // gray
+      running: 0xf59e0b,    // amber
+      completed: 0x10b981,  // emerald
+      failed: 0xef4444,     // red
+    }
+
+    const color = statusColors[status] ?? statusColors.pending
+
+    // Create or update status indicator
+    if (!agent.statusIndicator && agent.mesh) {
+      const geometry = new THREE.SphereGeometry(0.15, 16, 16)
+      const material = new THREE.MeshStandardMaterial({
+        color,
+        emissive: color,
+        emissiveIntensity: 0.8,
+        roughness: 0.3,
+        metalness: 0.5,
+      })
+      const indicator = new THREE.Mesh(geometry, material)
+      indicator.position.y = 1.3
+      agent.mesh.add(indicator)
+      agent.statusIndicator = indicator
+    } else if (agent.statusIndicator) {
+      const material = agent.statusIndicator.material as THREE.MeshStandardMaterial
+      material.color.setHex(color)
+      material.emissive.setHex(color)
+    }
+  }
+
   // Move agent to CEO zone
   const moveAgentToCeoZone = (agentId: string) => {
     moveAgentTo(agentId, new THREE.Vector3(0, 2, 5))
+    updateAgentStatus(agentId, 'running')
   }
 
   // Return agent to desk
@@ -305,6 +395,7 @@ export function useOfficeSimulation({ scene, dbAgents = [] }: UseOfficeSimulatio
     ]
     if (deskIndex < deskPositions.length) {
       moveAgentTo(agentId, deskPositions[deskIndex])
+      updateAgentStatus(agentId, 'idle')
     }
   }
 
@@ -313,5 +404,6 @@ export function useOfficeSimulation({ scene, dbAgents = [] }: UseOfficeSimulatio
     moveAgentTo,
     moveAgentToCeoZone,
     returnAgentToDesk,
+    updateAgentStatus,
   }
 }
