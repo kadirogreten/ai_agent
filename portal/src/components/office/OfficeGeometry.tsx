@@ -284,6 +284,24 @@ export default function OfficeGeometry({ scene }: OfficeGeometryProps) {
     flowLine.userData.type = 'flowPath'
     scene.add(flowLine)
 
+    // Decorative plants in corners
+    addCornerPlant(scene, -18, 10, -18)
+    addCornerPlant(scene, 18, 10, -18)
+    addCornerPlant(scene, -18, 10, 18)
+    addCornerPlant(scene, 18, 10, 18)
+
+    // Wall decorations
+    addWallArt(scene, -19.8, 3, -5) // Left wall
+    addWallArt(scene, -19.8, 3, 5)
+    addWallArt(scene, 19.8, 3, -5) // Right wall
+    addWallArt(scene, 19.8, 3, 5)
+
+    // Whiteboard on wall
+    addWhiteboard(scene, -19.8, 3, -15)
+
+    // Office door entrance
+    addOfficeEntrance(scene, 0, 2, 19.9)
+
     return () => {
       // Cleanup
       floorGeometry.dispose()
@@ -443,4 +461,173 @@ function addShelvingToWall(scene: THREE.Scene, x: number, wallLength: number) {
       scene.add(book)
     }
   }
+}
+
+function addCornerPlant(scene: THREE.Scene, x: number, y: number, z: number) {
+  // Large planter
+  const planterMat = new THREE.MeshStandardMaterial({
+    color: 0xa0826d,
+    roughness: 0.7,
+    metalness: 0.0,
+  })
+  const planter = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.4, 0.45, 0.3, 16),
+    planterMat
+  )
+  planter.position.set(x, y - 5.8, z)
+  planter.castShadow = true
+  scene.add(planter)
+
+  // Plant foliage - multiple green spheres
+  const foliageMat = new THREE.MeshStandardMaterial({
+    color: 0x3d6b3d,
+    roughness: 0.6,
+    metalness: 0.0,
+  })
+
+  for (let i = 0; i < 5; i++) {
+    const leaf = new THREE.Mesh(new THREE.SphereGeometry(0.35, 12, 12), foliageMat)
+    const angle = (i / 5) * Math.PI * 2
+    const radius = 0.3
+    leaf.position.set(
+      x + Math.cos(angle) * radius,
+      y - 4.5 + i * 0.2,
+      z + Math.sin(angle) * radius
+    )
+    leaf.scale.set(1.0 + i * 0.1, 1.2 + i * 0.15, 1.0 + i * 0.1)
+    leaf.castShadow = true
+    scene.add(leaf)
+  }
+}
+
+function addWallArt(scene: THREE.Scene, x: number, y: number, z: number) {
+  // Picture frame
+  const frameMat = new THREE.MeshStandardMaterial({
+    color: 0x3a3a3a,
+    roughness: 0.6,
+    metalness: 0.2,
+  })
+  const frame = new THREE.Mesh(
+    new THREE.BoxGeometry(0.6, 0.5, 0.05),
+    frameMat
+  )
+  frame.position.set(x, y, z)
+  frame.castShadow = true
+  scene.add(frame)
+
+  // Picture/art inside
+  const artMat = new THREE.MeshStandardMaterial({
+    color: 0xd4d4d4,
+    emissive: 0xaaaaaa,
+    emissiveIntensity: 0.2,
+    roughness: 0.8,
+    metalness: 0.0,
+  })
+  const art = new THREE.Mesh(
+    new THREE.BoxGeometry(0.55, 0.45, 0.01),
+    artMat
+  )
+  art.position.set(x, y, z + 0.03)
+  scene.add(art)
+}
+
+function addWhiteboard(scene: THREE.Scene, x: number, y: number, z: number) {
+  // Whiteboard frame
+  const boardFrameMat = new THREE.MeshStandardMaterial({
+    color: 0x2a2a2a,
+    roughness: 0.5,
+    metalness: 0.3,
+  })
+  const boardFrame = new THREE.Mesh(
+    new THREE.BoxGeometry(1.2, 0.8, 0.05),
+    boardFrameMat
+  )
+  boardFrame.position.set(x, y, z)
+  boardFrame.castShadow = true
+  scene.add(boardFrame)
+
+  // Whiteboard surface
+  const boardSurfaceMat = new THREE.MeshStandardMaterial({
+    color: 0xfafafa,
+    emissive: 0xf0f0f0,
+    emissiveIntensity: 0.3,
+    roughness: 0.3,
+    metalness: 0.0,
+  })
+  const boardSurface = new THREE.Mesh(
+    new THREE.BoxGeometry(1.15, 0.75, 0.01),
+    boardSurfaceMat
+  )
+  boardSurface.position.set(x, y, z + 0.03)
+  scene.add(boardSurface)
+
+  // Marker marks on board (simple lines)
+  const markerMat = new THREE.MeshStandardMaterial({
+    color: 0x3a3aff,
+    roughness: 0.7,
+    metalness: 0.0,
+  })
+  const mark = new THREE.Mesh(
+    new THREE.BoxGeometry(0.4, 0.05, 0.005),
+    markerMat
+  )
+  mark.position.set(x - 0.2, y - 0.1, z + 0.035)
+  scene.add(mark)
+}
+
+function addOfficeEntrance(scene: THREE.Scene, x: number, y: number, z: number) {
+  // Door frame
+  const doorFrameMat = new THREE.MeshStandardMaterial({
+    color: 0x1a1a1a,
+    roughness: 0.4,
+    metalness: 0.6,
+  })
+  const doorFrame = new THREE.Mesh(
+    new THREE.BoxGeometry(1.0, 2.4, 0.1),
+    doorFrameMat
+  )
+  doorFrame.position.set(x, y, z)
+  doorFrame.castShadow = true
+  scene.add(doorFrame)
+
+  // Glass entrance door
+  const glassMat = new THREE.MeshStandardMaterial({
+    color: 0x4a7ba7,
+    roughness: 0.2,
+    metalness: 0.2,
+    transparent: true,
+    opacity: 0.6,
+  })
+  const door = new THREE.Mesh(
+    new THREE.BoxGeometry(0.95, 2.3, 0.02),
+    glassMat
+  )
+  door.position.set(x, y, z + 0.06)
+  scene.add(door)
+
+  // Door handle
+  const handleMat = new THREE.MeshStandardMaterial({
+    color: 0xc0a080,
+    roughness: 0.3,
+    metalness: 0.7,
+  })
+  const handle = new THREE.Mesh(
+    new THREE.SphereGeometry(0.05, 12, 12),
+    handleMat
+  )
+  handle.position.set(x + 0.4, y, z + 0.1)
+  scene.add(handle)
+
+  // Welcome sign above door
+  const signMat = new THREE.MeshStandardMaterial({
+    color: 0x3a3a3a,
+    roughness: 0.6,
+    metalness: 0.2,
+  })
+  const sign = new THREE.Mesh(
+    new THREE.BoxGeometry(0.8, 0.2, 0.02),
+    signMat
+  )
+  sign.position.set(x, y + 1.4, z)
+  scene.add(sign)
 }
