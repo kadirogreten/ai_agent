@@ -44,7 +44,7 @@ app.use(
 /**
  * error handler middleware
  */
-app.use((error: Error, req: Request, res: Response) => {
+app.use((error: Error, req: Request, res: Response, next: express.NextFunction) => {
   res.status(500).json({
     success: false,
     error: 'Server internal error',
@@ -54,7 +54,7 @@ app.use((error: Error, req: Request, res: Response) => {
 /**
  * 404 handler
  */
-app.use((req: Request, res: Response) => {
+app.use((req: Request, res: Response): void => {
   res.status(404).json({
     success: false,
     error: 'API not found',

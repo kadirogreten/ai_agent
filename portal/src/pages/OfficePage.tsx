@@ -80,7 +80,7 @@ export default function OfficePage() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 h-screen flex flex-col">
       <div className="px-4 py-3">
         <h1 className="text-2xl font-bold text-white">3D Office Dashboard</h1>
         <p className="text-sm text-white/40 mt-1">
@@ -140,7 +140,7 @@ export default function OfficePage() {
         </div>
       </div>
 
-      <div className="mx-4 rounded-lg border border-white/[0.06] bg-gradient-to-b from-[#0f1829] to-[#0a1020] h-[600px] overflow-hidden">
+      <div className="mx-4 flex-1 rounded-lg border border-white/[0.06] bg-gradient-to-b from-[#0f1829] to-[#0a1020] overflow-hidden">
         <Office3DScene onSceneReady={handleSceneReady}>
           {scene && <OfficeGeometry scene={scene} />}
         </Office3DScene>

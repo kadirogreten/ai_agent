@@ -41,12 +41,12 @@ export default function Office3DScene({ onSceneReady, children }: Office3DSceneP
     containerRef.current.appendChild(renderer.domElement)
     rendererRef.current = renderer
 
-    // Lighting setup
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.5)
+    // Lighting setup - enhanced for visibility
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.7)
     scene.add(ambientLight)
 
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8)
-    directionalLight.position.set(10, 20, 10)
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 1.0)
+    directionalLight.position.set(15, 25, 15)
     directionalLight.castShadow = true
     directionalLight.shadow.mapSize.width = 2048
     directionalLight.shadow.mapSize.height = 2048
@@ -56,6 +56,11 @@ export default function Office3DScene({ onSceneReady, children }: Office3DSceneP
     directionalLight.shadow.camera.top = 30
     directionalLight.shadow.camera.bottom = -30
     scene.add(directionalLight)
+
+    // Additional fill light for better visibility
+    const fillLight = new THREE.PointLight(0x7c3aed, 0.8, 50)
+    fillLight.position.set(-20, 15, 20)
+    scene.add(fillLight)
 
     // Notify parent that scene is ready
     if (onSceneReady) {

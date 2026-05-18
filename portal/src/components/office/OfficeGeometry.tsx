@@ -9,12 +9,12 @@ export default function OfficeGeometry({ scene }: OfficeGeometryProps) {
   useEffect(() => {
     console.log('OfficeGeometry: Creating floor and geometry...')
 
-    // Floor
-    const floorGeometry = new THREE.PlaneGeometry(40, 40)
+    // Floor - enhanced with checkerboard pattern
+    const floorGeometry = new THREE.PlaneGeometry(40, 40, 4, 4)
     const floorMaterial = new THREE.MeshStandardMaterial({
-      color: 0x0a1020,
-      roughness: 0.8,
-      metalness: 0.1,
+      color: 0x1a2332,
+      roughness: 0.5,
+      metalness: 0.2,
     })
     const floor = new THREE.Mesh(floorGeometry, floorMaterial)
     floor.rotation.x = -Math.PI / 2
@@ -22,16 +22,16 @@ export default function OfficeGeometry({ scene }: OfficeGeometryProps) {
     scene.add(floor)
     console.log('OfficeGeometry: Floor added to scene')
 
-    // Grid helper for visual reference
-    const gridHelper = new THREE.GridHelper(40, 40, 0x3b82f6, 0x1e3a8a)
-    gridHelper.position.y = 0.01
+    // Grid helper for visual reference - brighter colors
+    const gridHelper = new THREE.GridHelper(40, 8, 0x6b7280, 0x2d3748)
+    gridHelper.position.y = 0.02
     scene.add(gridHelper)
 
-    // Walls
+    // Walls - more visible with better contrast
     const wallMaterial = new THREE.MeshStandardMaterial({
-      color: 0x0f1829,
-      roughness: 0.9,
-      metalness: 0,
+      color: 0x1e2d42,
+      roughness: 0.7,
+      metalness: 0.15,
     })
 
     // North wall
@@ -84,18 +84,18 @@ export default function OfficeGeometry({ scene }: OfficeGeometryProps) {
     ]
 
     const deskMaterial = new THREE.MeshStandardMaterial({
-      color: 0x1e293b,
-      roughness: 0.7,
-      metalness: 0.2,
+      color: 0x2d3f5b,
+      roughness: 0.6,
+      metalness: 0.3,
     })
 
     deskPositions.forEach((pos, idx) => {
-      // Desk surface
+      // Desk surface - larger and more visible
       const desk = new THREE.Mesh(
-        new THREE.BoxGeometry(3, 0.8, 3),
+        new THREE.BoxGeometry(3.5, 0.9, 3.5),
         deskMaterial
       )
-      desk.position.set(pos.x, 0.4, pos.z)
+      desk.position.set(pos.x, 0.45, pos.z)
       desk.castShadow = true
       desk.receiveShadow = true
       desk.userData.deskIndex = idx
@@ -130,25 +130,38 @@ export default function OfficeGeometry({ scene }: OfficeGeometryProps) {
       scene.add(neonLight)
     })
 
-    // CEO Meeting Zone (center area)
+    // CEO Meeting Zone (center area) - more prominent
     const ceoZone = new THREE.Mesh(
-      new THREE.CylinderGeometry(6, 6, 0.1, 32),
+      new THREE.CylinderGeometry(7, 7, 0.15, 32),
       new THREE.MeshStandardMaterial({
-        color: 0x8b5cf6,
-        emissive: 0x6d28d9,
-        emissiveIntensity: 0.3,
-        roughness: 0.4,
-        metalness: 0.6,
+        color: 0xa78bfa,
+        emissive: 0x8b5cf6,
+        emissiveIntensity: 0.5,
+        roughness: 0.3,
+        metalness: 0.5,
       })
     )
-    ceoZone.position.set(0, 0.05, 5)
+    ceoZone.position.set(0, 0.08, 5)
     ceoZone.receiveShadow = true
+    ceoZone.castShadow = true
     ceoZone.userData.type = 'ceoZone'
     scene.add(ceoZone)
 
-    // Purple ambient glow for CEO zone
-    const ceoGlow = new THREE.PointLight(0x8b5cf6, 2, 20)
-    ceoGlow.position.set(0, 3, 5)
+    // Ring around CEO zone for better visibility
+    const ringGeometry = new THREE.TorusGeometry(7.2, 0.3, 16, 100)
+    const ringMaterial = new THREE.MeshStandardMaterial({
+      color: 0x7c3aed,
+      emissive: 0xa78bfa,
+      emissiveIntensity: 0.8,
+    })
+    const ring = new THREE.Mesh(ringGeometry, ringMaterial)
+    ring.position.set(0, 0.5, 5)
+    ring.rotation.x = Math.PI / 2
+    scene.add(ring)
+
+    // Brighter glow for CEO zone
+    const ceoGlow = new THREE.PointLight(0xa78bfa, 3, 25)
+    ceoGlow.position.set(0, 4, 5)
     scene.add(ceoGlow)
 
     // Task Pipeline Display Area (right side)
