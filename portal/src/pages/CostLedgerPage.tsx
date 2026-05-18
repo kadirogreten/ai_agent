@@ -4,12 +4,11 @@ import { useAuthStore } from '@/stores/authStore'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
-
-// Strateji §6.6: "Step başına metrik: tokens_in, tokens_out, latency_ms, model, cost_usd, verifier_outcome"
-// Strateji §11.1 Ürün KPI hedefleri:
-//   Verifier FAIL oranı < %15
-//   Görev başına süre   < 8 dk (P50)
-//   Görev başına maliyet < $0.40 (P50)
+import { PageHeader } from '@/components/PageHeader'
+import { DataTable, type Column } from '@/components/DataTable'
+import { EmptyState } from '@/components/EmptyState'
+import { DollarSign, RefreshCw } from 'lucide-react'
+import { motion } from 'framer-motion'
 
 type RunCost = {
   id: string
@@ -39,8 +38,8 @@ type Summary = {
   runsWithCost: number
 }
 
-const TARGET_COST_USD = 0.40
-const TARGET_LATENCY_MS = 8 * 60 * 1000 // 8 dakika
+const TARGET_COST_USD   = 0.40
+const TARGET_LATENCY_MS = 8 * 60 * 1000
 
 function kpiColor(value: number, target: number, lowerIsBetter = true) {
   const ratio = value / target
@@ -65,28 +64,21 @@ function fmtCost(usd: number | null) {
   return `$${usd.toFixed(4)}`
 }
 
-function verifierBadge(outcome: string | null) {
-  if (!outcome) return <span className="text-white/30">—</span>
-  const tone = outcome === 'pass' ? 'green' : outcome === 'fail' ? 'red' : 'yellow'
-  return <Badge tone={tone}>{outcome.toUpperCase()}</Badge>
-}
-
 export default function CostLedgerPage() {
-  const init = useAuthStore((s) => s.init)
-  const user = useAuthStore((s) => s.user)
+  const init        = useAuthStore((s) => s.init)
+  const user        = useAuthStore((s) => s.user)
   const initialized = useAuthStore((s) => s.initialized)
 
-  const [rows, setRows] = useState<RunCost[]>([])
+  const [rows,    setRows]    = useState<RunCost[]>([])
   const [summary, setSummary] = useState<Summary | null>(null)
   const [loading, setLoading] = useState(false)
-  const [err, setErr] = useState<string | null>(null)
+  const [err,     setErr]     = useState<string | null>(null)
 
   useEffect(() => { init() }, [init])
 
   const load = useCallback(async () => {
     if (!initialized || !user) return
-    setLoading(true)
-    setErr(null)
+    setLoading(true); setErr(null)
     const { data, error } = await supabase
       .from('runs')
       .select('id,title,external_id,status,model,domain_pack,risk_level,tokens_in,tokens_out,cost_usd,latency_ms,verifier_outcome,started_at,finished_at,created_at')
@@ -99,10 +91,10 @@ export default function CostLedgerPage() {
     const r = (data ?? []) as RunCost[]
     setRows(r)
 
-    const withCost = r.filter((x) => x.cost_usd != null)
+    const withCost    = r.filter((x) => x.cost_usd != null)
     const withLatency = r.filter((x) => x.latency_ms != null)
     const verifierRuns = r.filter((x) => x.verifier_outcome != null)
-    const failCount = verifierRuns.filter((x) => x.verifier_outcome === 'fail').length
+    const failCount   = verifierRuns.filter((x) => x.verifier_outcome === 'fail').length
 
     setSummary({
       totalRuns: r.length,
@@ -120,137 +112,140 @@ export default function CostLedgerPage() {
 
   useEffect(() => { load() }, [load])
 
-  return (
-    <div className="space-y-4">
-      {/* Başlık */}
-      <div className="flex items-center justify-between">
+  const kpiCards = summary ? [
+    {
+      label: 'Toplam Maliyet',
+      value: `$${summary.totalCostUsd.toFixed(4)}`,
+      sub: `${summary.runsWithCost} run kayıtlı`,
+      color: 'text-white/90',
+    },
+    {
+      label: 'Ort. Maliyet / Run',
+      value: summary.runsWithCost > 0 ? fmtCost(summary.totalCostUsd / summary.runsWithCost) : '—',
+      sub: `Hedef: <$${TARGET_COST_USD}`,
+      color: summary.runsWithCost > 0 ? kpiColor(summary.totalCostUsd / summary.runsWithCost, TARGET_COST_USD) : 'text-white/30',
+    },
+    {
+      label: 'Ort. Süre / Run',
+      value: fmtMs(summary.avgLatencyMs),
+      sub: 'Hedef: <8 dk',
+      color: summary.avgLatencyMs != null ? kpiColor(summary.avgLatencyMs, TARGET_LATENCY_MS) : 'text-white/30',
+    },
+    {
+      label: 'Verifier FAIL',
+      value: summary.verifierFailRate != null ? `%${Math.round(summary.verifierFailRate * 100)}` : '—',
+      sub: 'Hedef: <%15',
+      color: summary.verifierFailRate != null ? kpiColor(summary.verifierFailRate, 0.15) : 'text-white/30',
+    },
+  ] : []
+
+  const columns: Column<RunCost>[] = [
+    {
+      key: 'title', header: 'Run',
+      render: (r) => (
         <div>
-          <div className="text-lg font-semibold">Cost Ledger</div>
-          <div className="text-xs text-white/50">
-            Run başına token / maliyet / süre — KPI hedefleri: maliyet &lt;$0.40, süre &lt;8 dk, Verifier FAIL &lt;%15
+          <div className="font-medium text-white/80 text-xs">{r.title?.slice(0, 30) ?? r.external_id ?? r.id.slice(0, 8)}</div>
+          <div className={`text-xs mt-0.5 ${r.status === 'success' ? 'text-emerald-400/70' : r.status === 'fail' ? 'text-red-400/70' : 'text-white/40'}`}>
+            {r.status}
           </div>
         </div>
-        <Button variant="outline" onClick={load} disabled={loading}>Yenile</Button>
-      </div>
+      ),
+    },
+    {
+      key: 'model', header: 'Model', width: '120px',
+      render: (r) => <span className="font-mono text-xs text-white/50">{r.model ?? '—'}</span>,
+    },
+    {
+      key: 'domain_pack', header: 'Domain', width: '120px',
+      render: (r) => <span className="text-xs text-white/50">{r.domain_pack ?? '—'}</span>,
+    },
+    {
+      key: 'cost_usd', header: 'Maliyet', width: '90px',
+      render: (r) => (
+        <span className={`font-mono text-xs ${r.cost_usd != null ? kpiColor(r.cost_usd, TARGET_COST_USD) : 'text-white/30'}`}>
+          {fmtCost(r.cost_usd)}
+        </span>
+      ),
+    },
+    {
+      key: 'latency_ms', header: 'Süre', width: '80px',
+      render: (r) => (
+        <span className={`font-mono text-xs ${r.latency_ms != null ? kpiColor(r.latency_ms, TARGET_LATENCY_MS) : 'text-white/30'}`}>
+          {fmtMs(r.latency_ms)}
+        </span>
+      ),
+    },
+    {
+      key: 'tokens_in', header: 'Tokenlar', width: '120px',
+      render: (r) => (
+        <span className="font-mono text-xs text-white/40">
+          {r.tokens_in != null ? r.tokens_in.toLocaleString() : '—'} / {r.tokens_out != null ? r.tokens_out.toLocaleString() : '—'}
+        </span>
+      ),
+    },
+    {
+      key: 'verifier_outcome', header: 'Verifier', width: '90px',
+      render: (r) => {
+        if (!r.verifier_outcome) return <span className="text-white/25">—</span>
+        const tone = r.verifier_outcome === 'pass' ? 'green' : r.verifier_outcome === 'fail' ? 'red' : 'yellow'
+        return <Badge tone={tone}>{r.verifier_outcome.toUpperCase()}</Badge>
+      },
+    },
+    {
+      key: 'created_at', header: 'Tarih', width: '100px',
+      render: (r) => <span className="text-xs text-white/30">{new Date(r.created_at).toLocaleDateString('tr-TR')}</span>,
+    },
+  ]
 
-      {/* KPI Kartları */}
-      {summary && (
+  return (
+    <div className="space-y-4">
+      <PageHeader
+        title="Cost Ledger"
+        description="Run başına token / maliyet / süre — KPI: <$0.40, <8 dk, FAIL <%15"
+        actions={
+          <button onClick={load} disabled={loading} className="flex items-center gap-1.5 rounded-lg border border-white/10 px-3 py-1.5 text-xs text-white/50 hover:text-white/80 transition-colors disabled:opacity-50">
+            <RefreshCw size={12} /> Yenile
+          </button>
+        }
+      />
+
+      {kpiCards.length > 0 && (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <Card className="p-4">
-            <div className="text-xs text-white/50">Toplam Maliyet</div>
-            <div className="mt-1 text-2xl font-bold">${summary.totalCostUsd.toFixed(4)}</div>
-            <div className="mt-1 text-xs text-white/40">{summary.runsWithCost} run kayıtlı</div>
-          </Card>
-
-          <Card className="p-4">
-            <div className="text-xs text-white/50">Ort. Maliyet / Run</div>
-            {summary.runsWithCost > 0 ? (
-              <>
-                <div className={`mt-1 text-2xl font-bold ${kpiColor(summary.totalCostUsd / summary.runsWithCost, TARGET_COST_USD)}`}>
-                  {fmtCost(summary.totalCostUsd / summary.runsWithCost)}
-                </div>
-                <div className="mt-1 text-xs text-white/40">Hedef: &lt;${TARGET_COST_USD}</div>
-              </>
-            ) : (
-              <div className="mt-1 text-xl text-white/30">Veri yok</div>
-            )}
-          </Card>
-
-          <Card className="p-4">
-            <div className="text-xs text-white/50">Ort. Süre / Run</div>
-            {summary.avgLatencyMs != null ? (
-              <>
-                <div className={`mt-1 text-2xl font-bold ${kpiColor(summary.avgLatencyMs, TARGET_LATENCY_MS)}`}>
-                  {fmtMs(summary.avgLatencyMs)}
-                </div>
-                <div className="mt-1 text-xs text-white/40">Hedef: &lt;8 dk</div>
-              </>
-            ) : (
-              <div className="mt-1 text-xl text-white/30">Veri yok</div>
-            )}
-          </Card>
-
-          <Card className="p-4">
-            <div className="text-xs text-white/50">Verifier FAIL oranı</div>
-            {summary.verifierFailRate != null ? (
-              <>
-                <div className={`mt-1 text-2xl font-bold ${kpiColor(summary.verifierFailRate, 0.15)}`}>
-                  %{Math.round(summary.verifierFailRate * 100)}
-                </div>
-                <div className="mt-1 text-xs text-white/40">Hedef: &lt;%15</div>
-              </>
-            ) : (
-              <div className="mt-1 text-xl text-white/30">Veri yok</div>
-            )}
-          </Card>
+          {kpiCards.map((k, i) => (
+            <motion.div key={k.label} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06 }}>
+              <Card className="p-4">
+                <div className="text-xs text-white/40">{k.label}</div>
+                <div className={`mt-1 text-2xl font-bold ${k.color}`}>{k.value}</div>
+                <div className="mt-0.5 text-xs text-white/30">{k.sub}</div>
+              </Card>
+            </motion.div>
+          ))}
         </div>
       )}
 
-      {/* Token Özeti */}
       {summary && (summary.totalTokensIn > 0 || summary.totalTokensOut > 0) && (
         <Card className="p-4">
-          <div className="text-xs font-semibold uppercase tracking-widest text-white/40 mb-2">Token Tüketimi</div>
-          <div className="flex gap-6 text-sm">
-            <div><span className="text-white/50">Giriş:</span> <span className="font-mono">{summary.totalTokensIn.toLocaleString()}</span></div>
-            <div><span className="text-white/50">Çıkış:</span> <span className="font-mono">{summary.totalTokensOut.toLocaleString()}</span></div>
-            <div><span className="text-white/50">Toplam:</span> <span className="font-mono">{(summary.totalTokensIn + summary.totalTokensOut).toLocaleString()}</span></div>
+          <div className="mb-2 text-xs font-semibold uppercase tracking-widest text-white/30">Token Tüketimi</div>
+          <div className="flex flex-wrap gap-6 text-sm">
+            <div><span className="text-white/40">Giriş:</span> <span className="font-mono text-white/70">{summary.totalTokensIn.toLocaleString()}</span></div>
+            <div><span className="text-white/40">Çıkış:</span> <span className="font-mono text-white/70">{summary.totalTokensOut.toLocaleString()}</span></div>
+            <div><span className="text-white/40">Toplam:</span> <span className="font-mono text-white/70">{(summary.totalTokensIn + summary.totalTokensOut).toLocaleString()}</span></div>
           </div>
         </Card>
       )}
 
-      {/* Hata */}
-      {err && <div className="rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">{err}</div>}
+      {err && <div className="rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">{err}</div>}
 
-      {/* Run Tablosu */}
       <Card className="overflow-hidden">
-        <div className="border-b border-white/10 px-4 py-3 text-sm font-medium">Run Detayları</div>
-        <div className="max-h-[55vh] overflow-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="sticky top-0 bg-[#0B1020]">
-              <tr className="border-b border-white/10 text-xs text-white/50">
-                <th className="px-4 py-2">Run</th>
-                <th className="px-4 py-2">Model</th>
-                <th className="px-4 py-2">Domain</th>
-                <th className="px-4 py-2">Risk</th>
-                <th className="px-4 py-2 text-right">Token (in/out)</th>
-                <th className="px-4 py-2 text-right">Maliyet</th>
-                <th className="px-4 py-2 text-right">Süre</th>
-                <th className="px-4 py-2">Verifier</th>
-                <th className="px-4 py-2">Tarih</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr><td className="px-4 py-3 text-white/50" colSpan={9}>Yükleniyor...</td></tr>
-              ) : rows.length === 0 ? (
-                <tr><td className="px-4 py-3 text-white/50" colSpan={9}>Henüz run yok</td></tr>
-              ) : (
-                rows.map((r) => (
-                  <tr key={r.id} className="border-b border-white/5 hover:bg-white/5">
-                    <td className="px-4 py-2 text-xs">
-                      <div className="font-medium text-white/90">{r.title?.slice(0, 30) ?? r.external_id ?? r.id.slice(0, 8)}</div>
-                      <div className={`text-white/40 ${r.status === 'success' ? 'text-emerald-400/70' : r.status === 'fail' ? 'text-red-400/70' : ''}`}>{r.status}</div>
-                    </td>
-                    <td className="px-4 py-2 font-mono text-xs text-white/60">{r.model ?? '—'}</td>
-                    <td className="px-4 py-2 text-xs text-white/60">{r.domain_pack ?? '—'}</td>
-                    <td className="px-4 py-2 text-xs font-mono text-white/60">{r.risk_level ?? '—'}</td>
-                    <td className="px-4 py-2 text-right font-mono text-xs text-white/70">
-                      {r.tokens_in != null ? r.tokens_in.toLocaleString() : '—'} / {r.tokens_out != null ? r.tokens_out.toLocaleString() : '—'}
-                    </td>
-                    <td className={`px-4 py-2 text-right font-mono text-xs ${r.cost_usd != null ? kpiColor(r.cost_usd, TARGET_COST_USD) : 'text-white/30'}`}>
-                      {fmtCost(r.cost_usd)}
-                    </td>
-                    <td className={`px-4 py-2 text-right font-mono text-xs ${r.latency_ms != null ? kpiColor(r.latency_ms, TARGET_LATENCY_MS) : 'text-white/30'}`}>
-                      {fmtMs(r.latency_ms)}
-                    </td>
-                    <td className="px-4 py-2">{verifierBadge(r.verifier_outcome)}</td>
-                    <td className="px-4 py-2 text-xs text-white/40">{new Date(r.created_at).toLocaleDateString('tr-TR')}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+        <div className="border-b border-white/[0.06] px-4 py-3 text-sm font-medium text-white/60">
+          {rows.length} run
         </div>
+        <DataTable
+          columns={columns}
+          rows={rows}
+          loading={loading}
+          empty={<EmptyState icon={<DollarSign size={24} />} title="Henüz run yok" />}
+        />
       </Card>
     </div>
   )

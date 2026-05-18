@@ -1,34 +1,40 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { Card } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
+import { Badge } from '@/components/ui/Badge'
+import { PageHeader } from '@/components/PageHeader'
+import { DataTable, type Column } from '@/components/DataTable'
+import { EmptyState } from '@/components/EmptyState'
 import { useAuthStore } from '@/stores/authStore'
 import { listPlaybookBundles, type PlaybookBundleRow } from '@/lib/bundles'
 import { listDomainPacks } from '@/lib/playbooks'
+import { Package } from 'lucide-react'
 
 export default function PlaybookBundlesPage() {
-  const init = useAuthStore((s) => s.init)
-  const user = useAuthStore((s) => s.user)
+  const init        = useAuthStore((s) => s.init)
+  const user        = useAuthStore((s) => s.user)
   const initialized = useAuthStore((s) => s.initialized)
+  const navigate    = useNavigate()
 
   const [loading, setLoading] = useState(false)
-  const [rows, setRows] = useState<PlaybookBundleRow[]>([])
-  const [packs, setPacks] = useState<{ id: string; name: string }[]>([])
-  const [q, setQ] = useState('')
-  const [packId, setPackId] = useState('')
-  const [err, setErr] = useState<string | null>(null)
+  const [rows,    setRows]    = useState<PlaybookBundleRow[]>([])
+  const [packs,   setPacks]   = useState<{ id: string; name: string }[]>([])
+  const [q,       setQ]       = useState('')
+  const [packId,  setPackId]  = useState('')
+  const [err,     setErr]     = useState<string | null>(null)
 
   useEffect(() => { init() }, [init])
   const canQuery = initialized && !!user
-  const filters = useMemo(() => ({ q, packId }), [q, packId])
+  const filters  = useMemo(() => ({ q, packId }), [q, packId])
 
   const load = useCallback(async () => {
     if (!canQuery) return
-    setLoading(true)
-    setErr(null)
+    setLoading(true); setErr(null)
     const res = await listPlaybookBundles({ q: filters.q, packId: filters.packId || undefined })
-    if (res.error) { setErr(res.error); setRows([]) } else { setRows(res.data) }
+    if (res.error) { setErr(res.error); setRows([]) }
+    else           { setRows(res.data) }
     setLoading(false)
   }, [canQuery, filters.q, filters.packId])
 
@@ -38,60 +44,65 @@ export default function PlaybookBundlesPage() {
   }, [canQuery])
   useEffect(() => { load() }, [load])
 
+  const columns: Column<PlaybookBundleRow>[] = [
+    {
+      key: 'name', header: 'Ad',
+      render: (r) => <span className="font-medium text-white/80">{r.name}</span>,
+    },
+    {
+      key: 'slug', header: 'Slug', width: '180px',
+      render: (r) => <span className="font-mono text-xs text-white/35">{r.slug}</span>,
+    },
+    {
+      key: 'pack_id', header: 'Pack', width: '140px',
+      render: (r) => <span className="text-xs text-white/50">{r.pack_id}</span>,
+    },
+    {
+      key: 'playbook_slugs', header: 'Playbook', width: '90px',
+      render: (r) => <Badge tone="blue">{String(r.playbook_slugs?.length ?? 0)}</Badge>,
+    },
+    {
+      key: 'version', header: 'v', width: '55px',
+      render: (r) => <span className="text-xs text-white/30">v{r.version}</span>,
+    },
+    {
+      key: 'updated_at', header: 'Güncelleme', width: '140px',
+      render: (r) => <span className="text-xs text-white/30">{new Date(r.updated_at).toLocaleDateString('tr-TR')}</span>,
+    },
+  ]
+
   return (
     <div className="space-y-4">
-      <Card className="p-4">
-        <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-          <div className="flex-1">
-            <div className="mb-1 text-xs text-white/60">Arama</div>
-            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Ad veya slug" />
-          </div>
-          <div className="w-full md:w-64">
-            <div className="mb-1 text-xs text-white/60">Domain Pack</div>
-            <select value={packId} onChange={(e) => setPackId(e.target.value)} className="h-10 w-full rounded-md border border-white/10 bg-[#111A33] px-3 text-sm">
-              <option value="">Tümü</option>
-              {packs.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
-          </div>
-          <Button variant="secondary" onClick={() => { setQ(''); setPackId('') }}>Temizle</Button>
+      <PageHeader title="Playbook Paketleri" description="Bundle koleksiyonları" />
+
+      <Card className="p-3">
+        <div className="flex flex-wrap gap-2">
+          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Ad veya slug ara…" className="w-56" />
+          <select
+            value={packId}
+            onChange={(e) => setPackId(e.target.value)}
+            className="h-9 rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 text-sm text-white outline-none focus:border-blue-500/60"
+          >
+            <option value="">Tüm pack'ler</option>
+            {packs.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+          <Button variant="ghost" size="sm" onClick={() => { setQ(''); setPackId('') }}>Temizle</Button>
         </div>
       </Card>
 
+      {err && <div className="rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">{err}</div>}
+
       <Card className="overflow-hidden">
-        <div className="border-b border-white/10 px-4 py-3 text-sm font-medium">Playbook Paketleri (Bundles)</div>
-        {err ? <div className="px-4 py-3 text-sm text-red-200">{err}</div> : null}
-        <div className="max-h-[65vh] overflow-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="sticky top-0 bg-[#0B1020]">
-              <tr className="border-b border-white/10 text-xs text-white/60">
-                <th className="px-4 py-2">Ad</th>
-                <th className="px-4 py-2">Slug</th>
-                <th className="px-4 py-2">Pack</th>
-                <th className="px-4 py-2">Playbook Sayısı</th>
-                <th className="px-4 py-2">v</th>
-                <th className="px-4 py-2">Güncellenme</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr><td className="px-4 py-3 text-white/60" colSpan={6}>Yükleniyor...</td></tr>
-              ) : rows.length === 0 ? (
-                <tr><td className="px-4 py-3 text-white/60" colSpan={6}>Henüz bundle yok</td></tr>
-              ) : (
-                rows.map((r) => (
-                  <tr key={r.id} className="border-b border-white/5 hover:bg-white/5">
-                    <td className="px-4 py-2 text-blue-200">{r.name}</td>
-                    <td className="px-4 py-2 font-mono text-xs text-white/70">{r.slug}</td>
-                    <td className="px-4 py-2 text-xs text-white/70">{r.pack_id}</td>
-                    <td className="px-4 py-2 text-xs text-white/70">{r.playbook_slugs?.length ?? 0}</td>
-                    <td className="px-4 py-2 text-xs text-white/60">v{r.version}</td>
-                    <td className="px-4 py-2 text-xs text-white/60">{new Date(r.updated_at).toLocaleString()}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+        <div className="border-b border-white/[0.06] px-4 py-3 text-sm font-medium text-white/60">
+          {rows.length} bundle
         </div>
+        <DataTable
+          columns={columns}
+          rows={rows}
+          loading={loading}
+          onRowClick={(r) => navigate(`/app/playbook-bundles/${r.id}`)}
+          empty={<EmptyState icon={<Package size={24} />} title="Bundle bulunamadı" />}
+        />
       </Card>
     </div>
   )

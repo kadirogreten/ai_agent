@@ -5,15 +5,20 @@ import type { HTMLAttributes } from 'react'
 type Props = HTMLAttributes<HTMLDivElement> & { animate?: boolean }
 
 export function Card({ className, animate = false, ...props }: Props) {
+  const base = cn(
+    'rounded-xl border bg-gradient-to-b from-[#0f1829] to-[#0a1020]',
+    'border-white/[0.07]',
+    className,
+  )
   if (animate) {
     return (
       <motion.div
-        whileHover={{ y: -2, boxShadow: '0 8px 30px rgba(0,0,0,0.3)' }}
+        whileHover={{ y: -2, boxShadow: '0 12px 40px rgba(0,0,0,0.4)' }}
         transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-        className={cn('rounded-xl border border-white/10 bg-white/5', className)}
+        className={base}
         {...(props as object)}
       />
     )
   }
-  return <div className={cn('rounded-xl border border-white/10 bg-white/5', className)} {...props} />
+  return <div className={base} {...props} />
 }

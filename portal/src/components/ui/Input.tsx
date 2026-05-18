@@ -7,11 +7,12 @@ export function Input({ className, ...props }: Props) {
   return (
     <input
       className={cn(
-        'h-10 w-full rounded-md border border-white/10 bg-white/5 px-3 text-sm text-white placeholder:text-white/40 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-400/30',
+        'h-9 w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 text-sm text-white',
+        'placeholder:text-white/30 outline-none transition-colors',
+        'focus:border-blue-500/60 focus:bg-white/[0.06] focus:ring-2 focus:ring-blue-500/20',
         className,
       )}
       {...props}
     />
   )
 }
-

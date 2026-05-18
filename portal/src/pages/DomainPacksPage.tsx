@@ -3,7 +3,12 @@ import { supabase } from '@/lib/supabaseClient'
 import { useAuthStore } from '@/stores/authStore'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
+import { Badge } from '@/components/ui/Badge'
 import { Input } from '@/components/ui/Input'
+import { PageHeader } from '@/components/PageHeader'
+import { DataTable, type Column } from '@/components/DataTable'
+import { EmptyState } from '@/components/EmptyState'
+import { Globe } from 'lucide-react'
 
 type DomainPackRow = {
   id: string
@@ -19,14 +24,19 @@ type DomainPackRow = {
   updated_at: string
 }
 
+const STATUS_TONE: Record<string, 'green' | 'yellow' | 'gray'> = {
+  active: 'green', draft: 'yellow', archived: 'gray',
+}
+
 export default function DomainPacksPage() {
-  const init = useAuthStore((s) => s.init)
-  const user = useAuthStore((s) => s.user)
+  const init        = useAuthStore((s) => s.init)
+  const user        = useAuthStore((s) => s.user)
   const initialized = useAuthStore((s) => s.initialized)
-  const [loading, setLoading] = useState(false)
-  const [rows, setRows] = useState<DomainPackRow[]>([])
-  const [q, setQ] = useState('')
-  const [err, setErr] = useState<string | null>(null)
+
+  const [loading,  setLoading]  = useState(false)
+  const [rows,     setRows]     = useState<DomainPackRow[]>([])
+  const [q,        setQ]        = useState('')
+  const [err,      setErr]      = useState<string | null>(null)
   const [selected, setSelected] = useState<DomainPackRow | null>(null)
 
   useEffect(() => { init() }, [init])
@@ -51,92 +61,111 @@ export default function DomainPacksPage() {
 
   useEffect(() => { load() }, [load])
 
+  const columns: Column<DomainPackRow>[] = [
+    {
+      key: 'name', header: 'Ad',
+      render: (r) => <span className="font-medium text-white/80">{r.name}</span>,
+    },
+    {
+      key: 'id', header: 'ID', width: '160px',
+      render: (r) => <span className="font-mono text-xs text-white/35">{r.id}</span>,
+    },
+    {
+      key: 'status', header: 'Durum', width: '90px',
+      render: (r) => <Badge tone={STATUS_TONE[r.status] ?? 'gray'}>{r.status}</Badge>,
+    },
+    {
+      key: 'allowed_domains', header: 'Domain', width: '80px',
+      render: (r) => <Badge tone="blue">{String(r.allowed_domains?.length ?? 0)}</Badge>,
+    },
+  ]
+
   return (
     <div className="space-y-4">
-      <Card className="p-4">
-        <div className="flex items-end gap-3">
-          <div className="flex-1">
-            <div className="mb-1 text-xs text-white/60">Arama</div>
-            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Pack id veya ad" />
-          </div>
-          <Button variant="secondary" onClick={() => setQ('')}>Temizle</Button>
+      <PageHeader title="Domain Pack'ler" description="Kurumsal alan tanımları" />
+
+      <Card className="p-3">
+        <div className="flex flex-wrap gap-2">
+          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Pack ID veya ad ara…" className="w-64" />
+          <Button variant="ghost" size="sm" onClick={() => setQ('')}>Temizle</Button>
         </div>
       </Card>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <Card className="overflow-hidden">
-          <div className="border-b border-white/10 px-4 py-3 text-sm font-medium">Domain Pack'ler</div>
-          {err ? <div className="px-4 py-3 text-sm text-red-200">{err}</div> : null}
-          <div className="max-h-[65vh] overflow-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="sticky top-0 bg-[#0B1020]">
-                <tr className="border-b border-white/10 text-xs text-white/60">
-                  <th className="px-4 py-2">ID</th>
-                  <th className="px-4 py-2">Ad</th>
-                  <th className="px-4 py-2">Status</th>
-                  <th className="px-4 py-2">Domain Sayısı</th>
-                </tr>
-              </thead>
-              <tbody>
-                {loading ? (
-                  <tr><td className="px-4 py-3 text-white/60" colSpan={4}>Yükleniyor...</td></tr>
-                ) : rows.length === 0 ? (
-                  <tr><td className="px-4 py-3 text-white/60" colSpan={4}>Henüz pack yok</td></tr>
-                ) : rows.map((r) => (
-                  <tr key={r.id} onClick={() => setSelected(r)}
-                      className={`cursor-pointer border-b border-white/5 hover:bg-white/5 ${selected?.id === r.id ? 'bg-white/10' : ''}`}>
-                    <td className="px-4 py-2 font-mono text-xs text-white/70">{r.id}</td>
-                    <td className="px-4 py-2">{r.name}</td>
-                    <td className="px-4 py-2 text-xs text-white/70">{r.status}</td>
-                    <td className="px-4 py-2 text-xs text-white/70">{r.allowed_domains?.length ?? 0}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
+      {err && <div className="rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">{err}</div>}
 
-        <Card className="p-4">
-          {selected ? (
-            <div className="space-y-3 text-sm">
-              <div>
-                <div className="text-xs text-white/50">ID</div>
-                <div className="font-mono">{selected.id}</div>
-              </div>
-              <div>
-                <div className="text-xs text-white/50">Ad</div>
-                <div>{selected.name}</div>
-              </div>
-              {selected.description && (
-                <div>
-                  <div className="text-xs text-white/50">Açıklama</div>
-                  <div className="whitespace-pre-wrap">{selected.description}</div>
-                </div>
-              )}
-              <div>
-                <div className="text-xs text-white/50">İzinli Domain'ler ({selected.allowed_domains?.length ?? 0})</div>
-                <div className="max-h-32 overflow-auto rounded bg-[#0B1020] p-2 font-mono text-xs">
-                  {(selected.allowed_domains ?? []).slice(0, 50).join('\n') || '—'}
-                  {(selected.allowed_domains?.length ?? 0) > 50 ? '\n... +' + (selected.allowed_domains.length - 50) : ''}
-                </div>
-              </div>
-              {selected.verifier_rubric_md && (
-                <div>
-                  <div className="text-xs text-white/50">Verifier Rubric</div>
-                  <div className="max-h-40 overflow-auto whitespace-pre-wrap rounded bg-[#0B1020] p-2 text-xs">{selected.verifier_rubric_md}</div>
-                </div>
-              )}
-              {selected.glossary_md && (
-                <div>
-                  <div className="text-xs text-white/50">Glossary</div>
-                  <div className="max-h-32 overflow-auto whitespace-pre-wrap rounded bg-[#0B1020] p-2 text-xs">{selected.glossary_md}</div>
-                </div>
-              )}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
+        <div className="lg:col-span-2">
+          <Card className="overflow-hidden">
+            <div className="border-b border-white/[0.06] px-4 py-3 text-sm font-medium text-white/60">
+              {rows.length} pack
             </div>
-          ) : (
-            <div className="text-sm text-white/60">Detay için sol listeden bir pack seç.</div>
-          )}
-        </Card>
+            <DataTable
+              columns={columns}
+              rows={rows}
+              loading={loading}
+              onRowClick={(r) => setSelected(r)}
+              empty={<EmptyState icon={<Globe size={24} />} title="Pack bulunamadı" />}
+            />
+          </Card>
+        </div>
+
+        <div className="lg:col-span-3">
+          <Card className="p-4">
+            {selected ? (
+              <div className="space-y-4 text-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h2 className="font-semibold text-white/90">{selected.name}</h2>
+                    <p className="mt-0.5 font-mono text-xs text-white/35">{selected.id}</p>
+                  </div>
+                  <Badge tone={STATUS_TONE[selected.status] ?? 'gray'}>{selected.status}</Badge>
+                </div>
+
+                {selected.description && (
+                  <div>
+                    <div className="mb-1 text-xs font-medium text-white/40">Açıklama</div>
+                    <p className="text-white/65 leading-relaxed">{selected.description}</p>
+                  </div>
+                )}
+
+                <div>
+                  <div className="mb-1 text-xs font-medium text-white/40">
+                    İzinli Domain'ler ({selected.allowed_domains?.length ?? 0})
+                  </div>
+                  <div className="max-h-32 overflow-auto rounded-lg border border-white/[0.06] bg-black/20 p-2 font-mono text-xs text-white/50">
+                    {(selected.allowed_domains ?? []).slice(0, 50).join('\n') || '—'}
+                    {(selected.allowed_domains?.length ?? 0) > 50
+                      ? '\n... +' + (selected.allowed_domains.length - 50)
+                      : ''}
+                  </div>
+                </div>
+
+                {selected.verifier_rubric_md && (
+                  <div>
+                    <div className="mb-1 text-xs font-medium text-white/40">Verifier Rubric</div>
+                    <div className="max-h-40 overflow-auto whitespace-pre-wrap rounded-lg border border-white/[0.06] bg-black/20 p-2 text-xs text-white/50">
+                      {selected.verifier_rubric_md}
+                    </div>
+                  </div>
+                )}
+
+                {selected.glossary_md && (
+                  <div>
+                    <div className="mb-1 text-xs font-medium text-white/40">Glossary</div>
+                    <div className="max-h-32 overflow-auto whitespace-pre-wrap rounded-lg border border-white/[0.06] bg-black/20 p-2 text-xs text-white/50">
+                      {selected.glossary_md}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="flex h-40 flex-col items-center justify-center gap-2 text-center">
+                <Globe size={24} className="text-white/20" />
+                <p className="text-sm text-white/35">Detay için sol listeden bir pack seç</p>
+              </div>
+            )}
+          </Card>
+        </div>
       </div>
     </div>
   )

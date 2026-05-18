@@ -1,33 +1,43 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { Card } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
+import { Badge } from '@/components/ui/Badge'
+import { PageHeader } from '@/components/PageHeader'
+import { DataTable, type Column } from '@/components/DataTable'
+import { EmptyState } from '@/components/EmptyState'
 import { useAuthStore } from '@/stores/authStore'
 import { listPlaybooks, listDomainPacks, type PlaybookRow } from '@/lib/playbooks'
+import { BookOpen, Plus } from 'lucide-react'
+
+const RISK_TONE: Record<string, 'green' | 'blue' | 'yellow' | 'red'> = {
+  R0: 'green', R1: 'blue', R2: 'yellow', R3: 'red',
+}
 
 export default function PlaybooksPage() {
-  const init = useAuthStore((s) => s.init)
-  const user = useAuthStore((s) => s.user)
+  const init        = useAuthStore((s) => s.init)
+  const user        = useAuthStore((s) => s.user)
   const initialized = useAuthStore((s) => s.initialized)
+  const navigate    = useNavigate()
 
   const [loading, setLoading] = useState(false)
-  const [rows, setRows] = useState<PlaybookRow[]>([])
-  const [packs, setPacks] = useState<{ id: string; name: string }[]>([])
-  const [q, setQ] = useState('')
-  const [packId, setPackId] = useState<string>('')
-  const [err, setErr] = useState<string | null>(null)
+  const [rows,    setRows]    = useState<PlaybookRow[]>([])
+  const [packs,   setPacks]   = useState<{ id: string; name: string }[]>([])
+  const [q,       setQ]       = useState('')
+  const [packId,  setPackId]  = useState('')
+  const [err,     setErr]     = useState<string | null>(null)
 
   useEffect(() => { init() }, [init])
   const canQuery = initialized && !!user
-  const filters = useMemo(() => ({ q, packId }), [q, packId])
+  const filters  = useMemo(() => ({ q, packId }), [q, packId])
 
   const load = useCallback(async () => {
     if (!canQuery) return
-    setLoading(true)
-    setErr(null)
+    setLoading(true); setErr(null)
     const res = await listPlaybooks({ q: filters.q, packId: filters.packId || undefined })
-    if (res.error) { setErr(res.error); setRows([]) } else { setRows(res.data) }
+    if (res.error) { setErr(res.error); setRows([]) }
+    else           { setRows(res.data) }
     setLoading(false)
   }, [canQuery, filters.q, filters.packId])
 
@@ -38,77 +48,81 @@ export default function PlaybooksPage() {
 
   useEffect(() => { load() }, [load])
 
+  const columns: Column<PlaybookRow>[] = [
+    {
+      key: 'name', header: 'Ad',
+      render: (r) => <span className="font-medium text-white/80">{r.name}</span>,
+    },
+    {
+      key: 'slug', header: 'Slug', width: '180px',
+      render: (r) => <span className="font-mono text-xs text-white/35">{r.slug}</span>,
+    },
+    {
+      key: 'pack_id', header: 'Pack', width: '140px',
+      render: (r) => <span className="text-xs text-white/50">{r.pack_id}</span>,
+    },
+    {
+      key: 'steps', header: 'Adım', width: '70px',
+      render: (r) => <Badge tone="gray">{String(r.steps?.length ?? 0)}</Badge>,
+    },
+    {
+      key: 'default_risk', header: 'Risk', width: '80px',
+      render: (r) => r.default_risk
+        ? <Badge tone={RISK_TONE[r.default_risk] ?? 'gray'}>{r.default_risk}</Badge>
+        : <span className="text-white/25">—</span>,
+    },
+    {
+      key: 'version', header: 'v', width: '55px',
+      render: (r) => <span className="text-xs text-white/30">v{r.version}</span>,
+    },
+    {
+      key: 'actions', header: '', width: '80px',
+      render: (r) => (
+        <Link to={`/app/playbooks/${r.id}/edit`} onClick={(e) => e.stopPropagation()}>
+          <Button variant="outline" size="sm">Düzenle</Button>
+        </Link>
+      ),
+    },
+  ]
+
   return (
     <div className="space-y-4">
-      <Card className="p-4">
-        <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-          <div className="flex-1">
-            <div className="mb-1 text-xs text-white/60">Arama</div>
-            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Ad veya slug ara" />
-          </div>
-          <div className="w-full md:w-64">
-            <div className="mb-1 text-xs text-white/60">Domain Pack</div>
-            <select
-              value={packId}
-              onChange={(e) => setPackId(e.target.value)}
-              className="h-10 w-full rounded-md border border-white/10 bg-[#111A33] px-3 text-sm"
-            >
-              <option value="">Tümü</option>
-              {packs.map((p) => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </select>
-          </div>
-          <div className="flex gap-2">
-            <Button variant="secondary" onClick={() => { setQ(''); setPackId('') }}>Temizle</Button>
-            <Link to="/app/playbooks/new"><Button>Yeni Playbook</Button></Link>
-          </div>
+      <PageHeader
+        title="Playbook'lar"
+        description="Ajan çalıştırma şablonları"
+        actions={
+          <Link to="/app/playbooks/new"><Button size="sm"><Plus size={13} className="mr-1" />Yeni Playbook</Button></Link>
+        }
+      />
+
+      <Card className="p-3">
+        <div className="flex flex-wrap gap-2">
+          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Ad veya slug ara…" className="w-56" />
+          <select
+            value={packId}
+            onChange={(e) => setPackId(e.target.value)}
+            className="h-9 rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 text-sm text-white outline-none focus:border-blue-500/60"
+          >
+            <option value="">Tüm pack'ler</option>
+            {packs.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+          <Button variant="ghost" size="sm" onClick={() => { setQ(''); setPackId('') }}>Temizle</Button>
         </div>
       </Card>
 
+      {err && <div className="rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">{err}</div>}
+
       <Card className="overflow-hidden">
-        <div className="border-b border-white/10 px-4 py-3 text-sm font-medium">Playbook'lar</div>
-        {err ? <div className="px-4 py-3 text-sm text-red-200">{err}</div> : null}
-        <div className="max-h-[65vh] overflow-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="sticky top-0 bg-[#0B1020]">
-              <tr className="border-b border-white/10 text-xs text-white/60">
-                <th className="px-4 py-2">Ad</th>
-                <th className="px-4 py-2">Slug</th>
-                <th className="px-4 py-2">Pack</th>
-                <th className="px-4 py-2">Adım</th>
-                <th className="px-4 py-2">Default Risk</th>
-                <th className="px-4 py-2">v</th>
-                <th className="px-4 py-2">Aksiyon</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr><td className="px-4 py-3 text-white/60" colSpan={7}>Yükleniyor...</td></tr>
-              ) : rows.length === 0 ? (
-                <tr><td className="px-4 py-3 text-white/60" colSpan={7}>Henüz playbook yok</td></tr>
-              ) : (
-                rows.map((r) => (
-                  <tr key={r.id} className="border-b border-white/5 hover:bg-white/5">
-                    <td className="px-4 py-2">
-                      <Link to={`/app/playbooks/${r.id}/edit`} className="text-blue-200 hover:underline">{r.name}</Link>
-                    </td>
-                    <td className="px-4 py-2 font-mono text-xs text-white/70">{r.slug}</td>
-                    <td className="px-4 py-2 text-xs text-white/70">{r.pack_id}</td>
-                    <td className="px-4 py-2 text-xs text-white/70">{r.steps?.length ?? 0}</td>
-                    <td className="px-4 py-2 text-xs text-white/70">{r.default_risk}</td>
-                    <td className="px-4 py-2 text-xs text-white/60">v{r.version}</td>
-                    <td className="px-4 py-2">
-                      <Link to={`/app/playbooks/${r.id}/edit`}>
-                        <Button variant="outline" size="sm">Düzenle</Button>
-                      </Link>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+        <div className="border-b border-white/[0.06] px-4 py-3 text-sm font-medium text-white/60">
+          {rows.length} playbook
         </div>
+        <DataTable
+          columns={columns}
+          rows={rows}
+          loading={loading}
+          onRowClick={(r) => navigate(`/app/playbooks/${r.id}/edit`)}
+          empty={<EmptyState icon={<BookOpen size={24} />} title="Playbook bulunamadı" />}
+        />
       </Card>
     </div>
   )
