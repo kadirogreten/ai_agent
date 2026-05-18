@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import * as THREE from 'three'
+import { useOfficeCamera } from '@/hooks/useOfficeCamera'
 
 interface Office3DSceneProps {
   onSceneReady?: (scene: THREE.Scene, camera: THREE.Camera, renderer: THREE.WebGLRenderer) => void
@@ -102,6 +103,12 @@ export default function Office3DScene({ onSceneReady, children }: Office3DSceneP
       containerRef.current?.removeChild(renderer.domElement)
     }
   }, [])
+
+  // Setup camera controls
+  useOfficeCamera({
+    camera: cameraRef.current,
+    renderer: containerRef.current,
+  })
 
   return (
     <div ref={containerRef} className="w-full h-full">
