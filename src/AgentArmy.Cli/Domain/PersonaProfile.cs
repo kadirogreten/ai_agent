@@ -6,7 +6,7 @@ namespace AgentArmy.Cli;
 public sealed record PersonaProfile(
     string Slug,
     string ContextMarkdown,
-    AgentBehaviors? BehaviorsOverlay,
+    AgentBehaviorsOverlay? BehaviorsOverlay,
     string RiskCeiling,
     string? CostClass)
 {
@@ -14,5 +14,5 @@ public sealed record PersonaProfile(
     public static PersonaProfile FromMarkdownOnly(string slug, string markdown) =>
         new(slug, markdown, null, "R3", null);
 
-    public bool HasBehaviorsOverlay => BehaviorsOverlay is not null;
+    public bool HasBehaviorsOverlay => BehaviorsOverlay is not null && BehaviorsOverlay.HasAnyFlag();
 }

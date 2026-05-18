@@ -90,6 +90,42 @@ export async function deletePlaybook(playbookId: string) {
   return { ok: !res.error, error: res.error?.message ?? null }
 }
 
+/**
+ * Persona-uyumlu playbook listesi:
+ *   - Aynı pack'te olan VEYA persona cross-domain (pack_id NULL) ise tüm pack'lerdekiler
+ *   - playbook.default_risk ≤ persona.risk_ceiling (risk seviyesi persona tavanını aşmasın)
+ *
+ * Bu çalıştırma wizard'ında kullanılır: kullanıcı persona seçtiğinde uyumsuz playbook'lar
+ * (çok yüksek riskli, yanlış pack) listede gösterilmez.
+ */
+export async function listPlaybooksForPersona(persona: {
+  pack_id: string | null
+  risk_ceiling: 'R0' | 'R1' | 'R2' | 'R3'
+}) {
+  const riskRank: Record<string, number> = { R0: 0, R1: 1, R2: 2, R3: 3 }
+  const ceiling  = riskRank[persona.risk_ceiling] ?? 1
+
+  let query = supabase
+    .from('playbooks')
+    .select('id,slug,pack_id,tenant_id,name,description,goal,steps,default_risk,required_tools,tags,content_json,version,created_at,updated_at')
+    .order('name')
+    .limit(500)
+
+  // Persona pack-specifik ise sadece o pack; cross-domain ise tüm pack'ler.
+  if (persona.pack_id) query = query.eq('pack_id', persona.pack_id)
+
+  const res = await query
+  const rows = (res.data ?? []) as PlaybookRow[]
+
+  // Risk tavanı client-side filtre (DB'de ENUM ordering yok).
+  const compatible = rows.filter((p) => (riskRank[p.default_risk] ?? 1) <= ceiling)
+
+  return {
+    data: compatible,
+    error: res.error?.message ?? null,
+  }
+}
+
 // Domain pack listesi — playbook/persona ekleme formunda dropdown için
 export async function listDomainPacks() {
   const res = await supabase

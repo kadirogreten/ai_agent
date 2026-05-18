@@ -5,10 +5,12 @@ import { Input } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
 import { useAuthStore } from '@/stores/authStore'
 import {
+  BEHAVIOR_FLAGS,
   createPersona,
   deletePersona,
   getPersona,
   updatePersona,
+  type PersonaBehaviors,
   type UpsertPersonaInput,
 } from '@/lib/personas'
 import { listDomainPacks } from '@/lib/playbooks'
@@ -29,6 +31,7 @@ export default function PersonaUpsertPage({ mode }: { mode: Mode }) {
   const [contentMd, setContentMd] = useState('')
   const [riskCeiling, setRiskCeiling] = useState<'R0' | 'R1' | 'R2' | 'R3'>('R2')
   const [costClass, setCostClass] = useState<'low' | 'medium' | 'high'>('medium')
+  const [behaviors, setBehaviors] = useState<PersonaBehaviors>({})
 
   const [packs, setPacks] = useState<{ id: string; name: string }[]>([])
   const [saving, setSaving] = useState(false)
@@ -58,8 +61,24 @@ export default function PersonaUpsertPage({ mode }: { mode: Mode }) {
       setContentMd(p.content_md ?? '')
       setRiskCeiling(p.risk_ceiling)
       setCostClass(p.cost_class)
+      // DB'deki behaviors snake_case (requires_web_search) → camelCase mapping
+      const raw = (p.behaviors ?? {}) as Record<string, unknown>
+      setBehaviors({
+        requiresWebSearch:      Boolean(raw.requires_web_search ?? raw.requiresWebSearch),
+        requiresFullContext:    Boolean(raw.requires_full_context ?? raw.requiresFullContext),
+        writesToFacts:          Boolean(raw.writes_to_facts ?? raw.writesToFacts),
+        writesToDecisions:      Boolean(raw.writes_to_decisions ?? raw.writesToDecisions),
+        capturesVerifierReport: Boolean(raw.captures_verifier_report ?? raw.capturesVerifierReport),
+        triggersContrarian:     Boolean(raw.triggers_contrarian ?? raw.triggersContrarian),
+        acceptsRubric:          Boolean(raw.accepts_rubric ?? raw.acceptsRubric),
+        prefersDomainAllowlist: Boolean(raw.prefers_domain_allowlist ?? raw.prefersDomainAllowlist),
+      })
     })
   }, [mode, params.personaId, canEdit])
+
+  function toggleBehavior(key: keyof PersonaBehaviors) {
+    setBehaviors((b) => ({ ...b, [key]: !b[key] }))
+  }
 
   async function onSave() {
     setErr(null)
@@ -67,6 +86,16 @@ export default function PersonaUpsertPage({ mode }: { mode: Mode }) {
       setErr('Slug ve ad zorunludur.')
       return
     }
+    // DB sütun konvansiyonu snake_case — C# BehaviorsJsonMapper PascalCase/camelCase ikisini de okur,
+    // ama sektör keşfinden gelen kayıtlar snake_case formatında. Tutarlılık için snake_case yazıyoruz.
+    const behaviorsDb: Record<string, boolean> = {}
+    for (const flag of BEHAVIOR_FLAGS) {
+      if (behaviors[flag.key]) {
+        const snake = flag.key.replace(/[A-Z]/g, (m) => '_' + m.toLowerCase())
+        behaviorsDb[snake] = true
+      }
+    }
+
     const input: UpsertPersonaInput = {
       slug: slug.trim(),
       pack_id: packId || null,
@@ -74,6 +103,7 @@ export default function PersonaUpsertPage({ mode }: { mode: Mode }) {
       role_description: roleDesc.trim() || null,
       system_prompt: systemPrompt.trim() || null,
       content_md: contentMd.trim() || null,
+      behaviors: behaviorsDb,
       risk_ceiling: riskCeiling,
       cost_class: costClass,
     }
@@ -197,6 +227,40 @@ export default function PersonaUpsertPage({ mode }: { mode: Mode }) {
             placeholder="# Persona: ..."
             className="min-h-[200px] w-full rounded-md border border-white/10 bg-[#111A33] p-3 font-mono text-xs"
           />
+        </div>
+
+        <div>
+          <div className="mb-2 flex items-center justify-between">
+            <div className="text-sm font-medium">Davranış Overlay'i (Behaviors)</div>
+            <div className="text-xs text-white/50">
+              Bu personayla çalışan her çekirdek ajan (Researcher / Analyst / Writer / Verifier ...) bayrakları OR mantığıyla devralır
+            </div>
+          </div>
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+            {BEHAVIOR_FLAGS.map((flag) => (
+              <label
+                key={flag.key}
+                className="flex cursor-pointer items-start gap-3 rounded-md border border-white/10 bg-[#0B1020] p-3 hover:bg-white/5"
+              >
+                <input
+                  type="checkbox"
+                  checked={!!behaviors[flag.key]}
+                  onChange={() => toggleBehavior(flag.key)}
+                  className="mt-1"
+                />
+                <div className="flex-1">
+                  <div className="text-sm font-medium text-white">{flag.label}</div>
+                  <div className="text-xs text-white/60">{flag.hint}</div>
+                </div>
+              </label>
+            ))}
+          </div>
+          {Object.values(behaviors).some(Boolean) ? (
+            <div className="mt-2 rounded-md border border-blue-500/30 bg-blue-500/10 p-2 text-xs text-blue-200">
+              Bu persona seçildiğinde {Object.values(behaviors).filter(Boolean).length} davranış bayrağı tüm çekirdek ajanlara uygulanır.
+              Ek olarak risk tavanı <strong>{riskCeiling}</strong> aşan görevler reddedilir.
+            </div>
+          ) : null}
         </div>
 
         <div className="flex justify-between">

@@ -16,6 +16,32 @@ export type PersonaRow = {
   updated_at: string
 }
 
+/**
+ * Persona davranış overlay'i. C# tarafında AgentBehaviorMerge.Apply ile
+ * çekirdek ajan üzerine OR mantığıyla uygulanır.
+ */
+export type PersonaBehaviors = {
+  requiresWebSearch?: boolean
+  requiresFullContext?: boolean
+  writesToFacts?: boolean
+  writesToDecisions?: boolean
+  capturesVerifierReport?: boolean
+  triggersContrarian?: boolean
+  acceptsRubric?: boolean
+  prefersDomainAllowlist?: boolean
+}
+
+export const BEHAVIOR_FLAGS: { key: keyof PersonaBehaviors; label: string; hint: string }[] = [
+  { key: 'requiresWebSearch',      label: 'Web araması zorunlu',     hint: 'Persona bu rolde her step\'te web_search tool\'u çağırsın (Researcher\'a tek başına bırakmaz).' },
+  { key: 'requiresFullContext',    label: 'Tam bağlam',              hint: 'Sadece önceki adımın çıktısı değil, tüm Work dosyası bağlam olarak verilsin (Verifier/Editor için tipik).' },
+  { key: 'writesToFacts',          label: 'Çıktıyı Facts\'e yaz',    hint: 'Adım çıktısı kalıcı kurumsal hafızaya (facts deposu) eklensin.' },
+  { key: 'writesToDecisions',      label: 'Çıktıyı Decisions\'a yaz', hint: 'Adım çıktısı kararlar deposuna eklensin (Analyst için tipik).' },
+  { key: 'capturesVerifierReport', label: 'Verifier raporu yakala',  hint: 'PASS/FAIL tespiti için çıktıyı denetim raporu olarak işaretle.' },
+  { key: 'triggersContrarian',     label: 'Contrarian tetikle',      hint: 'Bu adım bitince otomatik Contrarian (karşıt görüş) adımı çalışsın.' },
+  { key: 'acceptsRubric',          label: 'Rubrik politikası',       hint: 'Verifier rubric\'i ekstra policy olarak sistem prompt\'ına enjekte et.' },
+  { key: 'prefersDomainAllowlist', label: 'Domain allowlist',        hint: 'Domain pack\'in allowed-domains listesi ekstra policy olarak verilsin (Researcher için tipik).' },
+]
+
 export type UpsertPersonaInput = {
   slug: string
   pack_id: string | null
@@ -23,6 +49,7 @@ export type UpsertPersonaInput = {
   role_description: string | null
   system_prompt: string | null
   content_md: string | null
+  behaviors: PersonaBehaviors
   risk_ceiling: 'R0' | 'R1' | 'R2' | 'R3'
   cost_class: 'low' | 'medium' | 'high'
 }

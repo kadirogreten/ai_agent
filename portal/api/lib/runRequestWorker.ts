@@ -382,9 +382,10 @@ function buildDotnetArgs(job: RunRequest) {
   const payload    = (job.answers_json ?? {}) as Record<string, unknown>
   const playbookId = typeof payload.playbookId === 'string' ? payload.playbookId : ''
   const topic      = typeof payload.topic === 'string' ? payload.topic : (job.request_text ?? '')
+  const persona    = typeof payload.persona === 'string' ? payload.persona.trim() : ''
   if (!playbookId) throw new Error('mode=run requires answers_json.playbookId')
 
-  return base.concat([
+  const args = [
     'run',
     '--domainPack', domainPack,
     '--playbook',   playbookId,
@@ -394,7 +395,12 @@ function buildDotnetArgs(job: RunRequest) {
     '--allowHighRisk', allowHighRisk,
     '--web',        web,
     '--contrarian', contrarian,
-  ])
+  ]
+  // Persona seçimi opsiyonel; verilirse CLI --persona arg'ı geçilir, böylece
+  // Orchestrator persona profile'ı doğru slug'la yükleyip behaviors overlay'i uygular.
+  if (persona) args.push('--persona', persona)
+
+  return base.concat(args)
 }
 
 async function claimOne() {

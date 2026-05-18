@@ -287,11 +287,18 @@ public static class DomainPackDbLoader
 
         public PersonaProfile ToPersonaProfile(string requestedSlug)
         {
+            var slug     = string.IsNullOrWhiteSpace(Slug) ? requestedSlug : Slug;
             var markdown = ResolveMarkdown();
-            var overlay  = BehaviorsJsonMapper.TryMap(Behaviors);
             var ceiling  = string.IsNullOrWhiteSpace(RiskCeiling) ? "R3" : RiskCeiling.Trim();
+
+            // Önce DB'deki explicit behaviors'ı dene; boşsa persona adı/role'undan
+            // heuristik overlay çıkar — sektör keşfinden gelen personaların "sessiz"
+            // (sıfır overlay ile) kalmasını engeller.
+            var overlay = BehaviorsJsonMapper.TryMap(Behaviors)
+                          ?? PersonaBehaviorsHeuristics.Infer(slug, slug, RoleDescription);
+
             return new PersonaProfile(
-                string.IsNullOrWhiteSpace(Slug) ? requestedSlug : Slug,
+                slug,
                 markdown,
                 overlay,
                 ceiling,

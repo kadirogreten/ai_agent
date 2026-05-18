@@ -101,17 +101,22 @@ export default function PersonasPage() {
                 <th className="px-4 py-2">Pack</th>
                 <th className="px-4 py-2">Risk Tavanı</th>
                 <th className="px-4 py-2">Maliyet</th>
+                <th className="px-4 py-2">Behaviors</th>
                 <th className="px-4 py-2">Güncellenme</th>
                 <th className="px-4 py-2">Aksiyon</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td className="px-4 py-3 text-white/60" colSpan={7}>Yükleniyor...</td></tr>
+                <tr><td className="px-4 py-3 text-white/60" colSpan={8}>Yükleniyor...</td></tr>
               ) : rows.length === 0 ? (
-                <tr><td className="px-4 py-3 text-white/60" colSpan={7}>Henüz persona yok</td></tr>
+                <tr><td className="px-4 py-3 text-white/60" colSpan={8}>Henüz persona yok</td></tr>
               ) : (
-                rows.map((r) => (
+                rows.map((r) => {
+                  const activeBehaviors = Object.entries(r.behaviors ?? {})
+                    .filter(([, v]) => v === true)
+                    .map(([k]) => k.replace(/_/g, ' '))
+                  return (
                   <tr key={r.id} className="border-b border-white/5 hover:bg-white/5">
                     <td className="px-4 py-2">
                       <Link to={`/app/personas/${r.id}/edit`} className="text-blue-200 hover:underline">
@@ -122,6 +127,15 @@ export default function PersonasPage() {
                     <td className="px-4 py-2 text-xs text-white/70">{r.pack_id ?? <span className="italic text-white/50">cross-domain</span>}</td>
                     <td className="px-4 py-2 text-xs text-white/70">{r.risk_ceiling}</td>
                     <td className="px-4 py-2 text-xs text-white/70">{r.cost_class}</td>
+                    <td className="px-4 py-2 text-xs">
+                      {activeBehaviors.length === 0 ? (
+                        <span className="italic text-white/40">— (overlay yok)</span>
+                      ) : (
+                        <span className="text-blue-200" title={activeBehaviors.join(', ')}>
+                          {activeBehaviors.length} aktif
+                        </span>
+                      )}
+                    </td>
                     <td className="px-4 py-2 text-xs text-white/60">{new Date(r.updated_at).toLocaleString()}</td>
                     <td className="px-4 py-2">
                       <Link to={`/app/personas/${r.id}/edit`}>
@@ -129,7 +143,8 @@ export default function PersonasPage() {
                       </Link>
                     </td>
                   </tr>
-                ))
+                  )
+                })
               )}
             </tbody>
           </table>

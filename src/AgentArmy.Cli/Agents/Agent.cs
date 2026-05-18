@@ -21,6 +21,30 @@ public sealed record AgentBehaviors
     public bool PrefersDomainAllowlist { get; init; }
 }
 
+/// <summary>
+/// Persona overlay'i — tri-state. Persona bir bayrağı:
+///   - true   → çekirdek ajanın bayrağı false olsa bile force-on
+///   - false  → çekirdek ajanın bayrağı true olsa bile force-off
+///   - null   → çekirdek ajanın bayrağını OLDUĞU GİBİ bırak (devralır)
+/// </summary>
+public sealed record AgentBehaviorsOverlay
+{
+    public bool? RequiresWebSearch      { get; init; }
+    public bool? RequiresFullContext    { get; init; }
+    public bool? WritesToFacts          { get; init; }
+    public bool? WritesToDecisions      { get; init; }
+    public bool? CapturesVerifierReport { get; init; }
+    public bool? TriggersContrarian     { get; init; }
+    public bool? AcceptsRubric          { get; init; }
+    public bool? PrefersDomainAllowlist { get; init; }
+
+    public bool HasAnyFlag() =>
+        RequiresWebSearch.HasValue || RequiresFullContext.HasValue ||
+        WritesToFacts.HasValue || WritesToDecisions.HasValue ||
+        CapturesVerifierReport.HasValue || TriggersContrarian.HasValue ||
+        AcceptsRubric.HasValue || PrefersDomainAllowlist.HasValue;
+}
+
 public sealed record Agent(string Id, string DisplayName, string SystemPrompt)
 {
     public AgentBehaviors Behaviors  { get; init; } = new AgentBehaviors();

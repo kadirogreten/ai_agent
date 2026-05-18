@@ -8,6 +8,8 @@ type Tab = { to: string; label: string }
 
 const tabs: Tab[] = [
   { to: '/app/dashboard', label: 'Dashboard' },
+  { to: '/app/run', label: '▶ Yeni Çalıştırma' },
+  { to: '/app/schedules', label: '⏱ Schedules' },
   { to: '/app/agents', label: 'Agents' },
   { to: '/app/personas', label: 'Personas' },
   { to: '/app/playbooks', label: 'Playbooks' },

@@ -28,6 +28,8 @@ import PlaybooksPage from '@/pages/PlaybooksPage'
 import PlaybookUpsertPage from '@/pages/PlaybookUpsertPage'
 import PlaybookBundlesPage from '@/pages/PlaybookBundlesPage'
 import DomainPacksPage from '@/pages/DomainPacksPage'
+import RunWizardPage from '@/pages/RunWizardPage'
+import SchedulesPage from '@/pages/SchedulesPage'
 
 export default function App() {
   const init = useAuthStore((s) => s.init)
@@ -85,6 +87,8 @@ export default function App() {
           <Route path="playbooks/:playbookId/edit" element={<PlaybookUpsertPage mode="edit" />} />
           <Route path="playbook-bundles" element={<PlaybookBundlesPage />} />
           <Route path="domain-packs" element={<DomainPacksPage />} />
+          <Route path="run" element={<RunWizardPage />} />
+          <Route path="schedules" element={<SchedulesPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/app" replace />} />
       </Routes>
