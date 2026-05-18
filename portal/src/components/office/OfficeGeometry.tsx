@@ -111,21 +111,42 @@ export default function OfficeGeometry({ scene }: OfficeGeometryProps) {
       color: 0x2a3a4a,
       roughness: 0.6,
     })
-    const baseboards = [
-      { pos: [0, 0.2, -20], size: [40, 0.3, 0.2] },
-      { pos: [0, 0.2, 20], size: [40, 0.3, 0.2] },
-      { pos: [20, 0.2, 0], size: [0.2, 0.3, 40] },
-      { pos: [-20, 0.2, 0], size: [0.2, 0.3, 40] },
-    ]
-    baseboards.forEach((b) => {
-      const baseboard = new THREE.Mesh(
-        new THREE.BoxGeometry(...b.size),
-        baseboardMaterial
-      )
-      baseboard.position.set(...b.pos)
-      baseboard.castShadow = true
-      scene.add(baseboard)
-    })
+
+    // Front baseboard
+    const frontBaseboard = new THREE.Mesh(
+      new THREE.BoxGeometry(40, 0.3, 0.2),
+      baseboardMaterial
+    )
+    frontBaseboard.position.set(0, 0.2, -20)
+    frontBaseboard.castShadow = true
+    scene.add(frontBaseboard)
+
+    // Back baseboard
+    const backBaseboard = new THREE.Mesh(
+      new THREE.BoxGeometry(40, 0.3, 0.2),
+      baseboardMaterial
+    )
+    backBaseboard.position.set(0, 0.2, 20)
+    backBaseboard.castShadow = true
+    scene.add(backBaseboard)
+
+    // Right baseboard
+    const rightBaseboard = new THREE.Mesh(
+      new THREE.BoxGeometry(0.2, 0.3, 40),
+      baseboardMaterial
+    )
+    rightBaseboard.position.set(20, 0.2, 0)
+    rightBaseboard.castShadow = true
+    scene.add(rightBaseboard)
+
+    // Left baseboard
+    const leftBaseboard = new THREE.Mesh(
+      new THREE.BoxGeometry(0.2, 0.3, 40),
+      baseboardMaterial
+    )
+    leftBaseboard.position.set(-20, 0.2, 0)
+    leftBaseboard.castShadow = true
+    scene.add(leftBaseboard)
 
     // Desk positions (agent work areas) - 5 desks in a semi-circle
     const deskPositions = [
