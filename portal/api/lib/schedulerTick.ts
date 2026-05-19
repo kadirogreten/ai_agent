@@ -109,25 +109,40 @@ export async function tick() {
 
       if (ins.error) throw ins.error
 
-      // 2. schedule güncelle (last_fired_at, next_fire_at)
+      // 2. schedule güncelle — başarı: failures sıfırla, next_fire_at hesapla
       const next = computeNextFire(s.cron_expression, s.timezone)
       await supabase
         .from('persona_schedules')
         .update({
-          last_fired_at: new Date().toISOString(),
-          next_fire_at:  next?.toISOString() ?? null,
-          last_run_id:   ins.data?.id ?? null,
+          last_fired_at:       new Date().toISOString(),
+          next_fire_at:        next?.toISOString() ?? null,
+          last_run_id:         ins.data?.id ?? null,
+          consecutive_failures: 0,
         })
         .eq('id', s.id)
 
       log('fired', { schedule_id: s.id, run_request_id: ins.data?.id, next_fire_at: next?.toISOString() })
     } catch (e) {
       log('fire failed', { schedule_id: s.id, error: (e as Error).message })
-      // consecutive_failures++; threshold aşıldıysa enabled=false
+
+      const newFailures = s.consecutive_failures + 1
+      const hitThreshold = newFailures >= s.anomaly_threshold
+
       await supabase
         .from('persona_schedules')
-        .update({ consecutive_failures: s.consecutive_failures + 1 })
+        .update({
+          consecutive_failures: newFailures,
+          ...(hitThreshold ? { enabled: false } : {}),
+        })
         .eq('id', s.id)
+
+      if (hitThreshold) {
+        log('schedule DISABLED — anomaly threshold reached', {
+          schedule_id:          s.id,
+          consecutive_failures: newFailures,
+          anomaly_threshold:    s.anomaly_threshold,
+        })
+      }
     }
   }
 

@@ -27,6 +27,7 @@ import PersonaUpsertPage from '@/pages/PersonaUpsertPage'
 import PlaybooksPage from '@/pages/PlaybooksPage'
 import PlaybookUpsertPage from '@/pages/PlaybookUpsertPage'
 import PlaybookBundlesPage from '@/pages/PlaybookBundlesPage'
+import PlaybookBundleDetailPage from '@/pages/PlaybookBundleDetailPage'
 import DomainPacksPage from '@/pages/DomainPacksPage'
 import RunWizardPage from '@/pages/RunWizardPage'
 import SchedulesPage from '@/pages/SchedulesPage'
@@ -88,6 +89,7 @@ export default function App() {
           <Route path="playbooks/new" element={<PlaybookUpsertPage mode="new" />} />
           <Route path="playbooks/:playbookId/edit" element={<PlaybookUpsertPage mode="edit" />} />
           <Route path="playbook-bundles" element={<PlaybookBundlesPage />} />
+          <Route path="playbook-bundles/:bundleId" element={<PlaybookBundleDetailPage />} />
           <Route path="domain-packs" element={<DomainPacksPage />} />
           <Route path="run" element={<RunWizardPage />} />
           <Route path="schedules" element={<SchedulesPage />} />

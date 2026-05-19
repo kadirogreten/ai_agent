@@ -13,7 +13,7 @@ import {
   type PersonaBehaviors,
   type UpsertPersonaInput,
 } from '@/lib/personas'
-import { listDomainPacks } from '@/lib/playbooks'
+import { listDomainPacks, listPlaybooksForPersona, type PlaybookRow } from '@/lib/playbooks'
 
 type Mode = 'new' | 'edit'
 
@@ -34,6 +34,7 @@ export default function PersonaUpsertPage({ mode }: { mode: Mode }) {
   const [behaviors, setBehaviors] = useState<PersonaBehaviors>({})
 
   const [packs, setPacks] = useState<{ id: string; name: string }[]>([])
+  const [compatiblePlaybooks, setCompatiblePlaybooks] = useState<PlaybookRow[]>([])
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [err, setErr] = useState<string | null>(null)
@@ -61,6 +62,9 @@ export default function PersonaUpsertPage({ mode }: { mode: Mode }) {
       setContentMd(p.content_md ?? '')
       setRiskCeiling(p.risk_ceiling)
       setCostClass(p.cost_class)
+      // Bu persona ile uyumlu playbook'ları yükle (reverse-lookup)
+      listPlaybooksForPersona({ pack_id: p.pack_id, risk_ceiling: p.risk_ceiling })
+        .then((pb) => setCompatiblePlaybooks(pb.data))
       // DB'deki behaviors snake_case (requires_web_search) → camelCase mapping
       const raw = (p.behaviors ?? {}) as Record<string, unknown>
       setBehaviors({
@@ -279,6 +283,30 @@ export default function PersonaUpsertPage({ mode }: { mode: Mode }) {
           </div>
         </div>
       </Card>
+
+      {mode === 'edit' && compatiblePlaybooks.length > 0 ? (
+        <Card className="space-y-3 p-5">
+          <div className="text-sm font-medium">Bu Personayla Uyumlu Playbook'lar ({compatiblePlaybooks.length})</div>
+          <div className="space-y-1">
+            {compatiblePlaybooks.map((p) => (
+              <Link
+                key={p.id}
+                to={`/app/playbooks/${p.id}/edit`}
+                className="flex items-center justify-between rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm hover:bg-white/10"
+              >
+                <div>
+                  <span className="font-medium text-white/80">{p.name}</span>
+                  <span className="ml-2 font-mono text-xs text-white/40">{p.slug}</span>
+                </div>
+                <div className="flex items-center gap-2 text-xs text-white/50">
+                  <span>{p.steps?.length ?? 0} adım</span>
+                  <span className="rounded border border-white/10 px-1.5">{p.default_risk}</span>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </Card>
+      ) : null}
     </div>
   )
 }
