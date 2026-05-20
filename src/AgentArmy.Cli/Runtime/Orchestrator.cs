@@ -499,7 +499,10 @@ public sealed class Orchestrator
         if (_factsIndex is null || string.IsNullOrWhiteSpace(topic)) return string.Empty;
 
         IReadOnlyList<FactEntry> hits;
-        try { hits = await _factsIndex.SearchAsync(topic, MaxPriorFacts, ct); }
+        // Kapı 5: cross-pack facts varsayılan olarak açık — facts_pack_visibility
+        // tablosu boşsa zaten ek sonuç gelmez (DB güvenli). Açık olduğunda persona'nın
+        // ait olduğu pack başka pack'lerin görünür facts'lerini de prompt'a alır.
+        try { hits = await _factsIndex.SearchAsync(topic, MaxPriorFacts, ct, includeCrossPack: true); }
         catch { return string.Empty; }
 
         if (hits.Count == 0) return string.Empty;

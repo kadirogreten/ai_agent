@@ -31,6 +31,8 @@ import PlaybookBundleDetailPage from '@/pages/PlaybookBundleDetailPage'
 import DomainPacksPage from '@/pages/DomainPacksPage'
 import RunWizardPage from '@/pages/RunWizardPage'
 import SchedulesPage from '@/pages/SchedulesPage'
+import SelfReflectionPage from '@/pages/SelfReflectionPage'
+import EmpiricalCheckPage from '@/pages/EmpiricalCheckPage'
 import OfficePage from '@/pages/OfficePage'
 
 export default function App() {
@@ -93,6 +95,8 @@ export default function App() {
           <Route path="domain-packs" element={<DomainPacksPage />} />
           <Route path="run" element={<RunWizardPage />} />
           <Route path="schedules" element={<SchedulesPage />} />
+          <Route path="self-reflection" element={<SelfReflectionPage />} />
+          <Route path="empirical-check" element={<EmpiricalCheckPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/app" replace />} />
       </Routes>

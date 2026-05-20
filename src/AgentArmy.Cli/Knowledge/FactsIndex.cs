@@ -21,17 +21,55 @@ public sealed class FactsIndex
     /// <summary>
     /// Verilen sorguyla ilgili facts'leri DB'den çeker, token-overlap skor verir,
     /// en yüksek skorlu maxFacts kaydı döner. Skor 0 olanlar elenir.
+    ///
+    /// Kapı 5: Çapraz-fonksiyon mod. <paramref name="includeCrossPack"/> true ise
+    /// facts_pack_visibility tablosunda <c>visible_to_pack_id = _domainPack</c> olan
+    /// kaynak pack'lerin facts'leri de aday havuzuna eklenir. Görünür pack listesi
+    /// visible_packs_for() RPC'sinden alınır.
     /// </summary>
-    public async Task<IReadOnlyList<FactEntry>> SearchAsync(string query, int maxFacts, CancellationToken ct)
+    public async Task<IReadOnlyList<FactEntry>> SearchAsync(
+        string query,
+        int maxFacts,
+        CancellationToken ct,
+        bool includeCrossPack = false)
     {
         if (string.IsNullOrWhiteSpace(query)) return Array.Empty<FactEntry>();
 
         var tokens = Tokenize(query);
         if (tokens.Count == 0) return Array.Empty<FactEntry>();
 
-        // Aday havuzu büyük olabilir; domain_pack + güven sırasıyla çekiyoruz.
-        // Sonra in-memory token-overlap skor.
-        var q = $"domain_pack=eq.{Uri.EscapeDataString(_domainPack)}" +
+        // Görünür pack'ler: kendi pack'i + (opsiyonel) facts_pack_visibility ile izin verilenler.
+        var packs = new List<string> { _domainPack };
+        if (includeCrossPack)
+        {
+            try
+            {
+                var vis = await _db.SelectAsync(
+                    "rpc/visible_packs_for",
+                    $"p_pack_id={Uri.EscapeDataString(_domainPack)}",
+                    ct);
+                if (vis.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var el in vis.EnumerateArray())
+                    {
+                        if (el.TryGetProperty("pack_id", out var p) && p.ValueKind == JsonValueKind.String)
+                        {
+                            var s = p.GetString();
+                            if (!string.IsNullOrWhiteSpace(s) && !packs.Contains(s!))
+                                packs.Add(s!);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[FactsIndex] cross-pack visibility RPC hatası, sadece kendi pack: {ex.Message}");
+            }
+        }
+
+        // PostgREST: domain_pack=in.(p1,p2,p3)
+        var packList = string.Join(",", packs.Select(Uri.EscapeDataString));
+        var q = $"domain_pack=in.({packList})" +
                 "&order=confidence.desc,extracted_at.desc" +
                 "&limit=200" +
                 "&select=id,domain_pack,run_id,playbook_id,topic,claim,evidence_url,evidence_quote,source_title,source_domain,confidence,extracted_at";

@@ -92,3 +92,43 @@ export async function deleteSchedule(id: string) {
   const res = await supabase.from('persona_schedules').delete().eq('id', id)
   return { ok: !res.error, error: res.error?.message ?? null }
 }
+
+/**
+ * Kapı 3 — Anomaly: ardışık başarısızlık nedeniyle dikkat gereken schedule'lar.
+ * UI'da kırmızı banner / dashboard widget'ında gösterilir.
+ */
+export async function listAnomalousSchedules() {
+  const res = await supabase
+    .from('persona_schedules')
+    .select('id,name,domain_pack,persona_slug,playbook_slug,consecutive_failures,anomaly_threshold,enabled,last_fired_at')
+    .gt('consecutive_failures', 0)
+    .order('consecutive_failures', { ascending: false })
+    .limit(50)
+
+  return {
+    data: (res.data ?? []) as Array<{
+      id: string
+      name: string
+      domain_pack: string
+      persona_slug: string
+      playbook_slug: string
+      consecutive_failures: number
+      anomaly_threshold: number
+      enabled: boolean
+      last_fired_at: string | null
+    }>,
+    error: res.error?.message ?? null,
+  }
+}
+
+/**
+ * Schedule'ı manuel olarak "iyileşti" işaretle — consecutive_failures'ı 0'a indir.
+ * Kullanıcı kök nedeni manuel çözdükten sonra çağırır.
+ */
+export async function resetScheduleFailures(id: string, enable = true) {
+  const res = await supabase
+    .from('persona_schedules')
+    .update({ consecutive_failures: 0, enabled: enable })
+    .eq('id', id)
+  return { ok: !res.error, error: res.error?.message ?? null }
+}

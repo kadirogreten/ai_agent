@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  dotnet:
+    name: Build CLI (.NET 8)
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Restore + Build
+        run: |
+          dotnet restore src/AgentArmy.Cli/AgentArmy.Cli.csproj
+          dotnet build src/AgentArmy.Cli/AgentArmy.Cli.csproj \
+            --no-restore --configuration Release --nologo \
+            -warnaserror
+
+  portal:
+    name: Build Portal (TS + Vite)
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: portal/package-lock.json
+      - name: Install
+        run: npm ci --prefix portal
+      - name: TypeScript check
+        run: npx --prefix portal tsc --noEmit
+      - name: Vite build
+        run: npm run --prefix portal build
+
+  smoke:
+    name: Smoke test (CLI dry-run)
+    needs: [dotnet]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Restore + Build (Release)
+        run: dotnet build src/AgentArmy.Cli/AgentArmy.Cli.csproj --configuration Release --nologo
+      - name: Help command
+        run: dotnet run --project src/AgentArmy.Cli --no-build --configuration Release -- list
+      - name: Dry-run a playbook
+        run: |
+          dotnet run --project src/AgentArmy.Cli --no-build --configuration Release -- \
+            run --playbook market-research --topic "CI smoke test" --dryRun true || true

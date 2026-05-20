@@ -168,9 +168,19 @@ public sealed class CeoExecutor
         int attempt,
         CancellationToken ct)
     {
+        // Kapı 5: planned.Pack farklıysa o pack'i yükleyip kullan; aksi halde primary.
+        var targetPack = _pack;
+        if (!string.IsNullOrWhiteSpace(planned.Pack)
+            && !string.Equals(planned.Pack, _pack.Id, StringComparison.OrdinalIgnoreCase))
+        {
+            var loaded = await DomainPackLoader.TryLoadAsync(_rootDir, planned.Pack, _supabase, ct);
+            if (loaded is not null) targetPack = loaded;
+            else Console.Error.WriteLine($"[CeoExecutor] cross-pack '{planned.Pack}' yüklenemedi, primary kullanılacak.");
+        }
+
         var runArgs = new Dictionary<string, string>(baseArgs, StringComparer.OrdinalIgnoreCase)
         {
-            ["domainPack"] = _pack.Id,
+            ["domainPack"] = targetPack.Id,
             ["topic"]      = planned.Topic,
             ["risk"]       = planned.Risk,
             ["web"]        = planned.Web       ? "true" : "false",
@@ -178,17 +188,17 @@ public sealed class CeoExecutor
         };
 
         RiskPolicy.Enforce(runArgs);
-        var runExec = Runner.BuildExecution(_rootDir, runArgs, _pack.Id);
+        var runExec = Runner.BuildExecution(_rootDir, runArgs, targetPack.Id);
 
         if (planned.Mode.Equals("bundle", StringComparison.OrdinalIgnoreCase))
         {
-            var bundle = await BundleLoader.LoadAsync(_rootDir, _pack, planned.Id, _supabase, ct);
+            var bundle = await BundleLoader.LoadAsync(_rootDir, targetPack, planned.Id, _supabase, ct);
             var bundleResult = await Runner.RunBundleAsync(_rootDir, runExec, bundle, planned.Topic, _supabase, ct);
             return bundleResult.BundleRunId;
         }
         else
         {
-            var playbook = await PlaybookLoader.LoadAsync(_rootDir, _pack, planned.Id, _supabase, ct);
+            var playbook = await PlaybookLoader.LoadAsync(_rootDir, targetPack, planned.Id, _supabase, ct);
             var suffix   = attempt > 1 ? $"_retry{attempt - 1}" : string.Empty;
             var runId    = DateTimeOffset.UtcNow.ToString("yyyyMMdd_HHmmss") + "_" + playbook.Id + suffix;
             var runDir   = Path.Combine(_rootDir, "runs", "ceo", runId);  // sadece image için

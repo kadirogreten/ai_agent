@@ -21,8 +21,8 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 
 function getSupabase(): SupabaseClient {
-  const url = process.env.SUPABASE_URL
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+  const url = process.env.SUPABASE_URL ?? "https://fdtyxizmluswmazldajl.supabase.co"
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZkdHl4aXptbHVzd21hemxkYWpsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY0NTc0ODQsImV4cCI6MjA5MjAzMzQ4NH0.WjrXxq42BS8uKoIwcYknEQivqwFXQOEYlJ48DImH64Y"
   if (!url || !key) throw new Error('SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY eksik')
   return createClient(url, key, { auth: { persistSession: false } })
 }
@@ -38,6 +38,36 @@ function warn(msg: string) { console.log(`  ⚠  ${msg}`) }
 function fail(msg: string) { console.log(`  ✗  ${msg}`) }
 function info(msg: string) { console.log(`     ${msg}`) }
 
+/**
+ * Empirical check sonuç biriktirici. Her check kendi sonucunu pushlar;
+ * main() bunları empirical_check_results tablosuna yazar — portal UI okur.
+ */
+type CheckOutcome = {
+  check_id:   string
+  check_name: string
+  status:     'pass' | 'warn' | 'fail' | 'skip'
+  summary:    string
+  metrics:    Record<string, unknown>
+  details:    Record<string, unknown>
+}
+const _outcomes: CheckOutcome[] = []
+function record(o: CheckOutcome) { _outcomes.push(o) }
+
+async function persistOutcomes(sb: SupabaseClient) {
+  if (_outcomes.length === 0) return
+  const rows = _outcomes.map((o) => ({
+    check_id:   o.check_id,
+    check_name: o.check_name,
+    status:     o.status,
+    summary:    o.summary,
+    metrics:    o.metrics,
+    details:    o.details,
+  }))
+  const { error } = await sb.from('empirical_check_results').insert(rows)
+  if (error) console.error(`\n[empiricalCheck] DB'ye yazım hatası: ${error.message}`)
+  else console.log(`\n[empiricalCheck] ${rows.length} kayıt empirical_check_results tablosuna yazıldı.`)
+}
+
 // ─── Check 1: Facts Injection ───────────────────────────────────────────────
 
 async function check1_factsInjection(sb: SupabaseClient) {
@@ -47,7 +77,7 @@ async function check1_factsInjection(sb: SupabaseClient) {
   const { data: runs } = await sb
     .from('run_requests')
     .select('id, request_text, created_at, answers_json')
-    .eq('status', 'completed')
+    .eq('status', 'success')
     .not('request_text', 'is', null)
     .order('created_at', { ascending: true })
     .limit(500)
@@ -131,7 +161,7 @@ async function check2_behaviorsOverlay(sb: SupabaseClient) {
   const { data: runs } = await sb
     .from('run_requests')
     .select('id, answers_json, status')
-    .eq('status', 'completed')
+    .eq('status', 'success')
     .in('answers_json->persona', personaSlugs)
     .order('created_at', { ascending: false })
     .limit(20)
@@ -184,7 +214,7 @@ async function check3_riskGate(sb: SupabaseClient) {
 
   const { data: queue, error } = await sb
     .from('approval_queue')
-    .select('id, run_request_id, status, created_at, resolved_at')
+    .select('id, run_request_id, status, created_at, decided_at')
     .order('created_at', { ascending: false })
     .limit(50)
 
@@ -200,8 +230,8 @@ async function check3_riskGate(sb: SupabaseClient) {
   const waitTimes: number[] = []
   for (const item of queue) {
     byStatus[item.status] = (byStatus[item.status] ?? 0) + 1
-    if (item.resolved_at && item.created_at) {
-      const wait = new Date(item.resolved_at).getTime() - new Date(item.created_at).getTime()
+    if (item.decided_at && item.created_at) {
+      const wait = new Date(item.decided_at).getTime() - new Date(item.created_at).getTime()
       waitTimes.push(wait)
     }
   }
@@ -302,14 +332,59 @@ async function main() {
   console.log(`\nEmprik Doğrulama Aracı — ${new Date().toISOString()}`)
   console.log(`Kontrol: ${which ?? 'all'}`)
 
-  if (which === '1' || which === 'all') await check1_factsInjection(sb)
-  if (which === '2' || which === 'all') await check2_behaviorsOverlay(sb)
-  if (which === '3' || which === 'all') await check3_riskGate(sb)
-  if (which === '4' || which === 'all') await check4_behaviorsHeuristic(sb)
+  if (which === '1' || which === 'all') await wrap('1', 'facts_injection',      () => check1_factsInjection(sb))
+  if (which === '2' || which === 'all') await wrap('2', 'persona_overlay',      () => check2_behaviorsOverlay(sb))
+  if (which === '3' || which === 'all') await wrap('3', 'risk_gate',            () => check3_riskGate(sb))
+  if (which === '4' || which === 'all') await wrap('4', 'behaviors_heuristic',  () => check4_behaviorsHeuristic(sb))
+
+  await persistOutcomes(sb)
 
   console.log('\n' + '═'.repeat(60))
   console.log('  Tamamlandı.')
   console.log('═'.repeat(60) + '\n')
+}
+
+/**
+ * Tek bir check'i çalıştırırken konsol log'larını yakalayıp özet+durum çıkarır.
+ * Mevcut check'leri bozmadan sonuçları DB'ye akıtıyoruz.
+ *   - ✗ varsa fail
+ *   - ⚠ varsa warn (✗ yoksa)
+ *   - ✓ varsa pass
+ *   - hiçbiri yoksa skip
+ */
+async function wrap(checkId: string, checkName: string, fn: () => Promise<void>) {
+  const captured: string[] = []
+  const origLog  = console.log
+  console.log = (...args: unknown[]) => {
+    const line = args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ')
+    captured.push(line)
+    origLog(...args)
+  }
+
+  let outcome: CheckOutcome['status'] = 'skip'
+  let summary = ''
+  try {
+    await fn()
+    const hasFail = captured.some(l => l.includes('✗'))
+    const hasWarn = captured.some(l => l.includes('⚠'))
+    const hasPass = captured.some(l => l.includes('✓'))
+    outcome = hasFail ? 'fail' : hasWarn ? 'warn' : hasPass ? 'pass' : 'skip'
+    summary = captured.find(l => l.includes('✓') || l.includes('⚠') || l.includes('✗'))?.replace(/^\s+[✓⚠✗]\s+/, '') ?? ''
+  } catch (e) {
+    outcome = 'fail'
+    summary = (e as Error).message
+  } finally {
+    console.log = origLog
+  }
+
+  record({
+    check_id:   checkId,
+    check_name: checkName,
+    status:     outcome,
+    summary:    summary.slice(0, 500),
+    metrics:    {},
+    details:    { log_tail: captured.slice(-30) },
+  })
 }
 
 main().catch((e) => { console.error(e); process.exit(1) })

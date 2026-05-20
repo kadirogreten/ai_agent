@@ -20,7 +20,8 @@ public sealed class CeoPlanner
         string Topic,
         string Risk,
         bool Web,
-        bool Contrarian
+        bool Contrarian,
+        string? Pack = null  // Kapı 5: cross-pack run; null = primary pack
     );
 
     public sealed record Plan(
@@ -84,7 +85,7 @@ public sealed class CeoPlanner
         sb.AppendLine("    primaryTopic: string,");
         sb.AppendLine("    subtopics: string[],");
         sb.AppendLine("    clarifyingQuestions: string[],");
-        sb.AppendLine("    runs: { mode: \"playbook\"|\"bundle\", id: string, topic: string, risk: \"R0\"|\"R1\"|\"R2\"|\"R3\", web: boolean, contrarian: boolean }[],");
+        sb.AppendLine("    runs: { mode: \"playbook\"|\"bundle\", id: string, topic: string, risk: \"R0\"|\"R1\"|\"R2\"|\"R3\", web: boolean, contrarian: boolean, pack?: string }[],");
         sb.AppendLine("    rationale: string");
         sb.AppendLine("  }");
         sb.AppendLine("- Varsayılan risk R1 olmalı. Çok gerekli değilse R2/R3 seçme.");
@@ -106,11 +107,53 @@ public sealed class CeoPlanner
             sb.AppendLine("- " + p);
         }
 
+        // Kapı 5: Cross-pack görünür pack'lerin playbook'larını da listele.
+        // CEO multi-pack hedef için ilgili pack'in playbook'larını seçebilsin.
+        if (_db is not null)
+        {
+            try
+            {
+                var visible = await _db.SelectAsync(
+                    "rpc/visible_packs_for",
+                    $"p_pack_id={Uri.EscapeDataString(domainPack.Id)}",
+                    ct);
+                if (visible.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var packEl in visible.EnumerateArray())
+                    {
+                        if (!packEl.TryGetProperty("pack_id", out var p) || p.ValueKind != JsonValueKind.String) continue;
+                        var otherPack = p.GetString();
+                        if (string.IsNullOrWhiteSpace(otherPack) || string.Equals(otherPack, domainPack.Id, StringComparison.OrdinalIgnoreCase))
+                            continue;
+
+                        var pbs = await _db.SelectAsync(
+                            "playbooks",
+                            $"pack_id=eq.{Uri.EscapeDataString(otherPack!)}&select=slug,name,default_risk&limit=20",
+                            ct);
+                        if (pbs.ValueKind != JsonValueKind.Array || pbs.GetArrayLength() == 0) continue;
+
+                        sb.AppendLine();
+                        sb.AppendLine($"Cross-pack görünür: {otherPack} (pack=\"{otherPack}\" olarak runs'a koy)");
+                        foreach (var pb in pbs.EnumerateArray())
+                        {
+                            var slug = pb.TryGetProperty("slug", out var sl) && sl.ValueKind == JsonValueKind.String ? sl.GetString() : null;
+                            if (!string.IsNullOrWhiteSpace(slug)) sb.AppendLine("- " + slug);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[CeoPlanner] cross-pack listing hatası: {ex.Message}");
+            }
+        }
+
         // Geçmiş facts'ler artık DB'den okunuyor — tek hakikat kaynağı.
         if (_db is not null)
         {
             var index = new FactsIndex(_db, domainPack.Id);
-            var facts = await index.SearchAsync(request, maxFacts: 12, ct);
+            // Kapı 5: CEO planner çapraz pack facts'leri de düşünsün (multi-pack hedefler için).
+            var facts = await index.SearchAsync(request, maxFacts: 12, ct, includeCrossPack: true);
             if (facts.Count > 0)
             {
                 sb.AppendLine();
@@ -183,10 +226,12 @@ public sealed class CeoPlanner
                 var risk = S("risk");
                 var web = B("web");
                 var contrarian = B("contrarian");
+                var pack = S("pack");  // Kapı 5: opsiyonel cross-pack
 
                 if (string.IsNullOrWhiteSpace(mode) || string.IsNullOrWhiteSpace(id)) continue;
                 if (string.IsNullOrWhiteSpace(risk)) risk = "R1";
-                list.Add(new PlannedRun(mode, id, topic ?? string.Empty, risk, web, contrarian));
+                list.Add(new PlannedRun(mode, id, topic ?? string.Empty, risk, web, contrarian,
+                    string.IsNullOrWhiteSpace(pack) ? null : pack));
             }
             return list;
         }
