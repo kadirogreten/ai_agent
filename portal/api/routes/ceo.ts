@@ -662,6 +662,152 @@ router.post('/jobs/:jobId/review/iterate', async (req: Request, res: Response) =
   }
 })
 
+// ── Visual generation helpers ────────────────────────────────────────────────
+
+type WikiImage = { url: string; title: string; description: string }
+
+async function searchWikimediaImages(query: string, limit = 4): Promise<WikiImage[]> {
+  try {
+    const params = new URLSearchParams({
+      action: 'query', generator: 'search',
+      gsrsearch: `${query} archaeological site photo`,
+      gsrnamespace: '6', prop: 'imageinfo',
+      iiprop: 'url|thumburl|extmetadata', iiurlwidth: '900',
+      format: 'json', gsrlimit: String(limit + 4), // fetch extra, filter below
+    })
+    const res = await fetch(`https://commons.wikimedia.org/w/api.php?${params}`, {
+      headers: { 'User-Agent': 'AgentArmy/1.0 research-tool' },
+    })
+    if (!res.ok) return []
+    const data = await res.json() as {
+      query?: { pages?: Record<string, {
+        title?: string
+        imageinfo?: Array<{ thumburl?: string; url?: string; extmetadata?: { ImageDescription?: { value?: string } } }>
+      }> }
+    }
+    const pages = Object.values(data.query?.pages ?? {})
+    const results: WikiImage[] = []
+    for (const page of pages) {
+      const info = page.imageinfo?.[0]
+      if (!info?.thumburl) continue
+      // Skip SVGs and small icons
+      const url = info.url ?? ''
+      if (url.endsWith('.svg') || url.endsWith('.pdf')) continue
+      const rawDesc = info.extmetadata?.ImageDescription?.value ?? ''
+      const description = rawDesc.replace(/<[^>]+>/g, '').trim().slice(0, 300)
+      results.push({ url: info.thumburl, title: (page.title ?? '').replace('File:', ''), description })
+      if (results.length >= limit) break
+    }
+    return results
+  } catch { return [] }
+}
+
+async function generateDalleImage(prompt: string, apiKey: string): Promise<string | null> {
+  try {
+    const res = await fetch('https://api.openai.com/v1/images/generations', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: 'dall-e-3', prompt, n: 1, size: '1792x1024', quality: 'standard' }),
+    })
+    if (!res.ok) return null
+    const data = await res.json() as { data?: Array<{ url?: string }> }
+    return data.data?.[0]?.url ?? null
+  } catch { return null }
+}
+
+async function extractLocations(text: string, apiKey: string, model: string) {
+  try {
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: 'user', content: `Bu araştırma metnindeki coğrafi konumları çıkar, koordinatlarını ver. JSON: {"locations":[{"name":"Boğazköy-Hattuşa","lat":40.0194,"lon":34.6156}]}\n\nMetin:\n${text.slice(0, 600)}` }],
+        response_format: { type: 'json_object' }, max_tokens: 400, temperature: 0,
+      }),
+    })
+    if (!res.ok) return []
+    const data = await res.json() as { choices?: Array<{ message?: { content?: string } }> }
+    const content = data.choices?.[0]?.message?.content
+    if (!content) return []
+    const parsed = JSON.parse(content) as { locations?: Array<{ name: string; lat: number; lon: number }> }
+    return (parsed.locations ?? []).filter((l) => l.lat && l.lon).slice(0, 6)
+  } catch { return [] }
+}
+
+function buildMapUrl(locations: Array<{ name: string; lat: number; lon: number }>): string {
+  const base = 'https://staticmap.openstreetmap.de/staticmap.php'
+  if (locations.length === 0) return `${base}?center=39.5,35&zoom=6&size=800x400&maptype=mapnik`
+  const avgLat = locations.reduce((s, l) => s + l.lat, 0) / locations.length
+  const avgLon = locations.reduce((s, l) => s + l.lon, 0) / locations.length
+  const zoom = locations.length <= 2 ? 8 : 7
+  const markers = locations.map((l) => `${l.lat},${l.lon},red-pushpin`).join('|')
+  return `${base}?center=${avgLat.toFixed(4)},${avgLon.toFixed(4)}&zoom=${zoom}&size=800x400&maptype=mapnik&markers=${markers}`
+}
+
+// ── POST /api/ceo/jobs/:jobId/generate-visuals ───────────────────────────────
+
+router.post('/jobs/:jobId/generate-visuals', async (req: Request, res: Response) => {
+  try {
+    const { supabase, user } = await getAuthedUser(req)
+    const job = await getOwnedJob(supabase, user.id, req.params.jobId)
+
+    const apiKey = process.env.OPENAI_API_KEY
+    if (!apiKey) throw new Error('Missing OPENAI_API_KEY')
+    const model = process.env.OPENAI_MODEL || job.model || 'gpt-4.1-mini'
+
+    const runIds = extractRunIdsFromResult(job.result_json)
+    const primaryRunId = runIds[0]
+    if (!primaryRunId) throw new Error('Job henüz run_id üretmemiş — job tamamlandıktan sonra tekrar deneyin')
+
+    const topic = job.request_text ?? job.domain_pack ?? 'archaeological research'
+    const searchQuery = (job.domain_pack ?? topic).replace(/-/g, ' ').slice(0, 80)
+
+    const inserts: Array<Record<string, unknown>> = []
+
+    // 1. DALL-E illustrative image
+    const dallePrompt = `Archaeological research visualization: ${topic.slice(0, 200)}. Detailed, photorealistic, museum-quality historical illustration, professional lighting, no text overlays, cinematic perspective.`
+    const dalleUrl = await generateDalleImage(dallePrompt, apiKey)
+    if (dalleUrl) {
+      inserts.push({
+        run_id: primaryRunId, step_id: 'visual-dalle', agent_id: 'VisualAgent',
+        artifact_name: 'AI İllüstrasyon',
+        output_type: 'image',
+        content_json: { url: dalleUrl, type: 'dalle', source: 'DALL-E 3', alt: topic.slice(0, 150), expiring: true },
+      })
+    }
+
+    // 2. Wikimedia real photos
+    const wikiImages = await searchWikimediaImages(searchQuery, 4)
+    for (const img of wikiImages) {
+      inserts.push({
+        run_id: primaryRunId, step_id: 'visual-wikimedia', agent_id: 'VisualAgent',
+        artifact_name: img.title.slice(0, 100),
+        output_type: 'image',
+        content_json: { url: img.url, type: 'wikimedia', source: 'Wikimedia Commons', alt: img.description || img.title, title: img.title },
+      })
+    }
+
+    // 3. Geographic map
+    const locations = await extractLocations(topic, apiKey, model)
+    const mapUrl = buildMapUrl(locations)
+    inserts.push({
+      run_id: primaryRunId, step_id: 'visual-map', agent_id: 'VisualAgent',
+      artifact_name: 'Coğrafi Harita',
+      output_type: 'image',
+      content_json: { url: mapUrl, type: 'map', source: 'OpenStreetMap', alt: 'Araştırma bölgesi haritası', locations },
+    })
+
+    const { error } = await supabase.from('run_outputs').insert(inserts)
+    if (error) throw error
+
+    res.status(200).json({ success: true, count: inserts.length, dalle: !!dalleUrl, wikimedia: wikiImages.length, map: true })
+  } catch (e: unknown) {
+    const message = getErrorMessage(e, 'Visual generation failed')
+    res.status(500).json({ success: false, error: message })
+  }
+})
+
 // ── Markdown → docx paragraphs (lightweight parser) ────────────────────────
 
 function mdToParagraphs(md: string): Paragraph[] {

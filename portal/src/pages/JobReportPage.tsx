@@ -5,6 +5,16 @@ import { useAuthStore } from '@/stores/authStore'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
+type ImageContent = {
+  url: string
+  type: 'dalle' | 'wikimedia' | 'map' | string
+  source: string
+  alt?: string
+  title?: string
+  expiring?: boolean
+  locations?: Array<{ name: string; lat: number; lon: number }>
+}
+
 type JobRow = {
   id: string
   status: string
@@ -343,6 +353,8 @@ export default function JobReportPage() {
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
   const [downloading, setDownloading] = useState(false)
+  const [generatingVisuals, setGeneratingVisuals] = useState(false)
+  const [visualNotice, setVisualNotice] = useState<string | null>(null)
 
   // Inject styles
   useEffect(() => {
@@ -389,6 +401,27 @@ export default function JobReportPage() {
     const id = window.setInterval(() => load(), 5000)
     return () => window.clearInterval(id)
   }, [load, shouldPoll])
+
+  async function generateVisuals() {
+    if (!session?.access_token || !jobId) return
+    setGeneratingVisuals(true)
+    setVisualNotice(null)
+    try {
+      const res = await fetch(`/api/ceo/jobs/${jobId}/generate-visuals`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+      })
+      const json = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(json?.error ?? `HTTP ${res.status}`)
+      const count = json?.count ?? 0
+      setVisualNotice(`${count} görsel oluşturuldu. Sayfa yenileniyor…`)
+      setTimeout(() => { load(); setVisualNotice(null) }, 1500)
+    } catch (e) {
+      setVisualNotice('Görsel oluşturma hatası: ' + (e instanceof Error ? e.message : String(e)))
+    } finally {
+      setGeneratingVisuals(false)
+    }
+  }
 
   async function downloadDocx() {
     if (!session?.access_token || !jobId) return
@@ -438,18 +471,28 @@ export default function JobReportPage() {
       <div className="report-toolbar">
         <button className="report-toolbar-btn" onClick={() => navigate(-1)}>← Geri</button>
         <button className="report-toolbar-btn" onClick={() => window.print()}>🖨 PDF</button>
+        <button className="report-toolbar-btn" onClick={downloadDocx} disabled={downloading}>
+          {downloading ? 'İndiriliyor…' : '⬇ Word'}
+        </button>
         <button
           className="report-toolbar-btn"
-          onClick={downloadDocx}
-          disabled={downloading}
+          onClick={generateVisuals}
+          disabled={generatingVisuals || !job || job.status !== 'success'}
+          style={{ borderColor: 'rgba(251,191,36,0.4)', color: 'rgba(251,191,36,0.9)' }}
         >
-          {downloading ? 'İndiriliyor…' : '⬇ Word'}
+          {generatingVisuals ? '⏳ Oluşturuluyor…' : '🎨 Görsel Oluştur'}
         </button>
         <button className="report-toolbar-btn" onClick={load}>↻ Yenile</button>
         <span className="report-toolbar-title">
-          {job?.domain_pack ?? 'Rapor'} · {outputs.length} bölüm
+          {job?.domain_pack ?? 'Rapor'} · {outputs.filter(o => o.output_type !== 'image').length} bölüm
         </span>
       </div>
+
+      {visualNotice ? (
+        <div style={{ padding: '10px 56px', background: '#1a1a2e', fontFamily: 'Arial', fontSize: 13, color: 'rgba(251,191,36,0.9)', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+          {visualNotice}
+        </div>
+      ) : null}
 
       {err ? (
         <div style={{ padding: '24px 56px', color: '#c00', fontFamily: 'Arial', fontSize: 13 }}>{err}</div>
@@ -497,51 +540,144 @@ export default function JobReportPage() {
             </div>
           ) : null}
 
-          {/* Empty state */}
-          {outputs.length === 0 ? (
-            <div className="report-empty">
-              {job?.status === 'running' || job?.status === 'pending'
-                ? 'Job hâlâ çalışıyor, çıktılar bekleniyor…'
-                : 'Bu job için kayıtlı çıktı yok.'}
-            </div>
-          ) : null}
-
-          {/* Sections */}
-          {outputs.map((o, idx) => {
-            const title = o.artifact_name ?? o.step_id ?? o.output_type
-            const body = outputBody(o)
-            const isCode = body ? /^```/.test(body) : false
-            const cleanBody = isCode
-              ? body!.replace(/^```[^\n]*\n?/, '').replace(/\n?```$/, '')
-              : body
+          {/* Separate image vs text outputs */}
+          {(() => {
+            const imageOutputs = outputs.filter(o => o.output_type === 'image')
+            const textOutputs  = outputs.filter(o => o.output_type !== 'image')
 
             return (
-              <div key={o.id} className="report-section">
-                <div className="report-section-header">
-                  <div className="report-section-num">{idx + 1}</div>
-                  <div style={{ flex: 1 }}>
-                    <div className="report-section-title">{title}</div>
-                    {o.agent_id ? <div className="report-section-agent">{o.agent_id}</div> : null}
+              <>
+                {/* Empty state */}
+                {textOutputs.length === 0 ? (
+                  <div className="report-empty">
+                    {job?.status === 'running' || job?.status === 'pending'
+                      ? 'Job hâlâ çalışıyor, çıktılar bekleniyor…'
+                      : 'Bu job için kayıtlı metin çıktısı yok.'}
                   </div>
-                  <div className="report-section-time">
-                    {new Date(o.created_at).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
-                  </div>
-                </div>
+                ) : null}
 
-                <div className="report-section-runid">{o.run_id}</div>
+                {/* Text sections */}
+                {textOutputs.map((o, idx) => {
+                  const title = o.artifact_name ?? o.step_id ?? o.output_type
+                  const body = outputBody(o)
+                  const isCode = body ? /^```/.test(body) : false
+                  const cleanBody = isCode
+                    ? body!.replace(/^```[^\n]*\n?/, '').replace(/\n?```$/, '')
+                    : body
 
-                {body ? (
-                  isCode ? (
-                    <pre className="report-pre"><code>{cleanBody}</code></pre>
-                  ) : (
-                    <div>{renderMd(body)}</div>
+                  return (
+                    <div key={o.id} className="report-section">
+                      <div className="report-section-header">
+                        <div className="report-section-num">{idx + 1}</div>
+                        <div style={{ flex: 1 }}>
+                          <div className="report-section-title">{title}</div>
+                          {o.agent_id ? <div className="report-section-agent">{o.agent_id}</div> : null}
+                        </div>
+                        <div className="report-section-time">
+                          {new Date(o.created_at).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
+                        </div>
+                      </div>
+                      <div className="report-section-runid">{o.run_id}</div>
+                      {body ? (
+                        isCode ? <pre className="report-pre"><code>{cleanBody}</code></pre>
+                               : <div>{renderMd(body)}</div>
+                      ) : (
+                        <p className="report-p" style={{ color: '#aaa', fontStyle: 'italic' }}>Boş içerik</p>
+                      )}
+                    </div>
                   )
-                ) : (
-                  <p className="report-p" style={{ color: '#aaa', fontStyle: 'italic' }}>Boş içerik</p>
-                )}
-              </div>
+                })}
+
+                {/* Image gallery */}
+                {imageOutputs.length > 0 ? (
+                  <div className="report-section" style={{ marginTop: 48 }}>
+                    <div className="report-section-header">
+                      <div className="report-section-num" style={{ background: '#7c3aed' }}>🖼</div>
+                      <div style={{ flex: 1 }}>
+                        <div className="report-section-title">Görsel Galeri</div>
+                        <div className="report-section-agent">{imageOutputs.length} görsel</div>
+                      </div>
+                    </div>
+
+                    {/* Map first if present */}
+                    {imageOutputs.filter(o => (o.content_json as ImageContent | null)?.type === 'map').map(o => {
+                      const img = o.content_json as ImageContent
+                      return (
+                        <div key={o.id} style={{ marginBottom: 24 }}>
+                          <div style={{ fontSize: 12, fontFamily: 'Arial', color: '#888', marginBottom: 8, display: 'flex', justifyContent: 'space-between' }}>
+                            <span>🗺 Coğrafi Harita</span>
+                            <span style={{ fontSize: 11 }}>{img.source}</span>
+                          </div>
+                          <img
+                            src={img.url} alt={img.alt ?? 'Harita'}
+                            style={{ width: '100%', borderRadius: 8, border: '1px solid #e0e0e0', display: 'block' }}
+                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+                          />
+                          {(img.locations && img.locations.length > 0) ? (
+                            <div style={{ fontSize: 11, color: '#999', fontFamily: 'Arial', marginTop: 6 }}>
+                              {img.locations.map(l => l.name).join(' · ')}
+                            </div>
+                          ) : null}
+                        </div>
+                      )
+                    })}
+
+                    {/* DALL-E image */}
+                    {imageOutputs.filter(o => (o.content_json as ImageContent | null)?.type === 'dalle').map(o => {
+                      const img = o.content_json as ImageContent
+                      return (
+                        <div key={o.id} style={{ marginBottom: 24 }}>
+                          <div style={{ fontSize: 12, fontFamily: 'Arial', color: '#888', marginBottom: 8, display: 'flex', justifyContent: 'space-between' }}>
+                            <span>🤖 AI İllüstrasyon</span>
+                            <span style={{ fontSize: 11, color: '#e2814a' }}>
+                              {img.source}{img.expiring ? ' · URL geçici (1-2 saat)' : ''}
+                            </span>
+                          </div>
+                          <img
+                            src={img.url} alt={img.alt ?? 'AI görseli'}
+                            style={{ width: '100%', borderRadius: 8, border: '1px solid #e0e0e0', display: 'block' }}
+                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+                          />
+                        </div>
+                      )
+                    })}
+
+                    {/* Wikimedia grid */}
+                    {(() => {
+                      const wikiOutputs = imageOutputs.filter(o => (o.content_json as ImageContent | null)?.type === 'wikimedia')
+                      if (wikiOutputs.length === 0) return null
+                      return (
+                        <>
+                          <div style={{ fontSize: 12, fontFamily: 'Arial', color: '#888', marginBottom: 10 }}>
+                            📷 Gerçek Fotoğraflar ({wikiOutputs.length}) — Wikimedia Commons
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12, marginBottom: 16 }}>
+                            {wikiOutputs.map(o => {
+                              const img = o.content_json as ImageContent
+                              return (
+                                <div key={o.id} style={{ borderRadius: 8, overflow: 'hidden', border: '1px solid #e0e0e0', background: '#fafafa' }}>
+                                  <img
+                                    src={img.url} alt={img.alt ?? img.title ?? ''}
+                                    style={{ width: '100%', height: 160, objectFit: 'cover', display: 'block' }}
+                                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+                                  />
+                                  {img.title ? (
+                                    <div style={{ padding: '6px 8px', fontSize: 11, color: '#666', fontFamily: 'Arial', lineHeight: 1.3 }}>
+                                      {img.title.slice(0, 80)}
+                                    </div>
+                                  ) : null}
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </>
+                      )
+                    })()}
+                  </div>
+                ) : null}
+              </>
             )
-          })}
+          })()}
 
           {/* Footer */}
           {outputs.length > 0 ? (
