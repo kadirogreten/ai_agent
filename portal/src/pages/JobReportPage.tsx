@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabaseClient'
 import { useAuthStore } from '@/stores/authStore'
-import { Button } from '@/components/ui/Button'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -52,43 +51,287 @@ function outputBody(o: RunOutput): string | null {
   return null
 }
 
-// Minimal markdown → React: handles #/##/### headings, **bold**, - bullets, blank lines
-function renderMd(md: string) {
-  return md.split('\n').map((raw, i) => {
-    const line = raw.trimEnd()
-    if (/^### /.test(line)) return <h3 key={i} className="text-base font-semibold mt-4 mb-1 text-white">{line.slice(4)}</h3>
-    if (/^## /.test(line))  return <h2 key={i} className="text-lg font-bold mt-6 mb-2 text-white">{line.slice(3)}</h2>
-    if (/^# /.test(line))   return <h1 key={i} className="text-xl font-extrabold mt-8 mb-3 text-white">{line.slice(2)}</h1>
-    if (/^[-*] /.test(line)) return <li key={i} className="ml-5 list-disc text-sm text-white/80">{inlineBold(line.slice(2))}</li>
-    if (!line.trim()) return <div key={i} className="h-2" />
-    return <p key={i} className="text-sm text-white/80 leading-relaxed">{inlineBold(line)}</p>
-  })
-}
+// ── Markdown renderer ─────────────────────────────────────────────────────────
 
 function inlineBold(text: string) {
   const parts = text.split(/\*\*(.+?)\*\*/)
   return parts.map((part, i) =>
-    i % 2 === 1 ? <strong key={i} className="text-white font-semibold">{part}</strong> : part
+    i % 2 === 1
+      ? <strong key={i} style={{ fontWeight: 700 }}>{part}</strong>
+      : part
   )
 }
 
-// ── Print styles injected into <head> ────────────────────────────────────────
+function renderMd(md: string) {
+  const elements: React.ReactNode[] = []
+  const lines = md.split('\n')
+  let i = 0
+  while (i < lines.length) {
+    const raw = lines[i]
+    const line = raw.trimEnd()
 
-const PRINT_CSS = `
-@media print {
-  body { background: white !important; color: black !important; }
-  .no-print { display: none !important; }
-  .print-page { background: white !important; color: black !important; padding: 0 !important; }
-  .print-card { background: white !important; border-color: #e5e7eb !important; color: black !important; }
-  .print-card h1, .print-card h2, .print-card h3 { color: black !important; }
-  .print-card p, .print-card li { color: #374151 !important; }
-  .print-card pre { background: #f9fafb !important; color: black !important; border-color: #d1d5db !important; }
-  .print-divider { border-color: #d1d5db !important; }
-  @page { margin: 2cm; }
+    if (/^### /.test(line)) {
+      elements.push(<h3 key={i} className="report-h3">{line.slice(4)}</h3>)
+    } else if (/^## /.test(line)) {
+      elements.push(<h2 key={i} className="report-h2">{line.slice(3)}</h2>)
+    } else if (/^# /.test(line)) {
+      elements.push(<h1 key={i} className="report-h1">{line.slice(2)}</h1>)
+    } else if (/^[-*] /.test(line)) {
+      // Collect consecutive bullet lines
+      const bullets: string[] = []
+      while (i < lines.length && /^[-*] /.test(lines[i].trimEnd())) {
+        bullets.push(lines[i].trimEnd().slice(2))
+        i++
+      }
+      elements.push(
+        <ul key={i} className="report-ul">
+          {bullets.map((b, bi) => <li key={bi}>{inlineBold(b)}</li>)}
+        </ul>
+      )
+      continue
+    } else if (/^\d+\. /.test(line)) {
+      // Collect ordered list
+      const items: string[] = []
+      while (i < lines.length && /^\d+\. /.test(lines[i].trimEnd())) {
+        items.push(lines[i].trimEnd().replace(/^\d+\.\s*/, ''))
+        i++
+      }
+      elements.push(
+        <ol key={i} className="report-ol">
+          {items.map((b, bi) => <li key={bi}>{inlineBold(b)}</li>)}
+        </ol>
+      )
+      continue
+    } else if (/^```/.test(line)) {
+      // Code block
+      const codeLines: string[] = []
+      i++
+      while (i < lines.length && !/^```/.test(lines[i])) {
+        codeLines.push(lines[i])
+        i++
+      }
+      elements.push(
+        <pre key={i} className="report-pre"><code>{codeLines.join('\n')}</code></pre>
+      )
+    } else if (!line.trim()) {
+      elements.push(<div key={i} style={{ height: '0.6em' }} />)
+    } else {
+      elements.push(<p key={i} className="report-p">{inlineBold(line)}</p>)
+    }
+    i++
+  }
+  return elements
 }
+
+// ── Print + report styles ─────────────────────────────────────────────────────
+
+const STYLES = `
+  .report-root {
+    font-family: 'Georgia', 'Times New Roman', serif;
+    color: #1a1a1a;
+    line-height: 1.75;
+  }
+  .report-page {
+    background: #fff;
+    max-width: 780px;
+    margin: 0 auto;
+    padding: 0 0 64px 0;
+  }
+  /* Cover */
+  .report-cover {
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 60%, #0f3460 100%);
+    color: #fff;
+    padding: 64px 56px 56px;
+    border-radius: 0 0 2px 2px;
+    margin-bottom: 48px;
+  }
+  .report-cover-label {
+    font-size: 11px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.5);
+    margin-bottom: 20px;
+    font-family: 'Arial', sans-serif;
+  }
+  .report-cover-title {
+    font-size: 28px;
+    font-weight: 700;
+    line-height: 1.3;
+    margin-bottom: 32px;
+    max-width: 560px;
+  }
+  .report-cover-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 24px;
+    font-size: 13px;
+    color: rgba(255,255,255,0.65);
+    font-family: 'Arial', sans-serif;
+    border-top: 1px solid rgba(255,255,255,0.15);
+    padding-top: 24px;
+    margin-top: 8px;
+  }
+  .report-cover-meta-item strong {
+    color: rgba(255,255,255,0.9);
+    display: block;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 3px;
+  }
+  /* Body */
+  .report-body {
+    padding: 0 56px;
+  }
+  /* Request block */
+  .report-request {
+    background: #f8f7f4;
+    border-left: 4px solid #0f3460;
+    padding: 20px 24px;
+    border-radius: 0 6px 6px 0;
+    margin-bottom: 40px;
+  }
+  .report-request-label {
+    font-size: 11px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: #0f3460;
+    font-family: 'Arial', sans-serif;
+    margin-bottom: 10px;
+    font-weight: 700;
+  }
+  .report-request-text {
+    font-size: 15px;
+    line-height: 1.7;
+    color: #2d2d2d;
+    white-space: pre-wrap;
+  }
+  /* Section */
+  .report-section {
+    margin-bottom: 48px;
+    page-break-inside: avoid;
+  }
+  .report-section-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    margin-bottom: 20px;
+    padding-bottom: 14px;
+    border-bottom: 2px solid #eee;
+  }
+  .report-section-num {
+    width: 32px;
+    height: 32px;
+    background: #0f3460;
+    color: white;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 700;
+    font-family: 'Arial', sans-serif;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+  .report-section-title {
+    font-size: 19px;
+    font-weight: 700;
+    color: #1a1a2e;
+    line-height: 1.3;
+  }
+  .report-section-agent {
+    font-size: 12px;
+    color: #888;
+    font-family: 'Arial', sans-serif;
+    margin-top: 3px;
+  }
+  .report-section-time {
+    font-size: 11px;
+    color: #bbb;
+    font-family: 'Arial', sans-serif;
+    margin-left: auto;
+    flex-shrink: 0;
+    padding-top: 6px;
+  }
+  .report-section-runid {
+    font-size: 10px;
+    color: #ccc;
+    font-family: monospace;
+    margin-bottom: 16px;
+  }
+  /* Content */
+  .report-h1 { font-size: 22px; font-weight: 700; color: #1a1a2e; margin: 28px 0 10px; }
+  .report-h2 { font-size: 18px; font-weight: 700; color: #16213e; margin: 22px 0 8px; border-bottom: 1px solid #e5e5e5; padding-bottom: 4px; }
+  .report-h3 { font-size: 15px; font-weight: 700; color: #0f3460; margin: 18px 0 6px; }
+  .report-p  { font-size: 14.5px; color: #2d2d2d; margin: 0 0 10px; }
+  .report-ul { margin: 8px 0 14px 20px; padding: 0; list-style: disc; }
+  .report-ol { margin: 8px 0 14px 20px; padding: 0; list-style: decimal; }
+  .report-ul li, .report-ol li { font-size: 14.5px; color: #2d2d2d; margin-bottom: 4px; }
+  .report-pre {
+    background: #f5f5f5;
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    padding: 16px;
+    font-size: 12.5px;
+    overflow-x: auto;
+    margin: 12px 0 16px;
+    line-height: 1.5;
+    color: #333;
+    font-family: 'Consolas', 'Monaco', monospace;
+  }
+  /* Toolbar */
+  .report-toolbar {
+    background: #1a1a2e;
+    padding: 12px 56px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+  }
+  .report-toolbar-btn {
+    font-family: 'Arial', sans-serif;
+    font-size: 13px;
+    padding: 6px 14px;
+    border-radius: 6px;
+    border: 1px solid rgba(255,255,255,0.2);
+    background: rgba(255,255,255,0.07);
+    color: rgba(255,255,255,0.85);
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .report-toolbar-btn:hover { background: rgba(255,255,255,0.14); }
+  .report-toolbar-btn:disabled { opacity: 0.4; cursor: default; }
+  .report-toolbar-title {
+    font-family: 'Arial', sans-serif;
+    font-size: 13px;
+    color: rgba(255,255,255,0.4);
+    margin-left: 8px;
+  }
+  /* Empty / loading */
+  .report-empty {
+    text-align: center;
+    padding: 80px 0;
+    color: #999;
+    font-family: 'Arial', sans-serif;
+    font-size: 14px;
+  }
+  /* Print */
+  @media print {
+    .report-toolbar { display: none !important; }
+    .report-root { background: white; }
+    .report-cover { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .report-section-num { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .report-page { padding-bottom: 0; }
+    @page { margin: 1.5cm 2cm; }
+    .report-section { page-break-inside: avoid; }
+  }
 `
 
-// ── Component ────────────────────────────────────────────────────────────────
+// ── Component ─────────────────────────────────────────────────────────────────
 
 export default function JobReportPage() {
   const { jobId } = useParams()
@@ -97,16 +340,16 @@ export default function JobReportPage() {
 
   const [job, setJob] = useState<JobRow | null>(null)
   const [outputs, setOutputs] = useState<RunOutput[]>([])
-  const [err, setErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [err, setErr] = useState<string | null>(null)
   const [downloading, setDownloading] = useState(false)
 
-  // Inject print CSS once
+  // Inject styles
   useEffect(() => {
-    const style = document.createElement('style')
-    style.textContent = PRINT_CSS
-    document.head.appendChild(style)
-    return () => { document.head.removeChild(style) }
+    const el = document.createElement('style')
+    el.textContent = STYLES
+    document.head.appendChild(el)
+    return () => { document.head.removeChild(el) }
   }, [])
 
   const load = useCallback(async () => {
@@ -135,7 +378,6 @@ export default function JobReportPage() {
     } else {
       setOutputs([])
     }
-
     setLoading(false)
   }, [jobId])
 
@@ -148,7 +390,6 @@ export default function JobReportPage() {
     return () => window.clearInterval(id)
   }, [load, shouldPoll])
 
-  // ── Word download ──────────────────────────────────────────────────────────
   async function downloadDocx() {
     if (!session?.access_token || !jobId) return
     setDownloading(true)
@@ -180,104 +421,144 @@ export default function JobReportPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-48 text-white/40 text-sm">Yükleniyor…</div>
+      <div className="report-root" style={{ background: '#f4f4f0', minHeight: '100vh' }}>
+        <div className="report-empty">Yükleniyor…</div>
+      </div>
     )
   }
 
-  if (!job) {
-    return (
-      <div className="text-sm text-red-200 p-4">{err ?? 'Job bulunamadı.'}</div>
-    )
-  }
+  const domainLabel = job?.domain_pack
+    ? job.domain_pack.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+    : 'AgentArmy'
 
   return (
-    <div className="print-page min-h-screen bg-[#0d0d1a] text-white px-4 py-6 max-w-4xl mx-auto space-y-6">
+    <div className="report-root" style={{ background: '#f0ede8', minHeight: '100vh' }}>
 
-      {/* Toolbar — hidden on print */}
-      <div className="no-print flex flex-wrap items-center gap-2">
-        <Button variant="secondary" onClick={() => navigate(-1)}>← Geri</Button>
-        <Button variant="secondary" onClick={() => window.print()}>🖨 PDF Olarak Yazdır</Button>
-        <Button
-          variant="outline"
+      {/* Toolbar */}
+      <div className="report-toolbar">
+        <button className="report-toolbar-btn" onClick={() => navigate(-1)}>← Geri</button>
+        <button className="report-toolbar-btn" onClick={() => window.print()}>🖨 PDF</button>
+        <button
+          className="report-toolbar-btn"
           onClick={downloadDocx}
           disabled={downloading}
         >
-          {downloading ? 'İndiriliyor…' : '⬇ Word (.docx) İndir'}
-        </Button>
-        <Button variant="secondary" onClick={load}>Yenile</Button>
+          {downloading ? 'İndiriliyor…' : '⬇ Word'}
+        </button>
+        <button className="report-toolbar-btn" onClick={load}>↻ Yenile</button>
+        <span className="report-toolbar-title">
+          {job?.domain_pack ?? 'Rapor'} · {outputs.length} bölüm
+        </span>
       </div>
 
-      {err ? <div className="no-print text-sm text-red-200">{err}</div> : null}
+      {err ? (
+        <div style={{ padding: '24px 56px', color: '#c00', fontFamily: 'Arial', fontSize: 13 }}>{err}</div>
+      ) : null}
 
-      {/* ── Job meta header ── */}
-      <div className="print-card rounded-xl border border-white/10 bg-white/5 p-6">
-        <h1 className="text-2xl font-extrabold tracking-tight mb-4">AgentArmy Raporu</h1>
-        <div className="grid grid-cols-2 gap-x-8 gap-y-1 text-sm">
-          <span className="text-white/50">Job ID</span>
-          <span className="font-mono text-xs text-white/80 break-all">{job.id}</span>
-          <span className="text-white/50">Mod</span>
-          <span>{job.mode}</span>
-          <span className="text-white/50">Domain Pack</span>
-          <span>{job.domain_pack ?? '-'}</span>
-          <span className="text-white/50">Durum</span>
-          <span>{job.status}</span>
-          <span className="text-white/50">Oluşturuldu</span>
-          <span>{new Date(job.created_at).toLocaleString('tr-TR')}</span>
-        </div>
+      <div className="report-page">
 
-        {job.request_text ? (
-          <>
-            <hr className="print-divider my-4 border-white/10" />
-            <div className="text-xs font-semibold text-white/50 uppercase tracking-widest mb-2">İstek</div>
-            <p className="text-sm text-white/80 leading-relaxed whitespace-pre-wrap">{job.request_text}</p>
-          </>
-        ) : null}
-      </div>
-
-      {/* ── Outputs ── */}
-      {outputs.length === 0 ? (
-        <div className="print-card rounded-xl border border-white/10 bg-white/5 p-6 text-sm text-white/50">
-          {job.status === 'running' || job.status === 'pending'
-            ? 'Job henüz çalışıyor, çıktılar bekleniyor…'
-            : 'Bu job için kayıtlı çıktı yok.'}
-        </div>
-      ) : (
-        outputs.map((o) => {
-          const heading = o.artifact_name ?? o.step_id ?? o.output_type
-          const agentLabel = o.agent_id ? ` — ${o.agent_id}` : ''
-          const body = outputBody(o)
-
-          return (
-            <div key={o.id} className="print-card rounded-xl border border-white/10 bg-white/5 p-6">
-              <div className="flex items-start justify-between gap-2 mb-3">
-                <h2 className="text-base font-bold leading-snug">{heading}{agentLabel}</h2>
-                <span className="shrink-0 text-xs text-white/30 mt-0.5">
-                  {new Date(o.created_at).toLocaleTimeString('tr-TR')}
-                </span>
-              </div>
-              <div className="text-[11px] text-white/30 font-mono mb-3">{o.run_id} · {o.output_type}</div>
-
-              {body ? (
-                /^```/.test(body) ? (
-                  <pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap rounded-lg border border-white/10 bg-black/30 p-3 text-xs text-white/80">
-                    {body.replace(/^```[^\n]*\n?/, '').replace(/\n?```$/, '')}
-                  </pre>
-                ) : (
-                  <div className="space-y-1">
-                    {renderMd(body)}
-                  </div>
-                )
-              ) : (
-                <span className="text-xs text-white/30 italic">Boş içerik</span>
-              )}
+        {/* Cover */}
+        <div className="report-cover">
+          <div className="report-cover-label">AgentArmy · Araştırma Raporu</div>
+          <div className="report-cover-title">
+            {job?.request_text
+              ? job.request_text.slice(0, 120) + (job.request_text.length > 120 ? '…' : '')
+              : domainLabel}
+          </div>
+          <div className="report-cover-meta">
+            <div className="report-cover-meta-item">
+              <strong>Domain Pack</strong>
+              {job?.domain_pack ?? '-'}
             </div>
-          )
-        })
-      )}
+            <div className="report-cover-meta-item">
+              <strong>Mod</strong>
+              {job?.mode ?? '-'}
+            </div>
+            <div className="report-cover-meta-item">
+              <strong>Oluşturuldu</strong>
+              {job ? new Date(job.created_at).toLocaleDateString('tr-TR', {
+                day: 'numeric', month: 'long', year: 'numeric',
+              }) : '-'}
+            </div>
+            <div className="report-cover-meta-item">
+              <strong>Bölüm</strong>
+              {outputs.length} adım çıktısı
+            </div>
+          </div>
+        </div>
 
-      {/* Footer */}
-      <div className="text-center text-xs text-white/20 pb-4">
-        AgentArmy · {new Date().toLocaleDateString('tr-TR')}
+        <div className="report-body">
+
+          {/* Request */}
+          {job?.request_text ? (
+            <div className="report-request">
+              <div className="report-request-label">Araştırma İsteği</div>
+              <div className="report-request-text">{job.request_text}</div>
+            </div>
+          ) : null}
+
+          {/* Empty state */}
+          {outputs.length === 0 ? (
+            <div className="report-empty">
+              {job?.status === 'running' || job?.status === 'pending'
+                ? 'Job hâlâ çalışıyor, çıktılar bekleniyor…'
+                : 'Bu job için kayıtlı çıktı yok.'}
+            </div>
+          ) : null}
+
+          {/* Sections */}
+          {outputs.map((o, idx) => {
+            const title = o.artifact_name ?? o.step_id ?? o.output_type
+            const body = outputBody(o)
+            const isCode = body ? /^```/.test(body) : false
+            const cleanBody = isCode
+              ? body!.replace(/^```[^\n]*\n?/, '').replace(/\n?```$/, '')
+              : body
+
+            return (
+              <div key={o.id} className="report-section">
+                <div className="report-section-header">
+                  <div className="report-section-num">{idx + 1}</div>
+                  <div style={{ flex: 1 }}>
+                    <div className="report-section-title">{title}</div>
+                    {o.agent_id ? <div className="report-section-agent">{o.agent_id}</div> : null}
+                  </div>
+                  <div className="report-section-time">
+                    {new Date(o.created_at).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
+                  </div>
+                </div>
+
+                <div className="report-section-runid">{o.run_id}</div>
+
+                {body ? (
+                  isCode ? (
+                    <pre className="report-pre"><code>{cleanBody}</code></pre>
+                  ) : (
+                    <div>{renderMd(body)}</div>
+                  )
+                ) : (
+                  <p className="report-p" style={{ color: '#aaa', fontStyle: 'italic' }}>Boş içerik</p>
+                )}
+              </div>
+            )
+          })}
+
+          {/* Footer */}
+          {outputs.length > 0 ? (
+            <div style={{
+              borderTop: '1px solid #ddd',
+              paddingTop: 24,
+              marginTop: 40,
+              textAlign: 'center',
+              fontFamily: 'Arial',
+              fontSize: 12,
+              color: '#aaa',
+            }}>
+              AgentArmy · {domainLabel} · {new Date().toLocaleDateString('tr-TR')}
+            </div>
+          ) : null}
+
+        </div>
       </div>
     </div>
   )

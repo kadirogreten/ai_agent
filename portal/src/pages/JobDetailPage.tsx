@@ -149,7 +149,7 @@ export default function JobDetailPage() {
       <div className="flex items-center justify-between">
         <div className="flex gap-2">
           <Button variant="secondary" onClick={() => navigate(-1)}>Geri</Button>
-          {row?.mode === 'ceo' ? (
+          {(row?.mode === 'ceo' || row?.mode === 'ceo-iterate') ? (
             <Button variant="outline" onClick={() => navigate(`/app/jobs/${row.id}/review`)}>
               CEO Review
             </Button>
@@ -162,6 +162,26 @@ export default function JobDetailPage() {
         </div>
         <Button variant="secondary" onClick={() => load()}>Yenile</Button>
       </div>
+
+      {/* Yeni sorular bildirimi */}
+      {row?.status === 'success' && (row.mode === 'ceo' || row.mode === 'ceo-iterate') ? (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div className="text-sm text-amber-200">
+              <span className="font-semibold">Yeni sorular üretilmiş olabilir.</span>{' '}
+              Bu job çalışırken CEO planlayıcısı ek sorular oluşturmuş olabilir.
+              Review sayfasında soruları cevaplayıp daha kapsamlı bir rapor için tekrar iterate başlatabilirsiniz.
+            </div>
+            <Button
+              variant="outline"
+              className="shrink-0 border-amber-500/50 text-amber-200 hover:bg-amber-500/10"
+              onClick={() => navigate(`/app/jobs/${row.id}/review`)}
+            >
+              Soruları Gör → İterate
+            </Button>
+          </div>
+        </div>
+      ) : null}
 
       {err ? <div className="text-sm text-red-200">{err}</div> : null}
 

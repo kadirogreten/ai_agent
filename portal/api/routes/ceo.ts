@@ -745,7 +745,6 @@ router.get('/jobs/:jobId/report.docx', async (req: Request, res: Response) => {
 
     const runIds = extractRunIdsFromResult(job.result_json)
 
-    // Fetch all outputs, ordered by creation time
     const outRes = await supabase
       .from('run_outputs')
       .select('id,run_id,step_id,agent_id,artifact_name,output_type,content_md,content_json,created_at')
@@ -755,121 +754,191 @@ router.get('/jobs/:jobId/report.docx', async (req: Request, res: Response) => {
     if (outRes.error) throw outRes.error
     const outputs = outRes.data ?? []
 
-    // ── Build document ──────────────────────────────────────────────────────
-    const divider = new Paragraph({
-      border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: 'CCCCCC', space: 4 } },
-      spacing: { before: 240, after: 240 },
-      text: '',
-    })
+    const domainLabel = (job.domain_pack ?? 'AgentArmy')
+      .replace(/-/g, ' ')
+      .replace(/\b\w/g, (c: string) => c.toUpperCase())
 
-    const titleChildren: Paragraph[] = [
+    const createdDate = new Date(
+      (job as unknown as Record<string, unknown>).created_at as string ?? Date.now()
+    ).toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' })
+
+    // ── Helper ──────────────────────────────────────────────────────────────
+    function divider(): Paragraph {
+      return new Paragraph({
+        border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: 'DDDDDD', space: 6 } },
+        spacing: { before: 280, after: 280 },
+        text: '',
+      })
+    }
+
+    // ── Cover page ──────────────────────────────────────────────────────────
+    const coverChildren: Paragraph[] = [
+      // Big blank for vertical centering
+      new Paragraph({ text: '', spacing: { before: 2400, after: 0 } }),
+
+      // Label
       new Paragraph({
-        children: [new TextRun({ text: 'AgentArmy Raporu', bold: true, size: 44 })],
+        children: [new TextRun({ text: 'AGENTARMY · ARAŞTIRMA RAPORU', size: 18, color: '8899AA', font: 'Arial', allCaps: true })],
         alignment: AlignmentType.CENTER,
-        spacing: { before: 0, after: 120 },
+        spacing: { before: 0, after: 240 },
       }),
+
+      // Title
+      new Paragraph({
+        children: [new TextRun({
+          text: job.request_text
+            ? job.request_text.slice(0, 140) + (job.request_text.length > 140 ? '…' : '')
+            : domainLabel,
+          size: 44, bold: true, font: 'Arial', color: '1A1A2E',
+        })],
+        alignment: AlignmentType.CENTER,
+        spacing: { before: 0, after: 600 },
+      }),
+
+      // Separator line
+      new Paragraph({
+        border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: '0F3460', space: 1 } },
+        spacing: { before: 0, after: 240 },
+        text: '',
+      }),
+
+      // Meta row
       new Paragraph({
         children: [
-          new TextRun({ text: 'Job: ', bold: true, size: 22 }),
-          new TextRun({ text: job.id, size: 22 }),
+          new TextRun({ text: 'Domain Pack   ', size: 18, color: '888888', font: 'Arial' }),
+          new TextRun({ text: domainLabel, size: 18, font: 'Arial', bold: true, color: '1A1A2E' }),
+          new TextRun({ text: '     |     Mod   ', size: 18, color: '888888', font: 'Arial' }),
+          new TextRun({ text: job.mode, size: 18, font: 'Arial', bold: true, color: '1A1A2E' }),
+          new TextRun({ text: '     |     Tarih   ', size: 18, color: '888888', font: 'Arial' }),
+          new TextRun({ text: createdDate, size: 18, font: 'Arial', bold: true, color: '1A1A2E' }),
         ],
-        spacing: { after: 60 },
-      }),
-      new Paragraph({
-        children: [
-          new TextRun({ text: 'Mod: ', bold: true, size: 22 }),
-          new TextRun({ text: job.mode, size: 22 }),
-        ],
-        spacing: { after: 60 },
-      }),
-      new Paragraph({
-        children: [
-          new TextRun({ text: 'Domain Pack: ', bold: true, size: 22 }),
-          new TextRun({ text: job.domain_pack ?? '-', size: 22 }),
-        ],
-        spacing: { after: 60 },
+        alignment: AlignmentType.CENTER,
+        spacing: { before: 0, after: 2880 },
       }),
     ]
 
+    // ── Sections: request + outputs ─────────────────────────────────────────
+    const bodyChildren: Paragraph[] = []
+
+    // Request box
     if (job.request_text) {
-      titleChildren.push(
+      bodyChildren.push(
         new Paragraph({
-          children: [new TextRun({ text: 'İstek:', bold: true, size: 22 })],
-          spacing: { before: 160, after: 60 },
+          children: [new TextRun({ text: 'ARAŞTIRMA İSTEĞİ', size: 16, bold: true, font: 'Arial', color: '0F3460', allCaps: true })],
+          spacing: { before: 360, after: 80 },
+          border: { left: { style: BorderStyle.SINGLE, size: 18, color: '0F3460', space: 12 } },
+          indent: { left: 220 },
         }),
-        ...mdToParagraphs(job.request_text),
+        ...job.request_text.split('\n').map((line) =>
+          new Paragraph({
+            children: [new TextRun({ text: line, size: 22, font: 'Georgia', color: '2D2D2D' })],
+            spacing: { before: 0, after: 60 },
+            indent: { left: 220 },
+            border: { left: { style: BorderStyle.SINGLE, size: 18, color: '0F3460', space: 12 } },
+          })
+        ),
+        new Paragraph({ text: '', spacing: { before: 160, after: 0 } }),
       )
     }
 
-    titleChildren.push(divider)
+    bodyChildren.push(divider())
 
-    // Output sections
-    const outputSections: Paragraph[] = []
-    for (const o of outputs) {
-      const heading = o.artifact_name ?? o.step_id ?? o.output_type
-      const agentLabel = o.agent_id ? ` (${o.agent_id})` : ''
+    if (outputs.length === 0) {
+      bodyChildren.push(new Paragraph({
+        children: [new TextRun({ text: 'Bu job için henüz çıktı kaydedilmemiş.', size: 22, color: '999999', italics: true })],
+        spacing: { before: 240 },
+      }))
+    }
 
-      outputSections.push(
+    for (let i = 0; i < outputs.length; i++) {
+      const o = outputs[i]
+      const title = o.artifact_name ?? o.step_id ?? o.output_type
+      const agentLabel = o.agent_id ? ` — ${o.agent_id}` : ''
+
+      // Section number + title
+      bodyChildren.push(
         new Paragraph({
           children: [
-            new TextRun({ text: heading + agentLabel, bold: true, size: 28 }),
+            new TextRun({ text: `${i + 1}.  `, size: 28, bold: true, font: 'Arial', color: '0F3460' }),
+            new TextRun({ text: title + agentLabel, size: 28, bold: true, font: 'Arial', color: '1A1A2E' }),
           ],
           heading: HeadingLevel.HEADING_2,
-          spacing: { before: 320, after: 120 },
+          spacing: { before: 400, after: 120 },
+        }),
+        new Paragraph({
+          children: [new TextRun({ text: o.run_id, size: 16, color: 'BBBBBB', font: 'Consolas' })],
+          spacing: { before: 0, after: 120 },
         }),
       )
 
-      // content
+      // Content
       let bodyMd = ''
       if (o.content_md?.trim()) {
         bodyMd = o.content_md
       } else if (o.content_json != null) {
-        try { bodyMd = '```\n' + JSON.stringify(o.content_json, null, 2) + '\n```' }
+        try { bodyMd = JSON.stringify(o.content_json, null, 2) }
         catch { bodyMd = String(o.content_json) }
       }
 
-      if (bodyMd) outputSections.push(...mdToParagraphs(bodyMd))
-      outputSections.push(divider)
+      if (bodyMd) bodyChildren.push(...mdToParagraphs(bodyMd))
+      bodyChildren.push(divider())
     }
 
-    if (outputs.length === 0) {
-      outputSections.push(new Paragraph({
-        children: [new TextRun({ text: 'Bu job için henüz çıktı kaydedilmemiş.', color: '888888', size: 22 })],
-      }))
-    }
+    // Footer
+    bodyChildren.push(
+      new Paragraph({
+        children: [new TextRun({ text: `AgentArmy · ${domainLabel} · ${createdDate}`, size: 18, color: 'AAAAAA', font: 'Arial' })],
+        alignment: AlignmentType.CENTER,
+        spacing: { before: 480, after: 0 },
+      }),
+    )
 
+    // ── Document ─────────────────────────────────────────────────────────────
     const doc = new Document({
       styles: {
         default: {
-          document: { run: { font: 'Arial', size: 22 } },
+          document: { run: { font: 'Georgia', size: 22, color: '2D2D2D' } },
         },
         paragraphStyles: [
           {
             id: 'Heading1', name: 'Heading 1', basedOn: 'Normal', next: 'Normal', quickFormat: true,
             run: { size: 36, bold: true, font: 'Arial', color: '1A1A2E' },
-            paragraph: { spacing: { before: 320, after: 160 }, outlineLevel: 0 },
+            paragraph: { spacing: { before: 360, after: 160 }, outlineLevel: 0 },
           },
           {
             id: 'Heading2', name: 'Heading 2', basedOn: 'Normal', next: 'Normal', quickFormat: true,
             run: { size: 28, bold: true, font: 'Arial', color: '16213E' },
-            paragraph: { spacing: { before: 240, after: 120 }, outlineLevel: 1 },
+            paragraph: { spacing: { before: 320, after: 120 }, outlineLevel: 1 },
           },
           {
             id: 'Heading3', name: 'Heading 3', basedOn: 'Normal', next: 'Normal', quickFormat: true,
             run: { size: 24, bold: true, font: 'Arial', color: '0F3460' },
-            paragraph: { spacing: { before: 160, after: 80 }, outlineLevel: 2 },
+            paragraph: { spacing: { before: 200, after: 80 }, outlineLevel: 2 },
           },
         ],
       },
-      sections: [{
-        properties: {
-          page: {
-            size: { width: 11906, height: 16838 }, // A4
-            margin: { top: 1440, right: 1440, bottom: 1440, left: 1440 },
+      sections: [
+        // Cover page
+        {
+          properties: {
+            page: {
+              size: { width: 11906, height: 16838 },
+              margin: { top: 1440, right: 1800, bottom: 1440, left: 1800 },
+            },
           },
+          children: coverChildren,
         },
-        children: [...titleChildren, ...outputSections],
-      }],
+        // Body pages
+        {
+          properties: {
+            page: {
+              size: { width: 11906, height: 16838 },
+              margin: { top: 1440, right: 1440, bottom: 1440, left: 1440 },
+            },
+          },
+          children: bodyChildren,
+        },
+      ],
     })
 
     const buffer = await Packer.toBuffer(doc)
