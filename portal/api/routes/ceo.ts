@@ -397,12 +397,25 @@ async function generateSuggestedAnswers(job: JobRow, questions: string[], planTe
   }
 
   const model = process.env.OPENAI_MODEL || job.model || 'gpt-4.1'
+
+  // Her soru için position listesi; model bu listeyi birebir doldurmalı
+  const questionLines = questions.map((q, i) => `${i + 1}. ${q}`).join('\n')
+
+  const schemaExample = JSON.stringify({
+    answers: questions.map((_, i) => ({
+      position: i + 1,
+      suggestedAnswer: '...',
+      confidence: 0.85,
+    })),
+  }, null, 2)
+
   const prompt = [
-    'Kullanıcının CEO sorularına ilk taslak cevaplarını üret.',
-    'Kısa, net, iş odaklı ve uygulanabilir cevaplar ver.',
-    'Sadece JSON döndür.',
-    'JSON schema:',
-    '{"answers":[{"position":1,"suggestedAnswer":"...","confidence":0.84}]}',
+    `Kullanıcının CEO sorularına taslak cevaplar üret. Toplam ${questions.length} soru var.`,
+    `Her soru için kesinlikle bir cevap üretmelisin — answers dizisinde tam olarak ${questions.length} eleman olmalı.`,
+    'Kısa, net, iş odaklı ve uygulanabilir cevaplar yaz. Sadece JSON döndür.',
+    '',
+    'Beklenen JSON formatı (her position için bir eleman):',
+    schemaExample,
     '',
     'Kullanıcı isteği:',
     job.request_text ?? '',
@@ -410,11 +423,10 @@ async function generateSuggestedAnswers(job: JobRow, questions: string[], planTe
     'Varsa mevcut cevap JSON:',
     job.answers_json ? JSON.stringify(job.answers_json) : '{}',
     '',
-    'Varsa plan JSON:',
-    planText || '{}',
+    planText ? `Plan/rationale:\n${planText}` : '',
     '',
-    'Sorular:',
-    ...questions.map((q, index) => `${index + 1}. ${q}`)
+    `Sorular (${questions.length} adet — hepsine cevap ver):`,
+    questionLines,
   ].join('\n')
 
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -456,10 +468,11 @@ async function generateSuggestedAnswers(job: JobRow, questions: string[], planTe
 
   return (parsed.answers ?? []).map((a, idx) => {
     // Model camelCase veya snake_case döndürebilir — ikisini de kabul et.
-    const text = a.suggestedAnswer ?? (a as Record<string, unknown>)['suggested_answer'] as string | undefined
+    const raw = a.suggestedAnswer ?? (a as Record<string, unknown>)['suggested_answer'] as string | undefined
+    const text = typeof raw === 'string' && raw.trim() ? raw.trim() : null
     return {
       position: typeof a.position === 'number' ? a.position : idx + 1,
-      suggested_answer: typeof text === 'string' ? text.trim() : '',
+      suggested_answer: text,
       confidence: typeof a.confidence === 'number' ? a.confidence : null,
     }
   })
@@ -513,7 +526,7 @@ router.post('/jobs/:jobId/review/generate', async (req: Request, res: Response) 
         job_id: job.id,
         position: index + 1,
         question,
-        suggested_answer: match?.suggested_answer || '',
+        suggested_answer: match?.suggested_answer ?? null,
         user_answer: current?.user_answer ?? savedAnswers[question] ?? null,
         status: current?.status ?? 'suggested',
         confidence: match?.confidence ?? null,
@@ -706,7 +719,7 @@ function mdToParagraphs(md: string): Paragraph[] {
 
     // Plain paragraph — handle **bold** inline
     const children: TextRun[] = []
-    let rest = line
+    const rest = line
     const boldRe = /\*\*(.+?)\*\*/g
     let last = 0
     let m: RegExpExecArray | null
