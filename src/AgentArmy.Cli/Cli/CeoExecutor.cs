@@ -188,7 +188,7 @@ public sealed class CeoExecutor
         };
 
         RiskPolicy.Enforce(runArgs);
-        var runExec = Runner.BuildExecution(_rootDir, runArgs, targetPack.Id);
+        var runExec = Runner.BuildExecution(_rootDir, runArgs, targetPack.Id, targetPack);
 
         if (planned.Mode.Equals("bundle", StringComparison.OrdinalIgnoreCase))
         {

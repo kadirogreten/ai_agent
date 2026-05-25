@@ -95,16 +95,70 @@ public sealed class CeoPlanner
         sb.AppendLine("- clarifyingQuestions: Kullanıcıya sorulacak sorular (max 5)." );
         sb.AppendLine("- runs: max 5 run üret; gerekirse bundle kullan." );
         sb.AppendLine();
+        // Primary pack bundle'larını DB'den yükle — dosyaya bakılmaz.
         sb.AppendLine("Mevcut bundle'lar:");
-        foreach (var b in BundleLoader.ListBundles(domainPack.RootDir, domainPack))
+        if (_db is not null)
         {
-            sb.AppendLine("- " + b);
+            try
+            {
+                var bundles = await _db.SelectAsync(
+                    "playbook_bundles",
+                    $"pack_id=eq.{Uri.EscapeDataString(domainPack.Id)}&select=slug,name,default_risk&limit=20",
+                    ct);
+                if (bundles.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var b in bundles.EnumerateArray())
+                    {
+                        var slug = b.TryGetProperty("slug", out var sl) && sl.ValueKind == JsonValueKind.String ? sl.GetString() : null;
+                        var name = b.TryGetProperty("name", out var nm) && nm.ValueKind == JsonValueKind.String ? nm.GetString() : null;
+                        if (!string.IsNullOrWhiteSpace(slug))
+                            sb.AppendLine($"- {slug}" + (string.IsNullOrWhiteSpace(name) ? "" : $" ({name})"));
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[CeoPlanner] bundle listeleme hatası: {ex.Message}");
+            }
         }
-        sb.AppendLine();
-        sb.AppendLine("Mevcut playbook'lar:");
-        foreach (var p in PlaybookLoader.ListPlaybooks(domainPack.RootDir, domainPack))
+        else
         {
-            sb.AppendLine("- " + p);
+            foreach (var b in BundleLoader.ListBundles(domainPack.RootDir, domainPack))
+                sb.AppendLine("- " + b);
+        }
+
+        sb.AppendLine();
+
+        // Primary pack playbook'larını DB'den yükle — dosyaya bakılmaz.
+        sb.AppendLine("Mevcut playbook'lar:");
+        if (_db is not null)
+        {
+            try
+            {
+                var pbs = await _db.SelectAsync(
+                    "playbooks",
+                    $"pack_id=eq.{Uri.EscapeDataString(domainPack.Id)}&select=slug,name,default_risk&limit=30",
+                    ct);
+                if (pbs.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var p in pbs.EnumerateArray())
+                    {
+                        var slug = p.TryGetProperty("slug", out var sl) && sl.ValueKind == JsonValueKind.String ? sl.GetString() : null;
+                        var name = p.TryGetProperty("name", out var nm) && nm.ValueKind == JsonValueKind.String ? nm.GetString() : null;
+                        if (!string.IsNullOrWhiteSpace(slug))
+                            sb.AppendLine($"- {slug}" + (string.IsNullOrWhiteSpace(name) ? "" : $" ({name})"));
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[CeoPlanner] playbook listeleme hatası: {ex.Message}");
+            }
+        }
+        else
+        {
+            foreach (var p in PlaybookLoader.ListPlaybooks(domainPack.RootDir, domainPack))
+                sb.AppendLine("- " + p);
         }
 
         // Kapı 5: Cross-pack görünür pack'lerin playbook'larını da listele.
