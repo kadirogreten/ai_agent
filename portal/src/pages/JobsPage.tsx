@@ -10,7 +10,7 @@ import { PageHeader } from '@/components/PageHeader'
 import { DataTable, type Column } from '@/components/DataTable'
 import { EmptyState } from '@/components/EmptyState'
 import { listPlaybookBundles } from '@/lib/bundles'
-import { listDomainPacks, listPlaybooksForPack } from '@/lib/domainPacks'
+import { listDomainPacks, listPlaybooksForPack, type PlaybookRow } from '@/lib/domainPacks'
 import {
   BUILTIN_DOMAIN_PACKS,
   mergeBundleOptions,
@@ -125,7 +125,7 @@ export default function JobsPage() {
     ;(async () => {
       const [bundleRes, playbookRows] = await Promise.all([
         listPlaybookBundles({ q: '', packId: domainPack, limit: 50 }),
-        listPlaybooksForPack(domainPack).catch(() => []),
+        listPlaybooksForPack(domainPack).catch((): PlaybookRow[] => []),
       ])
       if (cancelled) return
       const bundles = mergeBundleOptions(domainPack, (bundleRes.data ?? []).map((b) => ({ slug: b.slug, name: b.name })))
@@ -207,6 +207,16 @@ export default function JobsPage() {
       } else if (formMode === 'run') {
         answers = { playbookId: playbookId.trim(), topic: requestText.trim() }
       } else if (formMode === 'bundle') {
+        if (bundleOptions.length === 0) {
+          setFormErr('Bu domain pack için bundle bulunamadı. Önce bir bundle oluştur veya "run" mode kullan.')
+          setSaving(false)
+          return
+        }
+        if (!bundleOptions.some((b) => b.id === bundleId.trim())) {
+          setFormErr(`Geçersiz bundleId. Geçerli seçenekler: ${bundleOptions.map((b) => b.id).join(', ')}`)
+          setSaving(false)
+          return
+        }
         answers = { bundleId: bundleId.trim(), topic: requestText.trim() }
       }
 
@@ -418,6 +428,45 @@ export default function JobsPage() {
                 <input type="checkbox" checked={allowHighRisk} onChange={(e) => setAllowHighRisk(e.target.checked)} className="rounded" />
                 allow_high_risk
               </label>
+            </div>
+
+            <div className="md:col-span-2">
+              <div className="mb-1 text-xs text-white/40">Ajanlar</div>
+              <div className="flex flex-wrap items-center gap-4">
+                <label className="flex items-center gap-2 text-xs text-white/60">
+                  <input
+                    type="checkbox"
+                    checked={selectedAgents.length === 0}
+                    onChange={() => setSelectedAgents([])}
+                    className="rounded"
+                  />
+                  all
+                </label>
+                <div className="h-4 w-px bg-white/10" />
+                <div className="max-h-24 flex flex-wrap gap-x-4 gap-y-2 overflow-auto">
+                  {availableAgents.map((a) => {
+                    const checked = selectedAgents.includes(a.code)
+                    return (
+                      <label key={a.code} className="flex items-center gap-2 text-xs text-white/70">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) => {
+                            const next = e.target.checked
+                              ? Array.from(new Set([...selectedAgents, a.code]))
+                              : selectedAgents.filter((c) => c !== a.code)
+                            setSelectedAgents(next)
+                          }}
+                          className="rounded"
+                        />
+                        <span className="font-mono text-white/60">{a.code}</span>
+                        <span className="text-white/40">{a.name}</span>
+                      </label>
+                    )
+                  })}
+                </div>
+              </div>
+              <div className="mt-1 text-xs text-white/40">Seçim yapmazsan tüm ajanlar çalışır.</div>
             </div>
           </div>
 

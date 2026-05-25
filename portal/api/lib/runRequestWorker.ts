@@ -75,6 +75,48 @@ function extractJsonFromText(text: string): Record<string, unknown> | null {
   return null
 }
 
+async function assertBundleExistsDbFirst(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  packId: string,
+  bundleId: string,
+): Promise<void> {
+  const found = await supabase
+    .from('playbook_bundles')
+    .select('id')
+    .eq('pack_id', packId)
+    .eq('slug', bundleId)
+    .maybeSingle()
+
+  if (found.data?.id) return
+
+  try {
+    assertBundleExists(packId, bundleId)
+    return
+  } catch {
+    /* continue */
+  }
+
+  const list = await supabase
+    .from('playbook_bundles')
+    .select('slug')
+    .eq('pack_id', packId)
+    .order('slug', { ascending: true })
+    .limit(50)
+
+  const slugs = (list.data ?? [])
+    .map((r) => (r as { slug?: unknown }).slug)
+    .filter((s): s is string => typeof s === 'string' && !!s.trim())
+    .map((s) => s.trim())
+
+  if (slugs.length === 0) {
+    throw new Error(`Domain pack "${packId}" için bundle tanımı bulunamadı.`)
+  }
+
+  throw new Error(
+    `Bundle "${bundleId}" paket "${packId}" içinde yok. Geçerli bundle'lar: ${slugs.join(', ')}`,
+  )
+}
+
 // run_events tablosundan run_metrics event'ini oku (metrics.json yerine)
 async function readMetricsFromDb(
   supabase: ReturnType<typeof getSupabaseAdmin>,
@@ -363,7 +405,12 @@ function buildDotnetArgs(job: RunRequest) {
 
   if (job.mode === 'bundle') {
     const payload  = (job.answers_json ?? {}) as Record<string, unknown>
-    const bundleId = typeof payload.bundleId === 'string' ? payload.bundleId : 'weekly'
+    const bundleId =
+      typeof payload.bundleId === 'string'
+        ? payload.bundleId.trim()
+        : typeof payload.bundleSlug === 'string'
+          ? payload.bundleSlug.trim()
+          : 'weekly'
     const topic    = typeof payload.topic === 'string' ? payload.topic : (job.request_text ?? '')
     return base.concat([
       'bundle',
@@ -457,9 +504,14 @@ async function processOne(supabase: ReturnType<typeof getSupabaseAdmin>, job: Ru
 
     if (job.mode === 'bundle') {
       const payload = (job.answers_json ?? {}) as Record<string, unknown>
-      const bundleId = typeof payload.bundleId === 'string' ? payload.bundleId.trim() : 'weekly'
+      const bundleId =
+        typeof payload.bundleId === 'string'
+          ? payload.bundleId.trim()
+          : typeof payload.bundleSlug === 'string'
+            ? payload.bundleSlug.trim()
+            : 'weekly'
       const packId = job.domain_pack ?? 'market-intel'
-      assertBundleExists(packId, bundleId)
+      await assertBundleExistsDbFirst(supabase, packId, bundleId)
     }
 
     const dotnetArgs = buildDotnetArgs(job)

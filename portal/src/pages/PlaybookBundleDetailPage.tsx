@@ -50,7 +50,7 @@ export default function PlaybookBundleDetailPage() {
       domain_pack: bundle.pack_id,
       request_text: topic.trim(),
       answers_json: {
-        bundleSlug: bundle.slug,
+        bundleId: bundle.slug,
         topic: topic.trim(),
       },
       model: model.trim() || undefined,
