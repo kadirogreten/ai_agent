@@ -78,23 +78,16 @@ public static class PlaybookLoader
         LocalConfig.SupabaseConfigSection? supabase = null,
         CancellationToken ct = default)
     {
-        // DB-first: pack DB'den yüklendiyse veya supabase config var ise dene
+        // DB-first: supabase config varsa DB'den yükle, dosyaya fallback yok
         if (supabase?.IsConfigured == true && domainPack is not null)
         {
-            try
-            {
-                var pb = await DomainPackDbLoader.TryLoadPlaybookAsync(
-                    supabase, domainPack.Id, playbookId, ct);
-                if (pb is not null) return pb;
-            }
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine(
-                    $"[PlaybookLoader] DB'den yükleme başarısız ({playbookId}), dosyaya fallback: {ex.Message}");
-            }
+            var pb = await DomainPackDbLoader.TryLoadPlaybookAsync(
+                supabase, domainPack.Id, playbookId, ct);
+            if (pb is not null) return pb;
+            throw new InvalidOperationException($"Playbook not found: {playbookId}");
         }
 
-        // Dosya fallback
+        // Supabase yapılandırılmamışsa dosya sistemine bak (yerel geliştirme)
         return Load(rootDir, domainPack, playbookId);
     }
 }
