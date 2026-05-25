@@ -93,9 +93,20 @@ public static class Runner
         LocalConfig.SupabaseConfigSection? supabase,
         CancellationToken ct)
     {
-        var agentsFile = exec.Args.GetValueOrDefault("agentsFile")
-                         ?? Environment.GetEnvironmentVariable("AGENTARMY_AGENTS_FILE");
-        var agentOverrides = AgentsFileLoader.LoadAgents(agentsFile);
+        // Agent'ları DB'den yükle — dosya tabanlı yaklaşım kaldırıldı.
+        IReadOnlyDictionary<string, Agent> agentOverrides =
+            new Dictionary<string, Agent>(StringComparer.OrdinalIgnoreCase);
+        if (supabase?.IsConfigured == true)
+        {
+            try
+            {
+                agentOverrides = await DomainPackDbLoader.LoadAgentsAsync(supabase, ct);
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[Runner] DB'den agent yüklenemedi: {ex.Message}");
+            }
+        }
 
         var selectedAgentsRaw = exec.Args.GetValueOrDefault("agents")
                                 ?? Environment.GetEnvironmentVariable("AGENTARMY_SELECTED_AGENTS");

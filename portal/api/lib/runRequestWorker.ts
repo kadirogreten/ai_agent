@@ -1,7 +1,5 @@
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import fs from 'node:fs/promises'
-import os from 'node:os'
 import path from 'node:path'
 import { getSupabaseAdmin } from './supabaseAdmin.js'
 import { assertBundleExists } from './builtinBundles.js'
@@ -23,18 +21,6 @@ type RunRequest = {
   attempt_count: number
 }
 
-type DbAgent = {
-  id: string
-  name: string
-  code: string
-  description: string | null
-  capabilities: string[]
-  role: string | null
-  risk_ceiling: string | null
-  cost_class: string | null
-  behaviors: Record<string, unknown> | null
-  system_prompt: string | null
-}
 
 // IP1.7: model adına göre yaklaşık maliyet tahmini (USD)
 function estimateCostUsd(
@@ -253,36 +239,6 @@ async function writeDraftFromRunOutputs(
   }
 }
 
-async function writeAgentsFile(supabase: ReturnType<typeof getSupabaseAdmin>) {
-  const res = await supabase
-    .from('agents')
-    .select('id,name,code,description,capabilities,role,risk_ceiling,cost_class,behaviors,system_prompt')
-    .order('updated_at', { ascending: false })
-
-  if (res.error) throw res.error
-
-  const agents = (res.data ?? []) as DbAgent[]
-  if (agents.length === 0) return null
-
-  const payload = {
-    agents: agents.map((a) => ({
-      code:       a.code,
-      name:       a.name,
-      description: a.description,
-      capabilities: a.capabilities ?? [],
-      role:       a.role,
-      riskCeiling: a.risk_ceiling,
-      costClass:  a.cost_class,
-      behaviors:  a.behaviors ?? {},
-      systemPrompt: a.system_prompt,
-    })),
-  }
-
-  const dir      = await fs.mkdtemp(path.join(os.tmpdir(), 'agentarmy-agents-'))
-  const filePath = path.join(dir, 'agents.json')
-  await fs.writeFile(filePath, JSON.stringify(payload), 'utf-8')
-  return filePath
-}
 
 const DEFAULT_CMD_TIMEOUT_MS = Number.parseInt(process.env.WORKER_CMD_TIMEOUT_MS ?? '120000', 10)
 const SLA_THRESHOLD_MS       = Number.parseInt(process.env.WORKER_SLA_THRESHOLD_MS ?? '30000', 10)
@@ -516,13 +472,8 @@ async function processOne(supabase: ReturnType<typeof getSupabaseAdmin>, job: Ru
 
     const dotnetArgs = buildDotnetArgs(job)
 
-    const agentsFile = await writeAgentsFile(supabase)
-    if (agentsFile) {
-      dotnetArgs.push('--agentsFile', agentsFile)
-      log('Using agents file', { agentsFile })
-    } else {
-      log('No agents in DB; using built-in catalog')
-    }
+    // Agent'lar artık CLI tarafından doğrudan DB'den yükleniyor.
+    // writeAgentsFile / --agentsFile kaldırıldı.
 
     if (Array.isArray(job.selected_agents) && job.selected_agents.length > 0) {
       dotnetArgs.push('--agents', job.selected_agents.join(','))

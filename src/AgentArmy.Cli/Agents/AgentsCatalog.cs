@@ -60,6 +60,17 @@ public static class AgentsCatalog
             RiskCeiling = "R2",
         },
 
+        ["Coordinator"] = new Agent(
+            "Coordinator",
+            "Koordinatör",
+            "Sen bir proje koordinatörüsün. Paydaşları bir araya getirir, süreçleri yönetir, iletişimi kolaylaştırır ve çıktıları raporlarsın. Pratik, net ve aksiyon odaklısın."
+        ) {
+            Behaviors = new AgentBehaviors
+            {
+                WritesToDecisions = true,
+            },
+        },
+
         ["Operator"] = new Agent(
             "Operator",
             "Operatör",
