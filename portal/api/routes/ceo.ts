@@ -7,9 +7,14 @@ import {
   Packer,
   Paragraph,
   TextRun,
+  Table,
+  TableRow,
+  TableCell,
   HeadingLevel,
   AlignmentType,
   BorderStyle,
+  WidthType,
+  ShadingType,
 } from 'docx'
 
 const router = Router()
@@ -808,78 +813,130 @@ router.post('/jobs/:jobId/generate-visuals', async (req: Request, res: Response)
   }
 })
 
-// ── Markdown → docx paragraphs (lightweight parser) ────────────────────────
+// ── Markdown → docx elements (paragraphs + tables) ──────────────────────────
 
-function mdToParagraphs(md: string): Paragraph[] {
-  const paras: Paragraph[] = []
-  const lines = md.split('\n')
+type DocxChild = Paragraph | Table
 
-  for (const raw of lines) {
-    const line = raw.trimEnd()
-
-    // H3
-    if (/^### /.test(line)) {
-      paras.push(new Paragraph({
-        text: line.slice(4),
-        heading: HeadingLevel.HEADING_3,
-        spacing: { before: 160, after: 80 },
-      }))
-      continue
-    }
-
-    // H2
-    if (/^## /.test(line)) {
-      paras.push(new Paragraph({
-        text: line.slice(3),
-        heading: HeadingLevel.HEADING_2,
-        spacing: { before: 240, after: 120 },
-      }))
-      continue
-    }
-
-    // H1
-    if (/^# /.test(line)) {
-      paras.push(new Paragraph({
-        text: line.slice(2),
-        heading: HeadingLevel.HEADING_1,
-        spacing: { before: 320, after: 160 },
-      }))
-      continue
-    }
-
-    // Bullet
-    if (/^[-*] /.test(line)) {
-      paras.push(new Paragraph({
-        children: [new TextRun({ text: line.slice(2), size: 22 })],
-        bullet: { level: 0 },
-        spacing: { after: 40 },
-      }))
-      continue
-    }
-
-    // Empty line
-    if (!line.trim()) {
-      paras.push(new Paragraph({ text: '', spacing: { after: 80 } }))
-      continue
-    }
-
-    // Plain paragraph — handle **bold** inline
-    const children: TextRun[] = []
-    const rest = line
-    const boldRe = /\*\*(.+?)\*\*/g
-    let last = 0
-    let m: RegExpExecArray | null
-    while ((m = boldRe.exec(rest)) !== null) {
-      if (m.index > last) children.push(new TextRun({ text: rest.slice(last, m.index), size: 22 }))
-      children.push(new TextRun({ text: m[1], bold: true, size: 22 }))
-      last = m.index + m[0].length
-    }
-    if (last < rest.length) children.push(new TextRun({ text: rest.slice(last), size: 22 }))
-
-    paras.push(new Paragraph({ children, spacing: { after: 80 } }))
+function inlineRuns(text: string, baseSize = 22): TextRun[] {
+  const runs: TextRun[] = []
+  const re = /\*\*(.+?)\*\*|__(.+?)__|`([^`]+)`|\*([^*]+)\*|_([^_]+)_/g
+  let last = 0, m: RegExpExecArray | null
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) runs.push(new TextRun({ text: text.slice(last, m.index), size: baseSize }))
+    if      (m[1] != null) runs.push(new TextRun({ text: m[1], bold: true, size: baseSize }))
+    else if (m[2] != null) runs.push(new TextRun({ text: m[2], bold: true, size: baseSize }))
+    else if (m[3] != null) runs.push(new TextRun({ text: m[3], size: baseSize, font: 'Consolas' }))
+    else if (m[4] != null) runs.push(new TextRun({ text: m[4], italics: true, size: baseSize }))
+    else if (m[5] != null) runs.push(new TextRun({ text: m[5], italics: true, size: baseSize }))
+    last = m.index + m[0].length
   }
+  if (last < text.length) runs.push(new TextRun({ text: text.slice(last), size: baseSize }))
+  return runs.length > 0 ? runs : [new TextRun({ text, size: baseSize })]
+}
 
-  return paras
+function isTableLineMd(s: string) { return s.trim().startsWith('|') && s.trim().includes('|', 1) }
+function isSepLineMd(s: string)   { return /^\|[\s\-:|]+\|$/.test(s.trim()) }
+function parseRowMd(s: string)    { return s.split('|').slice(1, -1).map((c) => c.trim()) }
+
+function makeDocxTable(headers: string[], rows: string[][]): Table {
+  const colCount = Math.max(headers.length, ...rows.map((r) => r.length), 1)
+  const tableWidth = 9000
+  const colWidth = Math.floor(tableWidth / colCount)
+  const border = { style: BorderStyle.SINGLE, size: 1, color: 'CCCCCC' }
+  const borders = { top: border, bottom: border, left: border, right: border, insideH: border, insideV: border }
+  return new Table({
+    width: { size: tableWidth, type: WidthType.DXA },
+    columnWidths: Array<number>(colCount).fill(colWidth),
+    rows: [
+      new TableRow({
+        tableHeader: true,
+        children: headers.map((h) => new TableCell({
+          borders, width: { size: colWidth, type: WidthType.DXA },
+          shading: { fill: '1A1A2E', type: ShadingType.CLEAR },
+          margins: { top: 80, bottom: 80, left: 160, right: 160 },
+          children: [new Paragraph({ children: [new TextRun({ text: h, bold: true, size: 20, color: 'FFFFFF', font: 'Arial' })] })],
+        })),
+      }),
+      ...rows.map((row, ri) => new TableRow({
+        children: Array.from({ length: colCount }, (_, ci) => new TableCell({
+          borders, width: { size: colWidth, type: WidthType.DXA },
+          shading: { fill: ri % 2 === 0 ? 'FFFFFF' : 'F7F5F2', type: ShadingType.CLEAR },
+          margins: { top: 80, bottom: 80, left: 160, right: 160 },
+          children: [new Paragraph({ children: inlineRuns(row[ci] ?? '', 20) })],
+        })),
+      })),
+    ],
+  })
+}
+
+function mdToDocx(md: string): DocxChild[] {
+  const result: DocxChild[] = []
+  const lines = md.split('\n')
+  let i = 0
+  while (i < lines.length) {
+    const line = lines[i].trimEnd()
+    if (/^### /.test(line)) {
+      result.push(new Paragraph({ text: line.slice(4), heading: HeadingLevel.HEADING_3, spacing: { before: 180, after: 80 } }))
+    } else if (/^## /.test(line)) {
+      result.push(new Paragraph({ text: line.slice(3), heading: HeadingLevel.HEADING_2, spacing: { before: 260, after: 120 } }))
+    } else if (/^# /.test(line)) {
+      result.push(new Paragraph({ text: line.slice(2), heading: HeadingLevel.HEADING_1, spacing: { before: 340, after: 160 } }))
+    } else if (/^(-{3,}|\*{3,})$/.test(line.trim())) {
+      result.push(new Paragraph({ border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: 'CCCCCC', space: 4 } }, spacing: { before: 200, after: 200 }, text: '' }))
+    } else if (/^> /.test(line)) {
+      const bqLines: string[] = []
+      while (i < lines.length && /^> ?/.test(lines[i])) { bqLines.push(lines[i].replace(/^> ?/, '')); i++ }
+      for (const b of bqLines) {
+        result.push(new Paragraph({
+          children: inlineRuns(b, 22),
+          indent: { left: 360 },
+          border: { left: { style: BorderStyle.SINGLE, size: 16, color: '0F3460', space: 12 } },
+          spacing: { after: 60 },
+        }))
+      }
+      continue
+    } else if (isTableLineMd(line)) {
+      const tableLines: string[] = []
+      while (i < lines.length && isTableLineMd(lines[i])) { tableLines.push(lines[i]); i++ }
+      const allRows = tableLines.filter((l) => !isSepLineMd(l))
+      const [headerLine, ...dataLines] = allRows
+      if (headerLine) {
+        result.push(new Paragraph({ text: '', spacing: { before: 120, after: 0 } }))
+        result.push(makeDocxTable(parseRowMd(headerLine), dataLines.map(parseRowMd)))
+        result.push(new Paragraph({ text: '', spacing: { before: 0, after: 120 } }))
+      }
+      continue
+    } else if (/^[-*] /.test(line)) {
+      const items: string[] = []
+      while (i < lines.length && /^[-*] /.test(lines[i].trimEnd())) { items.push(lines[i].trimEnd().slice(2)); i++ }
+      for (const b of items) result.push(new Paragraph({ children: inlineRuns(b, 22), bullet: { level: 0 }, spacing: { after: 40 } }))
+      continue
+    } else if (/^\d+\. /.test(line)) {
+      const items: string[] = []
+      while (i < lines.length && /^\d+\. /.test(lines[i].trimEnd())) { items.push(lines[i].trimEnd().replace(/^\d+\.\s*/, '')); i++ }
+      for (const b of items) result.push(new Paragraph({ children: inlineRuns(b, 22), bullet: { level: 0 }, spacing: { after: 40 } }))
+      continue
+    } else if (/^```/.test(line)) {
+      const codeLines: string[] = []; i++
+      while (i < lines.length && !/^```/.test(lines[i])) { codeLines.push(lines[i]); i++ }
+      result.push(new Paragraph({
+        children: codeLines.flatMap((cl, ci) => [
+          ...(ci > 0 ? [new TextRun({ text: '', break: 1 })] : []),
+          new TextRun({ text: cl, font: 'Consolas', size: 18, color: '333333' }),
+        ]),
+        shading: { fill: 'F5F5F5', type: ShadingType.CLEAR },
+        border: { left: { style: BorderStyle.SINGLE, size: 16, color: '0F3460', space: 10 } },
+        indent: { left: 180 },
+        spacing: { before: 80, after: 80 },
+      }))
+    } else if (!line.trim()) {
+      result.push(new Paragraph({ text: '', spacing: { after: 80 } }))
+    } else {
+      result.push(new Paragraph({ children: inlineRuns(line, 22), spacing: { after: 80 } }))
+    }
+    i++
+  }
+  return result
 }
 
 // ── GET /api/ceo/jobs/:jobId/report.docx ────────────────────────────────────
@@ -918,7 +975,7 @@ router.get('/jobs/:jobId/report.docx', async (req: Request, res: Response) => {
     }
 
     // ── Cover page ──────────────────────────────────────────────────────────
-    const coverChildren: Paragraph[] = [
+    const coverChildren: DocxChild[] = [
       // Big blank for vertical centering
       new Paragraph({ text: '', spacing: { before: 2400, after: 0 } }),
 
@@ -964,7 +1021,7 @@ router.get('/jobs/:jobId/report.docx', async (req: Request, res: Response) => {
     ]
 
     // ── Sections: request + outputs ─────────────────────────────────────────
-    const bodyChildren: Paragraph[] = []
+    const bodyChildren: DocxChild[] = []
 
     // Request box
     if (job.request_text) {
@@ -1026,7 +1083,7 @@ router.get('/jobs/:jobId/report.docx', async (req: Request, res: Response) => {
         catch { bodyMd = String(o.content_json) }
       }
 
-      if (bodyMd) bodyChildren.push(...mdToParagraphs(bodyMd))
+      if (bodyMd) bodyChildren.push(...mdToDocx(bodyMd))
       bodyChildren.push(divider())
     }
 

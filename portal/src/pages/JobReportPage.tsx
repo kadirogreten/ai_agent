@@ -63,71 +63,124 @@ function outputBody(o: RunOutput): string | null {
 
 // ── Markdown renderer ─────────────────────────────────────────────────────────
 
-function inlineBold(text: string) {
-  const parts = text.split(/\*\*(.+?)\*\*/)
-  return parts.map((part, i) =>
-    i % 2 === 1
-      ? <strong key={i} style={{ fontWeight: 700 }}>{part}</strong>
-      : part
-  )
+// Inline: **bold**, *italic*, `code`, [text](url)
+function inlineMd(text: string): React.ReactNode {
+  const re = /\*\*(.+?)\*\*|__(.+?)__|`([^`]+)`|\*([^*]+)\*|_([^_]+)_|\[([^\]]+)\]\(([^)]+)\)/g
+  const parts: React.ReactNode[] = []
+  let last = 0, m: RegExpExecArray | null
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) parts.push(text.slice(last, m.index))
+    if      (m[1] != null) parts.push(<strong key={m.index}>{m[1]}</strong>)
+    else if (m[2] != null) parts.push(<strong key={m.index}>{m[2]}</strong>)
+    else if (m[3] != null) parts.push(<code key={m.index} className="report-code-inline">{m[3]}</code>)
+    else if (m[4] != null) parts.push(<em key={m.index}>{m[4]}</em>)
+    else if (m[5] != null) parts.push(<em key={m.index}>{m[5]}</em>)
+    else if (m[6] != null) parts.push(<a key={m.index} href={m[7]} className="report-link" target="_blank" rel="noreferrer">{m[6]}</a>)
+    last = m.index + m[0].length
+  }
+  if (last < text.length) parts.push(text.slice(last))
+  return parts.length === 0 ? text : parts.length === 1 && typeof parts[0] === 'string' ? parts[0] : <>{parts}</>
 }
+
+// Table helpers
+function isTableLine(s: string) { return s.trim().startsWith('|') && s.trim().includes('|', 1) }
+function isSepLine(s: string)   { return /^\|[\s\-:|]+\|$/.test(s.trim()) }
+function parseRow(s: string)    { return s.split('|').slice(1, -1).map(c => c.trim()) }
 
 function renderMd(md: string) {
   const elements: React.ReactNode[] = []
   const lines = md.split('\n')
   let i = 0
+
   while (i < lines.length) {
     const raw = lines[i]
     const line = raw.trimEnd()
 
-    if (/^### /.test(line)) {
-      elements.push(<h3 key={i} className="report-h3">{line.slice(4)}</h3>)
-    } else if (/^## /.test(line)) {
-      elements.push(<h2 key={i} className="report-h2">{line.slice(3)}</h2>)
-    } else if (/^# /.test(line)) {
-      elements.push(<h1 key={i} className="report-h1">{line.slice(2)}</h1>)
-    } else if (/^[-*] /.test(line)) {
-      // Collect consecutive bullet lines
-      const bullets: string[] = []
-      while (i < lines.length && /^[-*] /.test(lines[i].trimEnd())) {
-        bullets.push(lines[i].trimEnd().slice(2))
-        i++
+    // Headings
+    if      (/^### /.test(line)) { elements.push(<h3 key={i} className="report-h3">{inlineMd(line.slice(4))}</h3>); i++; continue }
+    else if (/^## /.test(line))  { elements.push(<h2 key={i} className="report-h2">{inlineMd(line.slice(3))}</h2>); i++; continue }
+    else if (/^# /.test(line))   { elements.push(<h1 key={i} className="report-h1">{inlineMd(line.slice(2))}</h1>); i++; continue }
+
+    // Horizontal rule
+    else if (/^(-{3,}|\*{3,}|_{3,})$/.test(line.trim())) {
+      elements.push(<hr key={i} className="report-hr" />); i++; continue
+    }
+
+    // Blockquote
+    else if (/^> /.test(line)) {
+      const bqLines: string[] = []
+      while (i < lines.length && /^> ?/.test(lines[i])) {
+        bqLines.push(lines[i].replace(/^> ?/, '')); i++
       }
+      elements.push(
+        <blockquote key={i} className="report-bq">
+          {bqLines.map((b, bi) => <p key={bi} className="report-p" style={{ margin: 0 }}>{inlineMd(b)}</p>)}
+        </blockquote>
+      ); continue
+    }
+
+    // Table: | col | col |
+    else if (isTableLine(line)) {
+      const tableLines: string[] = []
+      while (i < lines.length && isTableLine(lines[i])) { tableLines.push(lines[i]); i++ }
+      const allRows = tableLines.filter(l => !isSepLine(l))
+      const [headerLine, ...dataLines] = allRows
+      if (!headerLine) continue
+      const headers = parseRow(headerLine)
+      const rows = dataLines.map(parseRow)
+      elements.push(
+        <div key={i} className="report-table-wrap">
+          <table className="report-table">
+            <thead>
+              <tr>{headers.map((h, hi) => <th key={hi}>{inlineMd(h)}</th>)}</tr>
+            </thead>
+            <tbody>
+              {rows.map((row, ri) => (
+                <tr key={ri}>
+                  {headers.map((_, ci) => <td key={ci}>{inlineMd(row[ci] ?? '')}</td>)}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ); continue
+    }
+
+    // Bullet list
+    else if (/^[-*] /.test(line)) {
+      const items: string[] = []
+      while (i < lines.length && /^[-*] /.test(lines[i].trimEnd())) { items.push(lines[i].trimEnd().slice(2)); i++ }
       elements.push(
         <ul key={i} className="report-ul">
-          {bullets.map((b, bi) => <li key={bi}>{inlineBold(b)}</li>)}
+          {items.map((b, bi) => <li key={bi}>{inlineMd(b)}</li>)}
         </ul>
-      )
-      continue
-    } else if (/^\d+\. /.test(line)) {
-      // Collect ordered list
+      ); continue
+    }
+
+    // Ordered list
+    else if (/^\d+\. /.test(line)) {
       const items: string[] = []
-      while (i < lines.length && /^\d+\. /.test(lines[i].trimEnd())) {
-        items.push(lines[i].trimEnd().replace(/^\d+\.\s*/, ''))
-        i++
-      }
+      while (i < lines.length && /^\d+\. /.test(lines[i].trimEnd())) { items.push(lines[i].trimEnd().replace(/^\d+\.\s*/, '')); i++ }
       elements.push(
         <ol key={i} className="report-ol">
-          {items.map((b, bi) => <li key={bi}>{inlineBold(b)}</li>)}
+          {items.map((b, bi) => <li key={bi}>{inlineMd(b)}</li>)}
         </ol>
-      )
-      continue
-    } else if (/^```/.test(line)) {
-      // Code block
-      const codeLines: string[] = []
-      i++
-      while (i < lines.length && !/^```/.test(lines[i])) {
-        codeLines.push(lines[i])
-        i++
-      }
-      elements.push(
-        <pre key={i} className="report-pre"><code>{codeLines.join('\n')}</code></pre>
-      )
-    } else if (!line.trim()) {
-      elements.push(<div key={i} style={{ height: '0.6em' }} />)
-    } else {
-      elements.push(<p key={i} className="report-p">{inlineBold(line)}</p>)
+      ); continue
     }
+
+    // Code block
+    else if (/^```/.test(line)) {
+      const codeLines: string[] = []; i++
+      while (i < lines.length && !/^```/.test(lines[i])) { codeLines.push(lines[i]); i++ }
+      elements.push(<pre key={i} className="report-pre"><code>{codeLines.join('\n')}</code></pre>)
+    }
+
+    // Empty line
+    else if (!line.trim()) { elements.push(<div key={i} style={{ height: '0.5em' }} />) }
+
+    // Paragraph
+    else { elements.push(<p key={i} className="report-p">{inlineMd(line)}</p>) }
+
     i++
   }
   return elements
@@ -275,20 +328,85 @@ const STYLES = `
   .report-h2 { font-size: 18px; font-weight: 700; color: #16213e; margin: 22px 0 8px; border-bottom: 1px solid #e5e5e5; padding-bottom: 4px; }
   .report-h3 { font-size: 15px; font-weight: 700; color: #0f3460; margin: 18px 0 6px; }
   .report-p  { font-size: 14.5px; color: #2d2d2d; margin: 0 0 10px; }
-  .report-ul { margin: 8px 0 14px 20px; padding: 0; list-style: disc; }
-  .report-ol { margin: 8px 0 14px 20px; padding: 0; list-style: decimal; }
-  .report-ul li, .report-ol li { font-size: 14.5px; color: #2d2d2d; margin-bottom: 4px; }
+  .report-ul { margin: 8px 0 14px 24px; padding: 0; list-style: disc; }
+  .report-ol { margin: 8px 0 14px 24px; padding: 0; list-style: decimal; }
+  .report-ul li, .report-ol li { font-size: 14.5px; color: #2d2d2d; margin-bottom: 5px; line-height: 1.55; }
   .report-pre {
     background: #f5f5f5;
     border: 1px solid #e0e0e0;
-    border-radius: 6px;
-    padding: 16px;
+    border-left: 4px solid #0f3460;
+    border-radius: 0 6px 6px 0;
+    padding: 16px 18px;
     font-size: 12.5px;
     overflow-x: auto;
     margin: 12px 0 16px;
-    line-height: 1.5;
+    line-height: 1.55;
     color: #333;
     font-family: 'Consolas', 'Monaco', monospace;
+  }
+  .report-code-inline {
+    background: #f0ede8;
+    border: 1px solid #ddd;
+    border-radius: 3px;
+    padding: 1px 5px;
+    font-size: 0.88em;
+    font-family: 'Consolas', 'Monaco', monospace;
+    color: #b44;
+  }
+  .report-link { color: #0f3460; text-decoration: underline; }
+  .report-hr { border: none; border-top: 1px solid #ddd; margin: 22px 0; }
+  .report-bq {
+    border-left: 4px solid #0f3460;
+    background: #f8f7f4;
+    margin: 14px 0 18px;
+    padding: 12px 18px;
+    border-radius: 0 6px 6px 0;
+    font-style: italic;
+    color: #444;
+  }
+  /* ── Tables ── */
+  .report-table-wrap {
+    overflow-x: auto;
+    margin: 16px 0 24px;
+    border-radius: 8px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+  }
+  .report-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13.5px;
+    font-family: 'Arial', sans-serif;
+    line-height: 1.45;
+  }
+  .report-table thead th {
+    background: #1a1a2e;
+    color: #fff;
+    padding: 11px 16px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 12px;
+    letter-spacing: 0.3px;
+    white-space: nowrap;
+  }
+  .report-table thead th:first-child { border-radius: 8px 0 0 0; }
+  .report-table thead th:last-child  { border-radius: 0 8px 0 0; }
+  .report-table tbody td {
+    padding: 10px 16px;
+    border-bottom: 1px solid #ece9e4;
+    color: #2d2d2d;
+    vertical-align: top;
+  }
+  .report-table tbody tr:nth-child(even) td { background: #f9f7f4; }
+  .report-table tbody tr:last-child td { border-bottom: none; }
+  .report-table tbody tr:last-child td:first-child { border-radius: 0 0 0 8px; }
+  .report-table tbody tr:last-child td:last-child  { border-radius: 0 0 8px 0; }
+  @media print {
+    .report-table thead th {
+      -webkit-print-color-adjust: exact; print-color-adjust: exact;
+    }
+    .report-table tbody tr:nth-child(even) td {
+      -webkit-print-color-adjust: exact; print-color-adjust: exact;
+    }
   }
   /* Toolbar */
   .report-toolbar {
