@@ -216,6 +216,21 @@ public static partial class CommandDispatcher
             var executor = new CeoExecutor(rootDir, exec, pack, maxRetries, maxParallel, supabase);
             var result   = await executor.ExecuteAsync(plan, parsed, ct);
 
+            // Worker'ın run_outputs tablosunu bulabilmesi için tüm playbook run ID'lerini yaz.
+            var allRunIds = result.Runs
+                .Where(r => r.Success)
+                .SelectMany(r =>
+                {
+                    if (r.PlaybookRunIds is { Count: > 0 }) return r.PlaybookRunIds;
+                    if (r.RunId is not null) return new[] { r.RunId };
+                    return Array.Empty<string>();
+                })
+                .Distinct()
+                .ToList();
+
+            if (allRunIds.Count > 0)
+                Console.WriteLine($"PLAYBOOK_RUN_IDS={string.Join(",", allRunIds)}");
+
             Console.WriteLine(result.Succeeded > 0 ? "OK" : "FAILED");
             return result.Failed > 0 ? 1 : 0;
         }

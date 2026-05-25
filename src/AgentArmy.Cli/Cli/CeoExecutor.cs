@@ -23,7 +23,9 @@ public sealed class CeoExecutor
         bool   Success,
         string? Error,
         int    Attempts,
-        double DurationSeconds
+        double DurationSeconds,
+        string? RunId = null,
+        IReadOnlyList<string>? PlaybookRunIds = null
     );
 
     public sealed record ExecutionResult(
@@ -109,7 +111,7 @@ public sealed class CeoExecutor
             {
                 try
                 {
-                    var runId = await RunOnceAsync(planned, baseArgs, attempt, ct);
+                    var (runId, childRunIds) = await RunOnceAsync(planned, baseArgs, attempt, ct);
 
                     // Sector Discovery hook — taslağı DB'ye yaz
                     if (_supabase?.IsConfigured == true &&
@@ -134,7 +136,9 @@ public sealed class CeoExecutor
 
                     var elapsed = (DateTimeOffset.UtcNow - started).TotalSeconds;
                     return new RunResult(planned.Mode, planned.Id, planned.Topic, planned.Risk,
-                        true, null, attempt, elapsed);
+                        true, null, attempt, elapsed,
+                        RunId: runId,
+                        PlaybookRunIds: childRunIds.Count > 0 ? childRunIds : null);
                 }
                 catch (OperationCanceledException) { throw; }
                 catch (Exception ex)
@@ -162,7 +166,7 @@ public sealed class CeoExecutor
             false, lastEx?.Message ?? "Max deneme aşıldı", _maxRetries + 1, totalElapsed);
     }
 
-    private async Task<string> RunOnceAsync(
+    private async Task<(string RunId, IReadOnlyList<string> ChildRunIds)> RunOnceAsync(
         CeoPlanner.PlannedRun planned,
         Dictionary<string, string> baseArgs,
         int attempt,
@@ -194,7 +198,7 @@ public sealed class CeoExecutor
         {
             var bundle = await BundleLoader.LoadAsync(_rootDir, targetPack, planned.Id, _supabase, ct);
             var bundleResult = await Runner.RunBundleAsync(_rootDir, runExec, bundle, planned.Topic, _supabase, ct);
-            return bundleResult.BundleRunId;
+            return (bundleResult.BundleRunId, bundleResult.PlaybookRunIds);
         }
         else
         {
@@ -203,7 +207,7 @@ public sealed class CeoExecutor
             var runId    = DateTimeOffset.UtcNow.ToString("yyyyMMdd_HHmmss") + "_" + playbook.Id + suffix;
             var runDir   = Path.Combine(_rootDir, "runs", "ceo", runId);  // sadece image için
             await Runner.RunOneAsync(_rootDir, runExec, playbook, runId, runDir, _supabase, ct);
-            return runId;
+            return (runId, Array.Empty<string>());
         }
     }
 
