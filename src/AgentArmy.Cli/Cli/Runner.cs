@@ -262,7 +262,7 @@ public static class Runner
 
         foreach (var playbookId in bundle.Playbooks)
         {
-            var playbook = PlaybookLoader.Load(rootDir, exec.DomainPack, playbookId);
+            var playbook = await PlaybookLoader.LoadAsync(rootDir, exec.DomainPack, playbookId, supabase, ct);
             var runId    = DateTimeOffset.UtcNow.ToString("yyyyMMdd_HHmmss") + "_" + playbook.Id;
             playbookRunIds.Add(runId);
             var runDir   = Path.Combine(rootDir, "runs", "bundles", bundleRunId, playbook.Id);
