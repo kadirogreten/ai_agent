@@ -104,8 +104,6 @@ public static class DomainPackDbLoader
             response.EnsureSuccessStatusCode();
         }
 
-        Console.Error.WriteLine($"[DbLoader] playbook sorgusu: slug={slug} pack={packId} sonuç={body}");
-
         var rows  = JsonSerializer.Deserialize<List<DbPlaybookRow>>(body, _json);
 
         if (rows is null || rows.Count == 0) return null;
@@ -190,6 +188,40 @@ public static class DomainPackDbLoader
         if (rows is null || rows.Count == 0) return null;
 
         return rows[0].ToBundle();
+    }
+
+    /// <summary>
+    /// Tüm agent'ları DB'den yükler; AgentsCatalog.All ile birleştirilmek üzere döner.
+    /// </summary>
+    public static async Task<IReadOnlyDictionary<string, Agent>> LoadAgentsAsync(
+        LocalConfig.SupabaseConfigSection supabase,
+        CancellationToken ct = default)
+    {
+        using var http = BuildClient(supabase);
+
+        var url = $"{supabase.EffectiveUrl}/rest/v1/agents" +
+                  $"?select=name,code,description,capabilities,system_prompt,risk_ceiling,cost_class,behaviors";
+
+        var response = await http.GetAsync(url, ct);
+        var body     = await response.Content.ReadAsStringAsync(ct);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            Console.Error.WriteLine($"[DbLoader] agents sorgusu başarısız ({(int)response.StatusCode}): {body}");
+            return new Dictionary<string, Agent>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        var rows = JsonSerializer.Deserialize<List<DbAgentRow>>(body, _json)
+                   ?? new List<DbAgentRow>();
+
+        var dict = new Dictionary<string, Agent>(StringComparer.OrdinalIgnoreCase);
+        foreach (var row in rows)
+        {
+            if (string.IsNullOrWhiteSpace(row.Code)) continue;
+            dict[row.Code] = row.ToAgent();
+        }
+
+        return dict;
     }
 
     // ── private helpers ──────────────────────────────────────
@@ -352,6 +384,79 @@ public static class DomainPackDbLoader
                 Title     = Name,
                 Playbooks = (PlaybookSlugs ?? Array.Empty<string>()).ToList()
             };
+        }
+    }
+
+    public sealed class DbAgentRow
+    {
+        [JsonPropertyName("code")]          public string Code { get; set; } = "";
+        [JsonPropertyName("name")]          public string? Name { get; set; }
+        [JsonPropertyName("description")]   public string? Description { get; set; }
+        [JsonPropertyName("capabilities")]  public string[]? Capabilities { get; set; }
+        [JsonPropertyName("system_prompt")] public string? SystemPrompt { get; set; }
+        [JsonPropertyName("risk_ceiling")]  public string? RiskCeiling { get; set; }
+        [JsonPropertyName("cost_class")]    public string? CostClass { get; set; }
+        [JsonPropertyName("behaviors")]     public JsonElement? Behaviors { get; set; }
+
+        public Agent ToAgent()
+        {
+            var name = string.IsNullOrWhiteSpace(Name) ? Code : Name!;
+
+            var systemPrompt = !string.IsNullOrWhiteSpace(SystemPrompt)
+                ? SystemPrompt!.Trim()
+                : BuildPrompt(name, Description, Capabilities);
+
+            var behaviors = ParseAgentBehaviors(Behaviors);
+
+            return new Agent(Code, name, systemPrompt)
+            {
+                Behaviors   = behaviors,
+                RiskCeiling = string.IsNullOrWhiteSpace(RiskCeiling) ? "R1" : RiskCeiling!.Trim(),
+                CostClass   = string.IsNullOrWhiteSpace(CostClass)   ? "low" : CostClass!.Trim(),
+            };
+        }
+
+        private static AgentBehaviors ParseAgentBehaviors(JsonElement? element)
+        {
+            if (element is null || element.Value.ValueKind is not JsonValueKind.Object)
+                return new AgentBehaviors();
+
+            static bool Flag(JsonElement obj, string snake, string camel)
+            {
+                foreach (var key in new[] { snake, camel })
+                    if (obj.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.True)
+                        return true;
+                return false;
+            }
+
+            var e = element.Value;
+            return new AgentBehaviors
+            {
+                RequiresWebSearch      = Flag(e, "requires_web_search",      "requiresWebSearch"),
+                RequiresFullContext    = Flag(e, "requires_full_context",    "requiresFullContext"),
+                WritesToFacts          = Flag(e, "writes_to_facts",          "writesToFacts"),
+                WritesToDecisions      = Flag(e, "writes_to_decisions",      "writesToDecisions"),
+                CapturesVerifierReport = Flag(e, "captures_verifier_report", "capturesVerifierReport"),
+                TriggersContrarian     = Flag(e, "triggers_contrarian",      "triggersContrarian"),
+                AcceptsRubric          = Flag(e, "accepts_rubric",           "acceptsRubric"),
+                PrefersDomainAllowlist = Flag(e, "prefers_domain_allowlist", "prefersDomainAllowlist"),
+            };
+        }
+
+        private static string BuildPrompt(string name, string? description, string[]? capabilities)
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.Append("Sen bir ").Append(name).AppendLine(" ajansın.");
+            if (!string.IsNullOrWhiteSpace(description))
+                sb.AppendLine().AppendLine(description!.Trim());
+            var caps = (capabilities ?? Array.Empty<string>())
+                .Where(c => !string.IsNullOrWhiteSpace(c)).ToArray();
+            if (caps.Length > 0)
+            {
+                sb.AppendLine().AppendLine("Neler yaparsın:");
+                foreach (var c in caps) sb.Append("- ").AppendLine(c);
+            }
+            return sb.ToString().Trim();
         }
     }
 }
