@@ -152,7 +152,7 @@ public sealed class CeoPlanner
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"[CeoPlanner] playbook listeleme hatası: {ex.Message}");
+                Console.Error.WriteLine($"[CeoPlanner] playbook listeleme hatası: {ex.Message}.");
             }
         }
         else
