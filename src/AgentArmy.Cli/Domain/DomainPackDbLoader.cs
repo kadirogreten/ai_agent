@@ -96,9 +96,16 @@ public static class DomainPackDbLoader
                   $"&limit=1";
 
         var response = await http.GetAsync(url, ct);
-        response.EnsureSuccessStatusCode();
-
         var body = await response.Content.ReadAsStringAsync(ct);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            Console.Error.WriteLine($"[DbLoader] playbook sorgusu başarısız ({(int)response.StatusCode}): {body}");
+            response.EnsureSuccessStatusCode();
+        }
+
+        Console.Error.WriteLine($"[DbLoader] playbook sorgusu: slug={slug} pack={packId} sonuç={body}");
+
         var rows  = JsonSerializer.Deserialize<List<DbPlaybookRow>>(body, _json);
 
         if (rows is null || rows.Count == 0) return null;
