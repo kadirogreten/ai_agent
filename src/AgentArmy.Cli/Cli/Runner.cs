@@ -14,7 +14,11 @@ public static class Runner
         public required Dictionary<string, string> Args { get; init; }
     }
 
-    public static Execution BuildExecution(string rootDir, Dictionary<string, string> parsed, string? domainPackId)
+    public static Execution BuildExecution(
+        string rootDir,
+        Dictionary<string, string> parsed,
+        string? domainPackId,
+        DomainPack? preloadedPack = null)
     {
         var dryRun = (parsed.GetValueOrDefault("dryRun") ?? "false")
             .Equals("true", StringComparison.OrdinalIgnoreCase);
@@ -28,7 +32,8 @@ public static class Runner
                      ?? local?.OpenAI?.Model
                      ?? "gpt-4.1";
 
-        var domainPack = DomainPackLoader.TryLoad(rootDir, domainPackId);
+        // DB'den önceden yüklenmiş pack'i kullan — dosya sistemine bakılmaz.
+        var domainPack = preloadedPack;
 
         return new Execution
         {

@@ -35,22 +35,20 @@ public static class DomainPackLoader
     {
         if (string.IsNullOrWhiteSpace(id)) return null;
 
-        // 1. DB denemesi
+        // DB'den yükle — tek kaynak
         if (supabase?.IsConfigured == true)
         {
             try
             {
-                var dbPack = await DomainPackDbLoader.TryLoadAsync(supabase, id, ct);
-                if (dbPack is not null) return dbPack;
+                return await DomainPackDbLoader.TryLoadAsync(supabase, id, ct);
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"[DomainPackLoader] DB yüklemesi başarısız, dosyaya fallback: {ex.Message}");
+                Console.Error.WriteLine($"[DomainPackLoader] DB yüklemesi başarısız: {ex.Message}");
             }
         }
 
-        // 2. Dosya fallback
-        return TryLoadFromFiles(repoRoot, id!);
+        return null;
     }
 
     /// <summary>

@@ -101,7 +101,7 @@ public static partial class CommandDispatcher
         RiskPolicy.MergeDefaultRiskFromPlaybooks(parsed, new[] { playbook });
         RiskPolicy.Enforce(parsed);
 
-        var exec     = Runner.BuildExecution(rootDir, parsed, domainPackId);
+        var exec     = Runner.BuildExecution(rootDir, parsed, domainPackId, domainPack);
         var supabase = GetSupabase(rootDir);
         var runId    = DateTimeOffset.UtcNow.ToString("yyyyMMdd_HHmmss") + "_" + playbook.Id;
         var runDir   = Path.Combine(rootDir, "runs", runId);  // sadece image dosyaları için
@@ -134,7 +134,7 @@ public static partial class CommandDispatcher
         RiskPolicy.MergeDefaultRiskFromPlaybooks(parsed, playbooks);
         RiskPolicy.Enforce(parsed);
 
-        var exec     = Runner.BuildExecution(rootDir, parsed, domainPackId);
+        var exec     = Runner.BuildExecution(rootDir, parsed, domainPackId, domainPack);
         var supabase = GetSupabase(rootDir);
         var topic    = parsed.GetValueOrDefault("topic") ?? string.Empty;
         var result = await Runner.RunBundleAsync(rootDir, exec, bundle, topic, supabase, ct);
