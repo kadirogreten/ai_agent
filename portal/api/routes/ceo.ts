@@ -328,6 +328,8 @@ async function readQuestionsFromJob(
     if (fromPlans && fromPlans.questions.length > 0) {
       return { runDir, questions: fromPlans.questions, planText: fromPlans.planText }
     }
+    // CEO mode'da ceo_plans'ta soru yoksa boş dön — run output'u "soru" gibi gösterme.
+    return { runDir, questions: [], planText: '' }
   }
 
   const fromRuns = await readQuestionsFromRunsTable(supabase, ownerUserId, resultRunIds)
@@ -440,14 +442,18 @@ async function generateSuggestedAnswers(job: JobRow, questions: string[], planTe
   }
 
   const parsed = JSON.parse(content) as {
-    answers?: Array<{ position?: number; suggestedAnswer?: string; confidence?: number }>
+    answers?: Array<{ position?: number; suggestedAnswer?: string; suggested_answer?: string; confidence?: number }>
   }
 
-  return (parsed.answers ?? []).map((a, idx) => ({
-    position: typeof a.position === 'number' ? a.position : idx + 1,
-    suggested_answer: typeof a.suggestedAnswer === 'string' ? a.suggestedAnswer.trim() : '',
-    confidence: typeof a.confidence === 'number' ? a.confidence : null,
-  }))
+  return (parsed.answers ?? []).map((a, idx) => {
+    // Model camelCase veya snake_case döndürebilir — ikisini de kabul et.
+    const text = a.suggestedAnswer ?? (a as Record<string, unknown>)['suggested_answer'] as string | undefined
+    return {
+      position: typeof a.position === 'number' ? a.position : idx + 1,
+      suggested_answer: typeof text === 'string' ? text.trim() : '',
+      confidence: typeof a.confidence === 'number' ? a.confidence : null,
+    }
+  })
 }
 
 router.get('/jobs/:jobId/review', async (req: Request, res: Response) => {
