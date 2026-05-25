@@ -37,7 +37,8 @@ jobs:
       - name: Install
         run: npm ci --prefix portal
       - name: TypeScript check
-        run: npx --prefix portal tsc --noEmit
+        working-directory: portal
+        run: npx tsc --noEmit
       - name: Vite build
         run: npm run --prefix portal build
 
