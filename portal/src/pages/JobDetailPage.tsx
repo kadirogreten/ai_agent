@@ -154,6 +154,11 @@ export default function JobDetailPage() {
               CEO Review
             </Button>
           ) : null}
+          {row?.status === 'success' ? (
+            <Button variant="outline" onClick={() => navigate(`/app/jobs/${row.id}/report`)}>
+              Rapor
+            </Button>
+          ) : null}
         </div>
         <Button variant="secondary" onClick={() => load()}>Yenile</Button>
       </div>

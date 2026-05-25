@@ -13,6 +13,7 @@ import FactDetailPage from '@/pages/FactDetailPage'
 import JobsPage from '@/pages/JobsPage'
 import JobDetailPage from '@/pages/JobDetailPage'
 import CeoReviewPage from '@/pages/CeoReviewPage'
+import JobReportPage from '@/pages/JobReportPage'
 import AgentsPage from '@/pages/AgentsPage'
 import AgentUpsertPage from '@/pages/AgentUpsertPage'
 import ReportPage from '@/pages/ReportPage'
@@ -75,6 +76,7 @@ export default function App() {
           <Route path="jobs" element={<JobsPage />} />
           <Route path="jobs/:jobId" element={<JobDetailPage />} />
           <Route path="jobs/:jobId/review" element={<CeoReviewPage />} />
+          <Route path="jobs/:jobId/report" element={<JobReportPage />} />
           <Route path="agents" element={<AgentsPage />} />
           <Route path="agents/new" element={<AgentUpsertPage mode="new" />} />
           <Route path="agents/:agentId/edit" element={<AgentUpsertPage mode="edit" />} />

@@ -2,6 +2,15 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { Router, type Request, type Response } from 'express'
 import { getSupabaseAdmin } from '../lib/supabaseAdmin.js'
+import {
+  Document,
+  Packer,
+  Paragraph,
+  TextRun,
+  HeadingLevel,
+  AlignmentType,
+  BorderStyle,
+} from 'docx'
 
 const router = Router()
 
@@ -636,6 +645,228 @@ router.post('/jobs/:jobId/review/iterate', async (req: Request, res: Response) =
     res.status(200).json({ success: true, jobId: inserted.data.id })
   } catch (e: unknown) {
     const message = getErrorMessage(e, 'Iterate job creation failed')
+    res.status(500).json({ success: false, error: message })
+  }
+})
+
+// ── Markdown → docx paragraphs (lightweight parser) ────────────────────────
+
+function mdToParagraphs(md: string): Paragraph[] {
+  const paras: Paragraph[] = []
+  const lines = md.split('\n')
+
+  for (const raw of lines) {
+    const line = raw.trimEnd()
+
+    // H3
+    if (/^### /.test(line)) {
+      paras.push(new Paragraph({
+        text: line.slice(4),
+        heading: HeadingLevel.HEADING_3,
+        spacing: { before: 160, after: 80 },
+      }))
+      continue
+    }
+
+    // H2
+    if (/^## /.test(line)) {
+      paras.push(new Paragraph({
+        text: line.slice(3),
+        heading: HeadingLevel.HEADING_2,
+        spacing: { before: 240, after: 120 },
+      }))
+      continue
+    }
+
+    // H1
+    if (/^# /.test(line)) {
+      paras.push(new Paragraph({
+        text: line.slice(2),
+        heading: HeadingLevel.HEADING_1,
+        spacing: { before: 320, after: 160 },
+      }))
+      continue
+    }
+
+    // Bullet
+    if (/^[-*] /.test(line)) {
+      paras.push(new Paragraph({
+        children: [new TextRun({ text: line.slice(2), size: 22 })],
+        bullet: { level: 0 },
+        spacing: { after: 40 },
+      }))
+      continue
+    }
+
+    // Empty line
+    if (!line.trim()) {
+      paras.push(new Paragraph({ text: '', spacing: { after: 80 } }))
+      continue
+    }
+
+    // Plain paragraph — handle **bold** inline
+    const children: TextRun[] = []
+    let rest = line
+    const boldRe = /\*\*(.+?)\*\*/g
+    let last = 0
+    let m: RegExpExecArray | null
+    while ((m = boldRe.exec(rest)) !== null) {
+      if (m.index > last) children.push(new TextRun({ text: rest.slice(last, m.index), size: 22 }))
+      children.push(new TextRun({ text: m[1], bold: true, size: 22 }))
+      last = m.index + m[0].length
+    }
+    if (last < rest.length) children.push(new TextRun({ text: rest.slice(last), size: 22 }))
+
+    paras.push(new Paragraph({ children, spacing: { after: 80 } }))
+  }
+
+  return paras
+}
+
+// ── GET /api/ceo/jobs/:jobId/report.docx ────────────────────────────────────
+
+router.get('/jobs/:jobId/report.docx', async (req: Request, res: Response) => {
+  try {
+    const { supabase, user } = await getAuthedUser(req)
+    const job = await getOwnedJob(supabase, user.id, req.params.jobId)
+
+    const runIds = extractRunIdsFromResult(job.result_json)
+
+    // Fetch all outputs, ordered by creation time
+    const outRes = await supabase
+      .from('run_outputs')
+      .select('id,run_id,step_id,agent_id,artifact_name,output_type,content_md,content_json,created_at')
+      .in('run_id', runIds.length > 0 ? runIds : ['__none__'])
+      .order('created_at', { ascending: true })
+
+    if (outRes.error) throw outRes.error
+    const outputs = outRes.data ?? []
+
+    // ── Build document ──────────────────────────────────────────────────────
+    const divider = new Paragraph({
+      border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: 'CCCCCC', space: 4 } },
+      spacing: { before: 240, after: 240 },
+      text: '',
+    })
+
+    const titleChildren: Paragraph[] = [
+      new Paragraph({
+        children: [new TextRun({ text: 'AgentArmy Raporu', bold: true, size: 44 })],
+        alignment: AlignmentType.CENTER,
+        spacing: { before: 0, after: 120 },
+      }),
+      new Paragraph({
+        children: [
+          new TextRun({ text: 'Job: ', bold: true, size: 22 }),
+          new TextRun({ text: job.id, size: 22 }),
+        ],
+        spacing: { after: 60 },
+      }),
+      new Paragraph({
+        children: [
+          new TextRun({ text: 'Mod: ', bold: true, size: 22 }),
+          new TextRun({ text: job.mode, size: 22 }),
+        ],
+        spacing: { after: 60 },
+      }),
+      new Paragraph({
+        children: [
+          new TextRun({ text: 'Domain Pack: ', bold: true, size: 22 }),
+          new TextRun({ text: job.domain_pack ?? '-', size: 22 }),
+        ],
+        spacing: { after: 60 },
+      }),
+    ]
+
+    if (job.request_text) {
+      titleChildren.push(
+        new Paragraph({
+          children: [new TextRun({ text: 'İstek:', bold: true, size: 22 })],
+          spacing: { before: 160, after: 60 },
+        }),
+        ...mdToParagraphs(job.request_text),
+      )
+    }
+
+    titleChildren.push(divider)
+
+    // Output sections
+    const outputSections: Paragraph[] = []
+    for (const o of outputs) {
+      const heading = o.artifact_name ?? o.step_id ?? o.output_type
+      const agentLabel = o.agent_id ? ` (${o.agent_id})` : ''
+
+      outputSections.push(
+        new Paragraph({
+          children: [
+            new TextRun({ text: heading + agentLabel, bold: true, size: 28 }),
+          ],
+          heading: HeadingLevel.HEADING_2,
+          spacing: { before: 320, after: 120 },
+        }),
+      )
+
+      // content
+      let bodyMd = ''
+      if (o.content_md?.trim()) {
+        bodyMd = o.content_md
+      } else if (o.content_json != null) {
+        try { bodyMd = '```\n' + JSON.stringify(o.content_json, null, 2) + '\n```' }
+        catch { bodyMd = String(o.content_json) }
+      }
+
+      if (bodyMd) outputSections.push(...mdToParagraphs(bodyMd))
+      outputSections.push(divider)
+    }
+
+    if (outputs.length === 0) {
+      outputSections.push(new Paragraph({
+        children: [new TextRun({ text: 'Bu job için henüz çıktı kaydedilmemiş.', color: '888888', size: 22 })],
+      }))
+    }
+
+    const doc = new Document({
+      styles: {
+        default: {
+          document: { run: { font: 'Arial', size: 22 } },
+        },
+        paragraphStyles: [
+          {
+            id: 'Heading1', name: 'Heading 1', basedOn: 'Normal', next: 'Normal', quickFormat: true,
+            run: { size: 36, bold: true, font: 'Arial', color: '1A1A2E' },
+            paragraph: { spacing: { before: 320, after: 160 }, outlineLevel: 0 },
+          },
+          {
+            id: 'Heading2', name: 'Heading 2', basedOn: 'Normal', next: 'Normal', quickFormat: true,
+            run: { size: 28, bold: true, font: 'Arial', color: '16213E' },
+            paragraph: { spacing: { before: 240, after: 120 }, outlineLevel: 1 },
+          },
+          {
+            id: 'Heading3', name: 'Heading 3', basedOn: 'Normal', next: 'Normal', quickFormat: true,
+            run: { size: 24, bold: true, font: 'Arial', color: '0F3460' },
+            paragraph: { spacing: { before: 160, after: 80 }, outlineLevel: 2 },
+          },
+        ],
+      },
+      sections: [{
+        properties: {
+          page: {
+            size: { width: 11906, height: 16838 }, // A4
+            margin: { top: 1440, right: 1440, bottom: 1440, left: 1440 },
+          },
+        },
+        children: [...titleChildren, ...outputSections],
+      }],
+    })
+
+    const buffer = await Packer.toBuffer(doc)
+    const filename = `agentarmy-raporu-${job.id.slice(0, 8)}.docx`
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
+    res.send(buffer)
+  } catch (e: unknown) {
+    const message = getErrorMessage(e, 'Report generation failed')
     res.status(500).json({ success: false, error: message })
   }
 })
