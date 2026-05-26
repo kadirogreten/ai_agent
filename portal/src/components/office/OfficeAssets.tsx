@@ -17,8 +17,8 @@ export default function OfficeAssets({ scene }: OfficeAssetsProps) {
       { x: 12, z: 0 },
     ]
 
-    deskPositions.forEach((pos, idx) => {
-      createDetailedDesk(scene, pos.x, pos.z, idx)
+    deskPositions.forEach((pos) => {
+      createDetailedDesk(scene, pos.x, pos.z)
     })
 
     console.log('OfficeAssets: Desk furniture created')
@@ -31,7 +31,7 @@ export default function OfficeAssets({ scene }: OfficeAssetsProps) {
   return null
 }
 
-function createDetailedDesk(scene: THREE.Scene, x: number, z: number, index: number) {
+function createDetailedDesk(scene: THREE.Scene, x: number, z: number) {
   // Main desk surface - realistic wood with better material properties
   const deskSurfaceGeom = new THREE.BoxGeometry(3.8, 0.06, 3.8)
   const deskSurfaceMat = new THREE.MeshStandardMaterial({
@@ -81,19 +81,19 @@ function createDetailedDesk(scene: THREE.Scene, x: number, z: number, index: num
   createMonitorSetup(scene, x + 1.3, z - 1.5, frameMat)
 
   // Keyboard and mouse
-  createKeyboardAndMouse(scene, x - 0.7, z - 1.2, frameMat)
+  createKeyboardAndMouse(scene, x - 0.7, z - 1.2)
 
   // Desk lamp
   createDetailedLamp(scene, x + 0.9, z - 1.6, 1.4)
 
   // Pen holder with pens
-  createPenHolder(scene, x - 1.4, z - 1.2, frameMat)
+  createPenHolder(scene, x - 1.4, z - 1.2)
 
   // Books/papers stack
-  createBooksStack(scene, x - 1.8, z + 0.8, frameMat)
+  createBooksStack(scene, x - 1.8, z + 0.8)
 
   // Cable management
-  createCableManagement(scene, x - 1.5, 0.9, z, frameMat)
+  createCableManagement(scene, x - 1.5, 0.9, z)
 
   // Desk plant - small potted plant
   createPlant(scene, x + 1.5, z + 1.2)
@@ -102,10 +102,10 @@ function createDetailedDesk(scene: THREE.Scene, x: number, z: number, index: num
   createCoffeCup(scene, x + 1.8, z + 0.5)
 
   // Notebook/notepad
-  createNotebook(scene, x - 0.8, z + 1.0, frameMat)
+  createNotebook(scene, x - 0.8, z + 1.0)
 
   // Desk organizer/tray
-  createDeskOrganizer(scene, x - 1.2, z + 0.8, frameMat)
+  createDeskOrganizer(scene, x - 1.2, z + 0.8)
 }
 
 function createPedestal(
@@ -210,8 +210,7 @@ function createMonitorSetup(
 function createKeyboardAndMouse(
   scene: THREE.Scene,
   x: number,
-  z: number,
-  frameMat: THREE.Material
+  z: number
 ) {
   const keyboardMat = new THREE.MeshStandardMaterial({
     color: 0x2a2a2a,
@@ -334,8 +333,7 @@ function createDetailedLamp(
 function createPenHolder(
   scene: THREE.Scene,
   x: number,
-  z: number,
-  frameMat: THREE.Material
+  z: number
 ) {
   const holderMat = new THREE.MeshStandardMaterial({
     color: 0x5a5a5a,
@@ -378,8 +376,7 @@ function createPenHolder(
 function createBooksStack(
   scene: THREE.Scene,
   x: number,
-  z: number,
-  frameMat: THREE.Material
+  z: number
 ) {
   const bookColors = [0x8b4513, 0xa0522d, 0x6b5344, 0x7f6946]
 
@@ -403,8 +400,7 @@ function createCableManagement(
   scene: THREE.Scene,
   x: number,
   y: number,
-  z: number,
-  frameMat: THREE.Material
+  z: number
 ) {
   const cableMat = new THREE.MeshStandardMaterial({
     color: 0x1a1a1a,
@@ -503,8 +499,7 @@ function createCoffeCup(scene: THREE.Scene, x: number, z: number) {
 function createNotebook(
   scene: THREE.Scene,
   x: number,
-  z: number,
-  frameMat: THREE.Material
+  z: number
 ) {
   // Notebook cover - leather-like
   const notebookMat = new THREE.MeshStandardMaterial({
@@ -539,8 +534,7 @@ function createNotebook(
 function createDeskOrganizer(
   scene: THREE.Scene,
   x: number,
-  z: number,
-  frameMat: THREE.Material
+  z: number
 ) {
   // Organizer tray - simple box
   const organizerMat = new THREE.MeshStandardMaterial({

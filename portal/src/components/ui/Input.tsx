@@ -1,10 +1,10 @@
 import { cn } from '@/lib/utils'
 import type { InputHTMLAttributes } from 'react'
 
-type Props = InputHTMLAttributes<HTMLInputElement>
+type Props = InputHTMLAttributes<HTMLInputElement> & { label?: string }
 
-export function Input({ className, ...props }: Props) {
-  return (
+export function Input({ className, label, ...props }: Props) {
+  const input = (
     <input
       className={cn(
         'h-9 w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 text-sm text-white',
@@ -15,5 +15,12 @@ export function Input({ className, ...props }: Props) {
       )}
       {...props}
     />
+  )
+  if (!label) return input
+  return (
+    <div>
+      <div className="mb-1.5 text-xs font-medium text-white/50">{label}</div>
+      {input}
+    </div>
   )
 }

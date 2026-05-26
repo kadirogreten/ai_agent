@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useState } from 'react'
+import { motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabaseClient'
 import { useAuthStore } from '@/stores/authStore'
 import { Card } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
-import { Badge } from '@/components/ui/Badge'
 import { PageHeader } from '@/components/PageHeader'
 import { DataTable, type Column } from '@/components/DataTable'
 import { EmptyState } from '@/components/EmptyState'
-import { Layers } from 'lucide-react'
+import { Database } from 'lucide-react'
 
 type BundleRow = { id: string; external_id: string | null; name: string | null; created_at: string }
 
@@ -55,18 +55,31 @@ export default function BundlesPage() {
 
   return (
     <div className="space-y-4">
-      <PageHeader title="Run Bundles" description="Gruplanmış run koleksiyonları" />
+      <PageHeader
+        title="Run Bundles"
+        description="Gruplanmış run koleksiyonları"
+        icon={<Database size={18} />}
+      />
+
       <Card className="p-3">
         <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Başlık veya ID ara…" className="max-w-sm" />
       </Card>
-      {err && <div className="rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">{err}</div>}
-      <Card className="overflow-hidden">
-        <div className="border-b border-white/[0.06] px-4 py-3 text-sm font-medium text-white/60">{rows.length} bundle</div>
-        <DataTable columns={columns} rows={rows} loading={loading}
-          onRowClick={(r) => navigate(`/app/bundles/${r.id}`)}
-          empty={<EmptyState icon={<Layers size={24} />} title="Bundle bulunamadı" />}
-        />
-      </Card>
+
+      {err && (
+        <div className="flex items-start gap-2 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+          {err}
+        </div>
+      )}
+
+      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
+        <Card className="overflow-hidden">
+          <div className="border-b border-white/[0.06] px-4 py-3 text-sm font-medium text-white/60">{rows.length} bundle</div>
+          <DataTable columns={columns} rows={rows} loading={loading}
+            onRowClick={(r) => navigate(`/app/bundles/${r.id}`)}
+            empty={<EmptyState icon={<Database size={24} />} title="Bundle bulunamadı" />}
+          />
+        </Card>
+      </motion.div>
     </div>
   )
 }

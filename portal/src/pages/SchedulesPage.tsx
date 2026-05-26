@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
+import { motion } from 'framer-motion'
 import { Card } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
+import { Select } from '@/components/ui/Select'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { PageHeader } from '@/components/PageHeader'
@@ -12,9 +14,7 @@ import {
   type PersonaScheduleRow,
 } from '@/lib/schedules'
 import { listDomainPacks } from '@/lib/playbooks'
-import { Clock, Plus, Play, Trash2 } from 'lucide-react'
-
-const SELECT_CLS = 'h-9 rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 text-sm text-white outline-none focus:border-blue-500/60'
+import { Clock, Plus, Trash2 } from 'lucide-react'
 
 export default function SchedulesPage() {
   const init        = useAuthStore((s) => s.init)
@@ -60,20 +60,25 @@ export default function SchedulesPage() {
       setFormErr('Tüm zorunlu alanları doldur.')
       return
     }
-    const res = await createSchedule({
-      name:            fName.trim(),
-      domain_pack:     fPack,
-      persona_slug:    fPersona.trim(),
-      playbook_slug:   fPlaybook.trim(),
-      topic_template:  fTopic.trim(),
-      cron_expression: fCron.trim(),
-      risk:            fRisk,
-      allow_high_risk: fRisk === 'R2' || fRisk === 'R3',
-    })
-    if (res.error) { setFormErr(res.error); return }
-    setShowForm(false)
-    setFName(''); setFPack(''); setFPersona(''); setFPlaybook(''); setFTopic(''); setFCron('0 8 * * *'); setFRisk('R1')
-    await load()
+    setSaving(true)
+    try {
+      const res = await createSchedule({
+        name:            fName.trim(),
+        domain_pack:     fPack,
+        persona_slug:    fPersona.trim(),
+        playbook_slug:   fPlaybook.trim(),
+        topic_template:  fTopic.trim(),
+        cron_expression: fCron.trim(),
+        risk:            fRisk,
+        allow_high_risk: fRisk === 'R2' || fRisk === 'R3',
+      })
+      if (res.error) { setFormErr(res.error); return }
+      setShowForm(false)
+      setFName(''); setFPack(''); setFPersona(''); setFPlaybook(''); setFTopic(''); setFCron('0 8 * * *'); setFRisk('R1')
+      await load()
+    } finally {
+      setSaving(false)
+    }
   }
 
   const columns: Column<PersonaScheduleRow>[] = [
@@ -144,6 +149,7 @@ export default function SchedulesPage() {
       <PageHeader
         title="Zamanlanmış Çalıştırmalar"
         description="Persona + playbook eşleşmesi cron'a göre tetiklenir"
+        icon={<Clock size={18} />}
         actions={
           <Button size="sm" onClick={() => setShowForm(!showForm)}>
             <Plus size={13} className="mr-1" /> {showForm ? 'Kapat' : 'Yeni Schedule'}
@@ -152,74 +158,90 @@ export default function SchedulesPage() {
       />
 
       {err && (
-        <div className="rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">{err}</div>
+        <div className="flex items-start gap-2 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+          {err}
+        </div>
       )}
 
       {showForm && (
-        <Card className="p-4 space-y-3">
-          <h3 className="text-sm font-semibold">Yeni Schedule</h3>
-          <div className="grid gap-3 md:grid-cols-2">
-            <div>
-              <label className="mb-1 block text-xs text-white/40">Ad</label>
-              <Input value={fName} onChange={(e) => setFName(e.target.value)} placeholder="Sabah pazar brief'i" />
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+          <Card className="p-4 space-y-3">
+            <h3 className="text-sm font-semibold text-white">Yeni Schedule</h3>
+            <div className="grid gap-3 md:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-xs text-white/40">Ad</label>
+                <Input value={fName} onChange={(e) => setFName(e.target.value)} placeholder="Sabah pazar brief'i" />
+              </div>
+              <div>
+                <Select
+                  label="Domain Pack"
+                  value={fPack}
+                  onChange={(e) => setFPack(e.target.value)}
+                >
+                  <option value="">Seç...</option>
+                  {packs.map((p) => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </Select>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs text-white/40">Persona Slug</label>
+                <Input value={fPersona} onChange={(e) => setFPersona(e.target.value)} placeholder="pazar-arastirmaci" />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs text-white/40">Playbook Slug</label>
+                <Input value={fPlaybook} onChange={(e) => setFPlaybook(e.target.value)} placeholder="mi-weekly-brief" />
+              </div>
+              <div className="md:col-span-2">
+                <label className="mb-1 block text-xs text-white/40">Topic Şablonu (her tetiklemede kullanılacak)</label>
+                <Input value={fTopic} onChange={(e) => setFTopic(e.target.value)} placeholder="AI ajan platformları" />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs text-white/40">Cron (standart 5-alan)</label>
+                <Input value={fCron} onChange={(e) => setFCron(e.target.value)} placeholder="0 8 * * *" />
+                <div className="mt-1 text-xs text-white/30">"0 8 * * *" → her gün 08:00. "0 9 * * 1" → her Pazartesi 09:00.</div>
+              </div>
+              <div>
+                <Select
+                  label="Risk"
+                  value={fRisk}
+                  onChange={(e) => setFRisk(e.target.value as 'R0' | 'R1' | 'R2' | 'R3')}
+                >
+                  <option value="R0">R0</option>
+                  <option value="R1">R1</option>
+                  <option value="R2">R2</option>
+                  <option value="R3">R3</option>
+                </Select>
+              </div>
             </div>
-            <div>
-              <label className="mb-1 block text-xs text-white/40">Domain Pack</label>
-              <select value={fPack} onChange={(e) => setFPack(e.target.value)} className={SELECT_CLS}>
-                <option value="">Seç...</option>
-                {packs.map((p) => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="mb-1 block text-xs text-white/40">Persona Slug</label>
-              <Input value={fPersona} onChange={(e) => setFPersona(e.target.value)} placeholder="pazar-arastirmaci" />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs text-white/40">Playbook Slug</label>
-              <Input value={fPlaybook} onChange={(e) => setFPlaybook(e.target.value)} placeholder="mi-weekly-brief" />
-            </div>
-            <div className="md:col-span-2">
-              <label className="mb-1 block text-xs text-white/40">Topic Şablonu (her tetiklemede kullanılacak)</label>
-              <Input value={fTopic} onChange={(e) => setFTopic(e.target.value)} placeholder="AI ajan platformları" />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs text-white/40">Cron (standart 5-alan)</label>
-              <Input value={fCron} onChange={(e) => setFCron(e.target.value)} placeholder="0 8 * * *" />
-              <div className="mt-1 text-xs text-white/30">"0 8 * * *" → her gün 08:00. "0 9 * * 1" → her Pazartesi 09:00.</div>
-            </div>
-            <div>
-              <label className="mb-1 block text-xs text-white/40">Risk</label>
-              <select value={fRisk} onChange={(e) => setFRisk(e.target.value as 'R0' | 'R1' | 'R2' | 'R3')} className={SELECT_CLS}>
-                <option value="R0">R0</option>
-                <option value="R1">R1</option>
-                <option value="R2">R2</option>
-                <option value="R3">R3</option>
-              </select>
-            </div>
-          </div>
 
-          {formErr && <div className="rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-300">{formErr}</div>}
+            {formErr && (
+              <div className="flex items-start gap-2 rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+                {formErr}
+              </div>
+            )}
 
-          <div className="flex justify-end gap-2 pt-2">
-            <Button variant="secondary" size="sm" onClick={() => setShowForm(false)} disabled={saving}>İptal</Button>
-            <Button size="sm" onClick={onCreate} disabled={saving}>Kaydet</Button>
-          </div>
-        </Card>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="secondary" size="sm" onClick={() => setShowForm(false)} disabled={saving}>İptal</Button>
+              <Button size="sm" onClick={onCreate} disabled={saving}>Kaydet</Button>
+            </div>
+          </Card>
+        </motion.div>
       )}
 
-      <Card className="overflow-hidden">
-        <div className="border-b border-white/[0.06] px-4 py-3 text-sm font-medium text-white/60">
-          {rows.length} schedule
-        </div>
-        <DataTable
-          columns={columns}
-          rows={rows}
-          loading={loading}
-          empty={<EmptyState icon={<Clock size={24} />} title="Henüz schedule yok" />}
-        />
-      </Card>
+      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
+        <Card className="overflow-hidden">
+          <div className="border-b border-white/[0.06] px-4 py-3 text-sm font-medium text-white/60">
+            {rows.length} schedule
+          </div>
+          <DataTable
+            columns={columns}
+            rows={rows}
+            loading={loading}
+            empty={<EmptyState icon={<Clock size={24} />} title="Henüz schedule yok" />}
+          />
+        </Card>
+      </motion.div>
     </div>
   )
 }

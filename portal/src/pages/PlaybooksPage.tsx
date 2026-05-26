@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { motion } from 'framer-motion'
 import { Link, useNavigate } from 'react-router-dom'
 import { Card } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
+import { Select } from '@/components/ui/Select'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { PageHeader } from '@/components/PageHeader'
@@ -90,6 +92,7 @@ export default function PlaybooksPage() {
       <PageHeader
         title="Playbook'lar"
         description="Ajan çalıştırma şablonları"
+        icon={<BookOpen size={18} />}
         actions={
           <Link to="/app/playbooks/new"><Button size="sm"><Plus size={13} className="mr-1" />Yeni Playbook</Button></Link>
         }
@@ -98,32 +101,38 @@ export default function PlaybooksPage() {
       <Card className="p-3">
         <div className="flex flex-wrap gap-2">
           <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Ad veya slug ara…" className="w-56" />
-          <select
+          <Select
             value={packId}
             onChange={(e) => setPackId(e.target.value)}
-            className="h-9 rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 text-sm text-white outline-none focus:border-blue-500/60"
+            className="w-44"
           >
             <option value="">Tüm pack'ler</option>
             {packs.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
+          </Select>
           <Button variant="ghost" size="sm" onClick={() => { setQ(''); setPackId('') }}>Temizle</Button>
         </div>
       </Card>
 
-      {err && <div className="rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">{err}</div>}
-
-      <Card className="overflow-hidden">
-        <div className="border-b border-white/[0.06] px-4 py-3 text-sm font-medium text-white/60">
-          {rows.length} playbook
+      {err && (
+        <div className="flex items-start gap-2 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+          {err}
         </div>
-        <DataTable
-          columns={columns}
-          rows={rows}
-          loading={loading}
-          onRowClick={(r) => navigate(`/app/playbooks/${r.id}/edit`)}
-          empty={<EmptyState icon={<BookOpen size={24} />} title="Playbook bulunamadı" />}
-        />
-      </Card>
+      )}
+
+      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
+        <Card className="overflow-hidden">
+          <div className="border-b border-white/[0.06] px-4 py-3 text-sm font-medium text-white/60">
+            {rows.length} playbook
+          </div>
+          <DataTable
+            columns={columns}
+            rows={rows}
+            loading={loading}
+            onRowClick={(r) => navigate(`/app/playbooks/${r.id}/edit`)}
+            empty={<EmptyState icon={<BookOpen size={24} />} title="Playbook bulunamadı" />}
+          />
+        </Card>
+      </motion.div>
     </div>
   )
 }

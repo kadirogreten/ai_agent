@@ -2,8 +2,11 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
+import { Badge } from '@/components/ui/Badge'
+import { PageHeader } from '@/components/PageHeader'
 import { useAuthStore } from '@/stores/authStore'
 import { parseApiResponse } from '@/lib/parseApiResponse'
+import { ClipboardList } from 'lucide-react'
 
 type ReviewItem = {
   position: number
@@ -41,6 +44,25 @@ function buildStatus(answer: string, suggested: string | null): ReviewItem['stat
   if (!trimmed) return 'suggested'
   if (suggested && trimmed === suggested.trim()) return 'approved'
   return 'edited'
+}
+
+function statusTone(s: ReviewItem['status']): 'green' | 'yellow' | 'gray' {
+  if (s === 'approved') return 'green'
+  if (s === 'edited') return 'yellow'
+  return 'gray'
+}
+
+function ConfidenceBar({ value }: { value: number }) {
+  const pct = Math.round(value * 100)
+  const color = pct >= 80 ? 'bg-emerald-500' : pct >= 50 ? 'bg-amber-500' : 'bg-red-500'
+  return (
+    <div className="flex items-center gap-2">
+      <div className="h-1.5 w-20 overflow-hidden rounded-full bg-white/10">
+        <div className={`h-full rounded-full transition-all ${color}`} style={{ width: `${pct}%` }} />
+      </div>
+      <span className="text-xs text-white/40">{pct}%</span>
+    </div>
+  )
 }
 
 export default function CeoReviewPage() {
@@ -213,80 +235,121 @@ export default function CeoReviewPage() {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div>
-          <div className="text-lg font-semibold">CEO Review</div>
-          <div className="text-sm text-white/60">
-            Ajan önerisini gör, cevabı düzenle ve onaylanan cevaplarla CEO iterate başlat.
+    <div className="space-y-5">
+      <PageHeader
+        title="CEO Review"
+        description="Ajan önerisini gör, cevabı düzenle ve onaylanan cevaplarla CEO iterate başlat."
+        icon={<ClipboardList size={16} />}
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <Button variant="ghost" size="sm" onClick={() => navigate(-1)}>Geri</Button>
+            <Button variant="secondary" size="sm" onClick={() => load()} disabled={loading}>
+              {loading ? 'Yükleniyor…' : 'Yenile'}
+            </Button>
+            <Button variant="secondary" size="sm" onClick={() => generateSuggestions()} disabled={generating || !jobId}>
+              {generating ? 'Üretiliyor…' : 'Ajan Önerilerini Oluştur'}
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => saveAnswers()} disabled={saving || items.length === 0}>
+              {saving ? 'Kaydediliyor…' : 'Kaydet'}
+            </Button>
+            <Button size="sm" onClick={() => runIterate()} disabled={iterating || items.length === 0}>
+              {iterating ? 'Hazırlanıyor…' : 'CEO Iterate Başlat'}
+            </Button>
           </div>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="secondary" onClick={() => navigate(-1)}>Geri</Button>
-          <Button variant="outline" onClick={() => load()} disabled={loading}>Yenile</Button>
-          <Button variant="secondary" onClick={() => generateSuggestions()} disabled={generating || !jobId}>
-            {generating ? 'Üretiliyor...' : 'Ajan Önerilerini Oluştur'}
-          </Button>
-          <Button variant="outline" onClick={() => saveAnswers()} disabled={saving || items.length === 0}>
-            {saving ? 'Kaydediliyor...' : 'Kaydet'}
-          </Button>
-          <Button onClick={() => runIterate()} disabled={iterating || items.length === 0}>
-            {iterating ? 'Hazırlanıyor...' : 'CEO Iterate Başlat'}
-          </Button>
-        </div>
-      </div>
+        }
+      />
 
+      {/* Job summary card */}
       {job ? (
         <Card className="p-4">
-          <div className="text-sm font-medium">Job Özeti</div>
-          <div className="mt-2 grid gap-2 text-xs text-white/60 md:grid-cols-4">
-            <div>Mode: {job.mode}</div>
-            <div>Status: {job.status}</div>
-            <div>Domain: {job.domain_pack ?? '-'}</div>
-            <div>Job ID: {job.id}</div>
+          <div className="flex items-center gap-2 mb-3">
+            <div className="text-sm font-semibold text-white">Job Özeti</div>
           </div>
-          <pre className="mt-3 whitespace-pre-wrap rounded-lg border border-white/10 bg-black/20 p-3 text-xs text-white/80">
+          <div className="grid gap-3 text-xs md:grid-cols-4">
+            <div className="rounded-lg bg-white/[0.03] border border-white/[0.06] px-3 py-2">
+              <div className="text-white/40 mb-0.5">Mode</div>
+              <div className="font-medium text-white/80">{job.mode}</div>
+            </div>
+            <div className="rounded-lg bg-white/[0.03] border border-white/[0.06] px-3 py-2">
+              <div className="text-white/40 mb-0.5">Status</div>
+              <div className="font-medium text-white/80">{job.status}</div>
+            </div>
+            <div className="rounded-lg bg-white/[0.03] border border-white/[0.06] px-3 py-2">
+              <div className="text-white/40 mb-0.5">Domain</div>
+              <div className="font-medium text-white/80">{job.domain_pack ?? '-'}</div>
+            </div>
+            <div className="rounded-lg bg-white/[0.03] border border-white/[0.06] px-3 py-2">
+              <div className="text-white/40 mb-0.5">Job ID</div>
+              <div className="font-mono font-medium text-white/60 truncate">{job.id}</div>
+            </div>
+          </div>
+          <pre className="mt-3 whitespace-pre-wrap rounded-lg border border-white/[0.08] bg-black/20 p-3 text-xs text-white/70 max-h-32 overflow-auto">
             {job.request_text ?? '(empty)'}
           </pre>
         </Card>
       ) : null}
 
-      {err ? <div className="rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">{err}</div> : null}
-      {notice ? <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-200">{notice}</div> : null}
+      {/* Alerts */}
+      {err ? (
+        <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+          {err}
+        </div>
+      ) : null}
+      {notice ? (
+        <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
+          {notice}
+        </div>
+      ) : null}
 
+      {/* Question list */}
       {loading ? (
-        <Card className="p-4 text-sm text-white/70">Yükleniyor...</Card>
+        <Card className="p-6 text-center text-sm text-white/50">Yükleniyor…</Card>
       ) : items.length === 0 ? (
-        <Card className="p-4">
-          <div className="text-sm font-medium">Henüz soru yok</div>
-          <div className="mt-2 text-sm text-white/60">
+        <Card className="p-6">
+          <div className="text-sm font-medium text-white">Henüz soru yok</div>
+          <div className="mt-1.5 text-sm text-white/50">
             CEO job tamamlandıktan sonra sorular burada görünür. Ardından ajan önerilerini üretebilirsin.
           </div>
         </Card>
       ) : (
         <div className="space-y-4">
           {items.map((item) => (
-            <Card key={item.position} className="p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="text-xs uppercase tracking-wide text-white/50">Soru {item.position}</div>
-                  <div className="mt-1 text-sm font-medium text-white">{item.question}</div>
+            <Card key={item.position} className="overflow-hidden">
+              {/* Question header */}
+              <div className="flex items-start justify-between gap-3 border-b border-white/[0.06] px-4 py-3">
+                <div className="flex items-start gap-3">
+                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-500/15 border border-blue-500/20 text-xs font-bold text-blue-300">
+                    {item.position}
+                  </div>
+                  <div>
+                    <div className="text-[10px] uppercase tracking-wider text-white/35 mb-0.5">Soru</div>
+                    <div className="text-sm font-medium text-white leading-snug">{item.question}</div>
+                  </div>
                 </div>
-                <div className="text-xs text-white/50">
-                  {item.confidence != null ? `Güven: %${Math.round(item.confidence * 100)}` : item.status}
+                <div className="flex shrink-0 flex-col items-end gap-1.5">
+                  <Badge tone={statusTone(item.status)}>{item.status}</Badge>
+                  {item.confidence != null && <ConfidenceBar value={item.confidence} />}
                 </div>
               </div>
 
-              <div className="mt-4 grid gap-4 md:grid-cols-2">
-                <div>
-                  <div className="mb-2 text-xs text-white/60">Ajan önerisi</div>
-                  <div className="min-h-[140px] whitespace-pre-wrap rounded-lg border border-white/10 bg-black/20 p-3 text-sm text-white/80">
-                    {item.suggested_answer || 'Henüz ajan önerisi üretilmedi.'}
-                  </div>
-                  <div className="mt-2 flex gap-2">
+              {/* Answer columns */}
+              <div className="grid gap-0 md:grid-cols-2">
+                {/* Suggested answer */}
+                <div className="border-b border-white/[0.06] p-4 md:border-b-0 md:border-r">
+                  <div className="mb-2 text-xs font-medium text-white/50">Ajan önerisi</div>
+                  {item.suggested_answer ? (
+                    <div className="rounded-lg border border-blue-500/15 bg-blue-500/[0.06] p-3 text-xs text-blue-200/80 whitespace-pre-wrap min-h-[120px]">
+                      {item.suggested_answer}
+                    </div>
+                  ) : (
+                    <div className="flex min-h-[120px] items-center justify-center rounded-lg border border-white/[0.06] bg-white/[0.02] text-xs text-white/30">
+                      Henüz ajan önerisi üretilmedi.
+                    </div>
+                  )}
+                  <div className="mt-2">
                     <Button
                       size="sm"
-                      variant="outline"
+                      variant="ghost"
                       disabled={!item.suggested_answer || !item.suggested_answer.trim()}
                       onClick={() => updateItem(item.position, (current) => {
                         const suggested = current.suggested_answer ?? ''
@@ -303,8 +366,9 @@ export default function CeoReviewPage() {
                   </div>
                 </div>
 
-                <div>
-                  <div className="mb-2 text-xs text-white/60">Senin cevabın</div>
+                {/* User answer */}
+                <div className="p-4">
+                  <div className="mb-2 text-xs font-medium text-white/50">Senin cevabın</div>
                   <textarea
                     value={item.user_answer ?? ''}
                     onChange={(e) =>
@@ -314,8 +378,8 @@ export default function CeoReviewPage() {
                         status: buildStatus(e.target.value, current.suggested_answer),
                       }))
                     }
-                    rows={8}
-                    className="w-full rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-white outline-none focus:border-blue-400"
+                    rows={7}
+                    className="w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2.5 text-sm text-white outline-none transition-all duration-150 focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/15 placeholder:text-white/20 resize-none"
                     placeholder="İstersen ajanın cevabını düzenle veya sıfırdan yaz."
                   />
                 </div>

@@ -40,16 +40,6 @@ export default function OfficeGeometry({ scene }: OfficeGeometryProps) {
     gridBright.position.y = 0.015
     scene.add(gridBright)
 
-    // ── Floor accent lines (connecting desk zones) ─────────────────────
-    const accentMat = new THREE.LineBasicMaterial({ color: 0x1e40af, linewidth: 1 })
-    const deskPositions = [
-      new THREE.Vector3(-12, 0.05, 0),
-      new THREE.Vector3(-6,  0.05, -10),
-      new THREE.Vector3(0,   0.05, -15),
-      new THREE.Vector3(6,   0.05, -10),
-      new THREE.Vector3(12,  0.05, 0),
-    ]
-
     // ── Ceiling ────────────────────────────────────────────────────────
     const ceiling = new THREE.Mesh(
       new THREE.PlaneGeometry(50, 50),
@@ -109,6 +99,13 @@ export default function OfficeGeometry({ scene }: OfficeGeometryProps) {
     })
 
     // ── Desks ──────────────────────────────────────────────────────────
+    const deskPositions = [
+      new THREE.Vector3(-12, 0.05, 0),
+      new THREE.Vector3(-6,  0.05, -10),
+      new THREE.Vector3(0,   0.05, -15),
+      new THREE.Vector3(6,   0.05, -10),
+      new THREE.Vector3(12,  0.05, 0),
+    ]
     const deskSurfMat   = mat(0x0f1e35, 0.2, 0.6)        // dark steel-glass
     const deskFrameMat  = mat(0x1a2a40, 0.15, 0.85)       // polished dark metal
     const monitorMat    = mat(0x060c18, 0.3, 0.5)

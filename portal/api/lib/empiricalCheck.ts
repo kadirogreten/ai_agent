@@ -128,7 +128,7 @@ async function check1_factsInjection(sb: SupabaseClient) {
   if (injectionFound === 0) {
     fail('Facts injection hiç doğrulanamadı. run_event_logs.event_type kontrolü gerekiyor.')
   } else {
-    pass(`${injectionFound}/${Math.min(repeatedTopics.length, 5)} tekrarlı topic\'te injection kanıtlandı.`)
+    pass(`${injectionFound}/${Math.min(repeatedTopics.length, 5)} tekrarlı topic'te injection kanıtlandı.`)
   }
 }
 
@@ -204,7 +204,7 @@ async function check2_behaviorsOverlay(sb: SupabaseClient) {
   }
 
   if (confirmed > 0) pass(`${confirmed} run'da behaviors overlay doğrulandı.`)
-  else fail('Hiçbir run\'da overlay kanıtlanamadı. C# log satırları kontrol edin.')
+  else fail("Hiçbir run'da overlay kanıtlanamadı. C# log satırları kontrol edin.")
 }
 
 // ─── Check 3: RiskGate ───────────────────────────────────────────────────────
@@ -259,9 +259,9 @@ async function check3_riskGate(sb: SupabaseClient) {
     const queueIds = new Set(queue.map((q) => q.run_request_id))
     const gated = highRiskRuns.filter((r) => queueIds.has(r.id))
     if (gated.length > 0) {
-      pass(`${gated.length}/${highRiskRuns.length} R2/R3 run approval_queue\'ya yazılmış.`)
+      pass(`${gated.length}/${highRiskRuns.length} R2/R3 run approval_queue'ya yazılmış.`)
     } else {
-      fail(`${highRiskRuns.length} R2/R3 run var ama hiçbiri queue\'da — RiskGate devreye girmemiş olabilir.`)
+      fail(`${highRiskRuns.length} R2/R3 run var ama hiçbiri queue'da — RiskGate devreye girmemiş olabilir.`)
     }
   }
 }

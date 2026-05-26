@@ -29,22 +29,27 @@ export async function listSelfReflectionSignals(limit = 50) {
     .order('created_at', { ascending: false })
     .limit(limit)
 
-  const rows = (res.data ?? []).map((r: any) => {
-    const a = r.answers_json ?? {}
+  const rows = (res.data ?? []).map((r) => {
+    const row = r as Record<string, unknown>
+    const answersRaw = row.answers_json
+    const a =
+      answersRaw && typeof answersRaw === 'object' && !Array.isArray(answersRaw)
+        ? (answersRaw as Record<string, unknown>)
+        : {}
     return {
-      id:               r.id,
-      status:           r.status,
-      domain_pack:      r.domain_pack ?? '',
+      id:               String(row.id ?? ''),
+      status:           (row.status as SelfReflectionSignal['status']) ?? 'pending',
+      domain_pack:      typeof row.domain_pack === 'string' ? row.domain_pack : '',
       playbook_slug:    String(a.playbook_slug ?? ''),
       fail_rate:        Number(a.fail_rate ?? 0),
       total_runs:       Number(a.total_runs ?? 0),
       fail_runs:        Number(a.fail_runs ?? 0),
       analysis_window:  String(a.analysis_window ?? ''),
-      request_text:     r.request_text ?? '',
-      result_json:      r.result_json ?? null,
-      error_message:    r.error_message ?? null,
-      created_at:       r.created_at,
-      finished_at:      r.finished_at,
+      request_text:     typeof row.request_text === 'string' ? row.request_text : '',
+      result_json:      (row.result_json as Record<string, unknown> | null) ?? null,
+      error_message:    typeof row.error_message === 'string' ? row.error_message : null,
+      created_at:       String(row.created_at ?? ''),
+      finished_at:      (row.finished_at as string | null) ?? null,
     } as SelfReflectionSignal
   })
 

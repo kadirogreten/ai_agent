@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
-  listDrafts, getDraft, mergeDraft, rejectDraft,
+  listDrafts, mergeDraft, rejectDraft,
   type PackDraftRow, type DraftStatus,
 } from '@/lib/domainPacks'
 import {

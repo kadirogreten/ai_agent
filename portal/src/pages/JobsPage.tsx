@@ -6,6 +6,8 @@ import { Card } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
+import { Select } from '@/components/ui/Select'
+import { Toggle, Checkbox } from '@/components/ui/Toggle'
 import { PageHeader } from '@/components/PageHeader'
 import { DataTable, type Column } from '@/components/DataTable'
 import { EmptyState } from '@/components/EmptyState'
@@ -53,8 +55,6 @@ function statusTone(s: JobStatus): 'green' | 'red' | 'yellow' | 'gray' {
   if (s === 'pending') return 'gray'
   return 'gray'
 }
-
-const SELECT_CLS = 'h-9 rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 text-sm text-white outline-none focus:border-blue-500/60'
 
 export default function JobsPage() {
   const init        = useAuthStore((s) => s.init)
@@ -291,201 +291,247 @@ export default function JobsPage() {
       <PageHeader
         title="Run Jobs"
         description="Tüm agent job'ları"
+        icon={<Zap size={16} />}
         actions={
-          <Button size="sm" onClick={() => setFormOpen(!formOpen)}>
-            <Plus size={13} className="mr-1" /> {formOpen ? 'Kapat' : 'Yeni Job'}
+          <Button size="sm" variant="primary" onClick={() => setFormOpen(!formOpen)}>
+            <Plus size={13} className="mr-1.5" /> {formOpen ? 'Kapat' : 'Yeni Job'}
           </Button>
         }
       />
 
+      {/* Filter bar */}
       <Card className="p-3">
-        <div className="flex flex-wrap gap-2">
-          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Request veya domain ara…" className="w-64" />
-          <select
-            value={status}
-            onChange={(e) => setStatus(e.target.value as 'all' | JobStatus)}
-            className={SELECT_CLS + ' w-40'}
-          >
-            <option value="all">Tüm durumlar</option>
-            <option value="pending">pending</option>
-            <option value="running">running</option>
-            <option value="success">success</option>
-            <option value="fail">fail</option>
-            <option value="cancelled">cancelled</option>
-          </select>
-          <select
-            value={mode}
-            onChange={(e) => setMode(e.target.value as 'all' | JobMode)}
-            className={SELECT_CLS + ' w-40'}
-          >
-            <option value="all">Tüm mode'ler</option>
-            <option value="ceo">ceo</option>
-            <option value="ceo-iterate">ceo-iterate</option>
-            <option value="run">run</option>
-            <option value="bundle">bundle</option>
-          </select>
-          <Button variant="ghost" size="sm" onClick={() => { setQ(''); setStatus('all'); setMode('all') }}>Temizle</Button>
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="flex-1 min-w-[200px]">
+            <label className="mb-1.5 block text-xs font-medium text-white/50">Ara</label>
+            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Request veya domain ara…" />
+          </div>
+          <div className="w-44">
+            <Select
+              label="Durum"
+              value={status}
+              onChange={(e) => setStatus(e.target.value as 'all' | JobStatus)}
+            >
+              <option value="all">Tüm durumlar</option>
+              <option value="pending">pending</option>
+              <option value="running">running</option>
+              <option value="success">success</option>
+              <option value="fail">fail</option>
+              <option value="cancelled">cancelled</option>
+            </Select>
+          </div>
+          <div className="w-44">
+            <Select
+              label="Mode"
+              value={mode}
+              onChange={(e) => setMode(e.target.value as 'all' | JobMode)}
+            >
+              <option value="all">Tüm mode'ler</option>
+              <option value="ceo">ceo</option>
+              <option value="ceo-iterate">ceo-iterate</option>
+              <option value="run">run</option>
+              <option value="bundle">bundle</option>
+            </Select>
+          </div>
+          <Button variant="ghost" size="sm" onClick={() => { setQ(''); setStatus('all'); setMode('all') }}>
+            Temizle
+          </Button>
         </div>
       </Card>
 
+      {/* New Job form */}
       {formOpen && (
-        <Card className="p-4 space-y-3">
-          <h3 className="text-sm font-semibold">Yeni Job</h3>
-          <div className="grid gap-3 md:grid-cols-2">
+        <Card className="p-5 space-y-5">
+          <div className="flex items-center gap-2 border-b border-white/[0.06] pb-4">
+            <Plus size={15} className="text-blue-400" />
+            <h3 className="text-sm font-semibold text-white">Yeni Job</h3>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
             <div>
-              <label className="mb-1 block text-xs text-white/40">Mode</label>
-              <select value={formMode} onChange={(e) => setFormMode(e.target.value as JobMode)} className={SELECT_CLS}>
+              <Select
+                label="Mode"
+                value={formMode}
+                onChange={(e) => setFormMode(e.target.value as JobMode)}
+              >
                 <option value="ceo">ceo</option>
                 <option value="ceo-iterate">ceo-iterate</option>
                 <option value="run">run</option>
                 <option value="bundle">bundle</option>
-              </select>
+              </Select>
             </div>
             <div>
-              <label className="mb-1 block text-xs text-white/40">Domain Pack</label>
-              <select value={domainPack} onChange={(e) => setDomainPack(e.target.value)} className={SELECT_CLS}>
+              <Select
+                label="Domain Pack"
+                value={domainPack}
+                onChange={(e) => setDomainPack(e.target.value)}
+              >
                 {domainPackOptions.map((p) => (
                   <option key={p.id} value={p.id}>{p.label}</option>
                 ))}
-              </select>
+              </Select>
             </div>
+
             <div className="md:col-span-2">
-              <label className="mb-1 block text-xs text-white/40">
+              <label className="mb-1.5 block text-xs font-medium text-white/50">
                 {formMode === 'run' || formMode === 'bundle' ? 'Topic' : 'Request'}
               </label>
               <textarea
                 value={requestText}
                 onChange={(e) => setRequestText(e.target.value)}
-                className="min-h-20 w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-sm text-white outline-none focus:border-blue-500/60"
+                className="min-h-[80px] w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-sm text-white outline-none transition-all duration-150 focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/15 placeholder:text-white/20"
+                placeholder="Request veya topic girin…"
               />
             </div>
 
             {formMode === 'run' && (
               <div>
-                <label className="mb-1 block text-xs text-white/40">playbookId</label>
                 {playbookOptions.length > 0 ? (
-                  <select value={playbookId} onChange={(e) => setPlaybookId(e.target.value)} className={SELECT_CLS}>
+                  <Select
+                    label="playbookId"
+                    value={playbookId}
+                    onChange={(e) => setPlaybookId(e.target.value)}
+                  >
                     {playbookOptions.map((p) => (
                       <option key={p.id} value={p.id}>{p.label}</option>
                     ))}
-                  </select>
+                  </Select>
                 ) : (
-                  <Input value={playbookId} onChange={(e) => setPlaybookId(e.target.value)} placeholder="playbook id" />
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-white/50">playbookId</label>
+                    <Input value={playbookId} onChange={(e) => setPlaybookId(e.target.value)} placeholder="playbook id" />
+                  </div>
                 )}
               </div>
             )}
 
             {formMode === 'bundle' && (
               <div>
-                <label className="mb-1 block text-xs text-white/40">bundleId</label>
                 {bundleOptions.length > 0 ? (
-                  <select value={bundleId} onChange={(e) => setBundleId(e.target.value)} className={SELECT_CLS}>
+                  <Select
+                    label="bundleId"
+                    value={bundleId}
+                    onChange={(e) => setBundleId(e.target.value)}
+                  >
                     {bundleOptions.map((b) => (
                       <option key={b.id} value={b.id}>{b.label}</option>
                     ))}
-                  </select>
+                  </Select>
                 ) : (
-                  <Input value={bundleId} onChange={(e) => setBundleId(e.target.value)} placeholder="bundle id" />
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-white/50">bundleId</label>
+                    <Input value={bundleId} onChange={(e) => setBundleId(e.target.value)} placeholder="bundle id" />
+                  </div>
                 )}
               </div>
             )}
 
             {formMode === 'ceo-iterate' && (
               <div className="md:col-span-2">
-                <label className="mb-1 block text-xs text-white/40">answers_json</label>
+                <label className="mb-1.5 block text-xs font-medium text-white/50">answers_json</label>
                 <textarea
                   value={answersJson}
                   onChange={(e) => setAnswersJson(e.target.value)}
-                  className="min-h-20 w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2 font-mono text-xs text-white outline-none focus:border-blue-500/60"
+                  className="min-h-[80px] w-full rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2 font-mono text-xs text-white outline-none transition-all duration-150 focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/15"
                 />
               </div>
             )}
 
             <div>
-              <label className="mb-1 block text-xs text-white/40">Model</label>
+              <label className="mb-1.5 block text-xs font-medium text-white/50">Model</label>
               <Input value={modelText} onChange={(e) => setModelText(e.target.value)} />
             </div>
             <div>
-              <label className="mb-1 block text-xs text-white/40">Risk</label>
-              <select value={risk} onChange={(e) => setRisk(e.target.value as 'R0' | 'R1' | 'R2' | 'R3')} className={SELECT_CLS}>
+              <Select
+                label="Risk"
+                value={risk}
+                onChange={(e) => setRisk(e.target.value as 'R0' | 'R1' | 'R2' | 'R3')}
+              >
                 <option value="R0">R0</option>
                 <option value="R1">R1</option>
                 <option value="R2">R2</option>
                 <option value="R3">R3</option>
-              </select>
+              </Select>
             </div>
 
-            <div className="md:col-span-2 flex flex-wrap gap-4">
-              <label className="flex items-center gap-2 text-xs text-white/60">
-                <input type="checkbox" checked={web} onChange={(e) => setWeb(e.target.checked)} className="rounded" />
-                web
-              </label>
-              <label className="flex items-center gap-2 text-xs text-white/60">
-                <input type="checkbox" checked={contrarian} onChange={(e) => setContrarian(e.target.checked)} className="rounded" />
-                contrarian
-              </label>
-              <label className="flex items-center gap-2 text-xs text-white/60">
-                <input type="checkbox" checked={allowHighRisk} onChange={(e) => setAllowHighRisk(e.target.checked)} className="rounded" />
-                allow_high_risk
-              </label>
-            </div>
-
+            {/* Toggle flags */}
             <div className="md:col-span-2">
-              <div className="mb-1 text-xs text-white/40">Ajanlar</div>
-              <div className="flex flex-wrap items-center gap-4">
-                <label className="flex items-center gap-2 text-xs text-white/60">
-                  <input
-                    type="checkbox"
+              <div className="mb-2 text-xs font-medium text-white/50">Seçenekler</div>
+              <div className="flex flex-wrap gap-6">
+                <Toggle checked={web} onChange={setWeb} label="web" />
+                <Toggle checked={contrarian} onChange={setContrarian} label="contrarian" />
+                <Toggle checked={allowHighRisk} onChange={setAllowHighRisk} label="allow_high_risk" />
+              </div>
+            </div>
+
+            {/* Agent selection */}
+            <div className="md:col-span-2">
+              <div className="mb-2 text-xs font-medium text-white/50">Ajanlar</div>
+              <div className="rounded-lg border border-white/[0.07] bg-white/[0.02] p-3">
+                <div className="mb-2">
+                  <Checkbox
                     checked={selectedAgents.length === 0}
                     onChange={() => setSelectedAgents([])}
-                    className="rounded"
+                    label="Tümü (seçim yok)"
                   />
-                  all
-                </label>
-                <div className="h-4 w-px bg-white/10" />
-                <div className="max-h-24 flex flex-wrap gap-x-4 gap-y-2 overflow-auto">
-                  {availableAgents.map((a) => {
-                    const checked = selectedAgents.includes(a.code)
-                    return (
-                      <label key={a.code} className="flex items-center gap-2 text-xs text-white/70">
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={(e) => {
-                            const next = e.target.checked
-                              ? Array.from(new Set([...selectedAgents, a.code]))
-                              : selectedAgents.filter((c) => c !== a.code)
-                            setSelectedAgents(next)
-                          }}
-                          className="rounded"
-                        />
-                        <span className="font-mono text-white/60">{a.code}</span>
-                        <span className="text-white/40">{a.name}</span>
-                      </label>
-                    )
-                  })}
                 </div>
+                {availableAgents.length > 0 && (
+                  <>
+                    <div className="mb-2 h-px bg-white/[0.06]" />
+                    <div className="max-h-24 overflow-auto">
+                      <div className="flex flex-wrap gap-x-4 gap-y-2">
+                        {availableAgents.map((a) => {
+                          const checked = selectedAgents.includes(a.code)
+                          return (
+                            <Checkbox
+                              key={a.code}
+                              checked={checked}
+                              onChange={(v) => {
+                                const next = v
+                                  ? Array.from(new Set([...selectedAgents, a.code]))
+                                  : selectedAgents.filter((c) => c !== a.code)
+                                setSelectedAgents(next)
+                              }}
+                              label={a.code}
+                            />
+                          )
+                        })}
+                      </div>
+                    </div>
+                  </>
+                )}
+                <div className="mt-2 text-xs text-white/30">Seçim yapmazsan tüm ajanlar çalışır.</div>
               </div>
-              <div className="mt-1 text-xs text-white/40">Seçim yapmazsan tüm ajanlar çalışır.</div>
             </div>
           </div>
 
-          {formErr && <div className="rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-300">{formErr}</div>}
+          {formErr && (
+            <div className="rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+              {formErr}
+            </div>
+          )}
 
-          <div className="flex justify-end gap-2 pt-2">
-            <Button variant="secondary" size="sm" onClick={() => setFormOpen(false)} disabled={saving}>İptal</Button>
+          <div className="flex justify-end gap-2 border-t border-white/[0.06] pt-4">
+            <Button variant="secondary" size="sm" onClick={() => setFormOpen(false)} disabled={saving}>
+              İptal
+            </Button>
             <Button
+              variant="primary"
               size="sm"
               onClick={createJob}
               disabled={saving || !requestText.trim() || (formMode === 'run' && !playbookId.trim()) || (formMode === 'bundle' && !bundleId.trim())}
             >
-              Oluştur
+              {saving ? 'Oluşturuluyor…' : 'Oluştur'}
             </Button>
           </div>
         </Card>
       )}
 
-      {err && <div className="rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">{err}</div>}
+      {err && (
+        <div className="rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+          {err}
+        </div>
+      )}
 
       <Card className="overflow-hidden">
         <div className="border-b border-white/[0.06] px-4 py-3 text-sm font-medium text-white/60">

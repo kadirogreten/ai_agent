@@ -92,8 +92,9 @@ export default function SelfReflectionPage() {
       ) : (
         <div className="space-y-3">
           {rows.map((s) => {
-            const result = s.result_json as Record<string, any> | null
-            const applied = !!result?.applied_at
+            const result = s.result_json as Record<string, unknown> | null
+            const appliedAt = typeof result?.applied_at === 'string' ? result.applied_at : null
+            const applied = !!appliedAt
             const ceoOutput = result?.summary || result?.report || result?.text || null
 
             return (
@@ -120,7 +121,7 @@ export default function SelfReflectionPage() {
                       </div>
                       <div className="mt-1 text-xs text-white/50">
                         {new Date(s.created_at).toLocaleString('tr-TR')}
-                        {applied ? <span className="ml-2 text-emerald-300">✓ Uygulandı: {new Date(result!.applied_at).toLocaleString('tr-TR')}</span> : null}
+                        {appliedAt ? <span className="ml-2 text-emerald-300">✓ Uygulandı: {new Date(appliedAt).toLocaleString('tr-TR')}</span> : null}
                       </div>
                     </div>
                   </div>

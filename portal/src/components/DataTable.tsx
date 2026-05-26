@@ -25,12 +25,12 @@ export function DataTable<T extends { id: string }>({
     <div className="overflow-auto">
       <table className="w-full text-left text-sm">
         <thead>
-          <tr className="border-b border-white/[0.06]">
+          <tr className="border-b border-white/[0.05]">
             {columns.map((col) => (
               <th
                 key={col.key}
                 style={col.width ? { width: col.width } : undefined}
-                className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-white/30"
+                className="px-4 py-3 text-[10px] font-semibold uppercase tracking-widest text-white/25"
               >
                 {col.header}
               </th>
@@ -39,13 +39,16 @@ export function DataTable<T extends { id: string }>({
         </thead>
         <tbody>
           {loading ? (
-            Array.from({ length: 5 }).map((_, i) => (
+            Array.from({ length: 6 }).map((_, i) => (
               <tr key={i} className="border-b border-white/[0.04]">
-                {columns.map((col) => (
+                {columns.map((col, ci) => (
                   <td key={col.key} className="px-4 py-3">
                     <div
-                      className="h-3.5 animate-pulse rounded"
-                      style={{ background: 'rgba(255,255,255,0.05)', width: `${50 + Math.random() * 40}%` }}
+                      className="h-3.5 animate-pulse rounded-full"
+                      style={{
+                        background: 'rgba(255,255,255,0.05)',
+                        width: `${40 + (i * 13 + ci * 7) % 45}%`,
+                      }}
                     />
                   </td>
                 ))}
@@ -61,16 +64,19 @@ export function DataTable<T extends { id: string }>({
             rows.map((row, i) => (
               <motion.tr
                 key={row.id}
-                initial={{ opacity: 0, y: 6 }}
+                initial={{ opacity: 0, y: 4 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.03, duration: 0.2 }}
+                transition={{ delay: i * 0.025, duration: 0.18 }}
                 onClick={() => onRowClick?.(row)}
-                className={`border-b border-white/[0.04] transition-colors hover:bg-white/[0.03] ${
-                  onRowClick ? 'cursor-pointer' : ''
-                }`}
+                className={[
+                  'group border-b border-white/[0.04] transition-all duration-100',
+                  onRowClick
+                    ? 'cursor-pointer hover:bg-white/[0.035] hover:border-white/[0.07]'
+                    : '',
+                ].join(' ')}
               >
                 {columns.map((col) => (
-                  <td key={col.key} className="px-4 py-2.5">
+                  <td key={col.key} className="px-4 py-3">
                     {col.render(row)}
                   </td>
                 ))}

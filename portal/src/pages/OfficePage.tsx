@@ -10,8 +10,7 @@ import { Bot, Activity, Users, Cpu, Zap, AlertCircle, CheckCircle2, Clock } from
 import * as THREE from 'three'
 
 type Agent   = { id: string; name: string | null; code: string | null; role: string | null }
-type Run     = { id: string; agent_id: string | null; status: string; created_at: string }
-type Persona = { id: string; slug: string; name: string | null }
+type Run     = { id: string; status: string; created_at: string }
 type Job     = { id: string; agent_id: string | null; status: string; created_at: string }
 
 const ROLE_COLORS: Record<string, string> = {
@@ -46,7 +45,6 @@ export default function OfficePage() {
   const [scene,    setScene]    = useState<THREE.Scene | null>(null)
   const [agents,   setAgents]   = useState<Agent[]>([])
   const [runs,     setRuns]     = useState<Run[]>([])
-  const [personas, setPersonas] = useState<Persona[]>([])
   const [jobs,     setJobs]     = useState<Job[]>([])
   const [err,      setErr]      = useState<string | null>(null)
   const [panel,    setPanel]    = useState<'agents' | 'jobs'>('agents')
@@ -78,18 +76,22 @@ export default function OfficePage() {
     const load = async () => {
       if (!initialized || !user) return
       try {
-        const [{ data: agentsData }, { data: runsData }, { data: personasData }] = await Promise.all([
+        const [{ data: agentsData }, { data: runsData }] = await Promise.all([
           supabase.from('agents').select('id,name,code,role').limit(20),
           supabase.from('runs').select('id,status,created_at').order('created_at', { ascending: false }).limit(10),
-          supabase.from('personas').select('id,slug,name').limit(50),
         ])
         setAgents((agentsData ?? []) as Agent[])
         setRuns((runsData ?? []) as Run[])
-        setPersonas((personasData ?? []) as Persona[])
         setJobs(
-          (runsData ?? []).map((r: any) => ({
-            id: r.id, agent_id: null, status: r.status, created_at: r.created_at,
-          }))
+          (runsData ?? []).map((r) => {
+            const row = r as Record<string, unknown>
+            return {
+              id:         String(row.id ?? ''),
+              agent_id:   null,
+              status:     String(row.status ?? ''),
+              created_at: String(row.created_at ?? ''),
+            }
+          })
         )
       } catch (ex) {
         setErr(ex instanceof Error ? ex.message : 'Load error')

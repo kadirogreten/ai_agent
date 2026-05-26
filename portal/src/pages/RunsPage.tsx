@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabaseClient'
 import { useAuthStore } from '@/stores/authStore'
 import { Card } from '@/components/ui/Card'
@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/Badge'
 import { PageHeader } from '@/components/PageHeader'
 import { DataTable, type Column } from '@/components/DataTable'
 import { EmptyState } from '@/components/EmptyState'
-import { List, CheckCircle, XCircle, Clock, RefreshCw } from 'lucide-react'
+import { List, CheckCircle, XCircle, RefreshCw } from 'lucide-react'
 
 type RunRow = {
   id: string

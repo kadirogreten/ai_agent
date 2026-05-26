@@ -16,10 +16,11 @@ export default function Office3DScene({ onSceneReady, children }: Office3DSceneP
   const clockRef     = useRef(new THREE.Clock())
 
   useEffect(() => {
-    if (!containerRef.current) return
+    const container = containerRef.current
+    if (!container) return
 
-    const w = containerRef.current.clientWidth
-    const h = containerRef.current.clientHeight
+    const w = container.clientWidth
+    const h = container.clientHeight
 
     // ── Scene ──────────────────────────────────────────────────────────
     const scene = new THREE.Scene()
@@ -41,7 +42,7 @@ export default function Office3DScene({ onSceneReady, children }: Office3DSceneP
     renderer.shadowMap.type = THREE.PCFSoftShadowMap
     renderer.toneMapping = THREE.ACESFilmicToneMapping
     renderer.toneMappingExposure = 0.9
-    containerRef.current.appendChild(renderer.domElement)
+    container.appendChild(renderer.domElement)
     rendererRef.current = renderer
 
     // ── Lighting ───────────────────────────────────────────────────────
@@ -92,8 +93,8 @@ export default function Office3DScene({ onSceneReady, children }: Office3DSceneP
 
     // ── Resize ─────────────────────────────────────────────────────────
     const onResize = () => {
-      const nw = containerRef.current?.clientWidth  ?? w
-      const nh = containerRef.current?.clientHeight ?? h
+      const nw = container.clientWidth  || w
+      const nh = container.clientHeight || h
       camera.aspect = nw / nh
       camera.updateProjectionMatrix()
       renderer.setSize(nw, nh)
@@ -104,11 +105,11 @@ export default function Office3DScene({ onSceneReady, children }: Office3DSceneP
       window.removeEventListener('resize', onResize)
       if (animIdRef.current !== null) cancelAnimationFrame(animIdRef.current)
       renderer.dispose()
-      if (containerRef.current?.contains(renderer.domElement)) {
-        containerRef.current.removeChild(renderer.domElement)
+      if (container.contains(renderer.domElement)) {
+        container.removeChild(renderer.domElement)
       }
     }
-  }, [])
+  }, [onSceneReady])
 
   useOfficeCamera({ camera: cameraRef.current, renderer: containerRef.current })
 

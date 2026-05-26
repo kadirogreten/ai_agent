@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { motion } from 'framer-motion'
 import { supabase } from '@/lib/supabaseClient'
 import { useAuthStore } from '@/stores/authStore'
 import { Card } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
+import { Select } from '@/components/ui/Select'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { PageHeader } from '@/components/PageHeader'
-import { Download, RefreshCw, ShieldAlert } from 'lucide-react'
+import { Download, RefreshCw, ShieldAlert, ScrollText } from 'lucide-react'
 
 const PAGE_SIZE = 100
 
@@ -50,8 +52,6 @@ type Filters = {
 const EMPTY_FILTERS: Filters = {
   q: '', resourceType: 'all', severity: 'all', riskLevel: 'all', from: '', to: '',
 }
-
-const SELECT_CLS = 'h-9 rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 text-sm text-white outline-none focus:border-blue-500/60'
 
 function ExpandableDetail({ detail }: { detail: Record<string, unknown> | null }) {
   const [open, setOpen] = useState(false)
@@ -155,14 +155,15 @@ export default function AuditLogPage() {
       <PageHeader
         title="Audit Log"
         description={`90 gün immutable denetim kaydı${total !== null ? ` — ${total.toLocaleString()} kayıt` : ''}`}
+        icon={<ScrollText size={18} />}
         actions={
           <div className="flex gap-2">
-            <button onClick={() => load()} disabled={loading} className="flex items-center gap-1.5 rounded-lg border border-white/10 px-3 py-1.5 text-xs text-white/50 hover:text-white/80 transition-colors">
-              <RefreshCw size={12} /> Yenile
-            </button>
-            <button onClick={handleExport} disabled={rows.length === 0} className="flex items-center gap-1.5 rounded-lg border border-white/10 px-3 py-1.5 text-xs text-white/50 hover:text-white/80 transition-colors disabled:opacity-40">
-              <Download size={12} /> Dışa Aktar
-            </button>
+            <Button variant="outline" size="sm" onClick={() => load()} disabled={loading}>
+              <RefreshCw size={12} className="mr-1" /> Yenile
+            </Button>
+            <Button variant="outline" size="sm" onClick={handleExport} disabled={rows.length === 0}>
+              <Download size={12} className="mr-1" /> Dışa Aktar
+            </Button>
           </div>
         }
       />
@@ -182,8 +183,11 @@ export default function AuditLogPage() {
             <Input value={filters.q} onChange={(e) => setFilter('q', e.target.value)} placeholder="run.start, approval…" />
           </div>
           <div>
-            <div className="mb-1 text-xs text-white/40">Kaynak Türü</div>
-            <select value={filters.resourceType} onChange={(e) => setFilter('resourceType', e.target.value)} className={SELECT_CLS}>
+            <Select
+              label="Kaynak Türü"
+              value={filters.resourceType}
+              onChange={(e) => setFilter('resourceType', e.target.value)}
+            >
               <option value="all">Tümü</option>
               <option value="run">run</option>
               <option value="run_request">run_request</option>
@@ -191,26 +195,32 @@ export default function AuditLogPage() {
               <option value="bundle">bundle</option>
               <option value="fact">fact</option>
               <option value="approval_queue">approval_queue</option>
-            </select>
+            </Select>
           </div>
           <div>
-            <div className="mb-1 text-xs text-white/40">Şiddet</div>
-            <select value={filters.severity} onChange={(e) => setFilter('severity', e.target.value)} className={SELECT_CLS}>
+            <Select
+              label="Şiddet"
+              value={filters.severity}
+              onChange={(e) => setFilter('severity', e.target.value)}
+            >
               <option value="all">Tümü</option>
               <option value="info">info</option>
               <option value="warn">warn</option>
               <option value="error">error</option>
-            </select>
+            </Select>
           </div>
           <div>
-            <div className="mb-1 text-xs text-white/40">Risk</div>
-            <select value={filters.riskLevel} onChange={(e) => setFilter('riskLevel', e.target.value)} className={SELECT_CLS}>
+            <Select
+              label="Risk"
+              value={filters.riskLevel}
+              onChange={(e) => setFilter('riskLevel', e.target.value)}
+            >
               <option value="all">Tümü</option>
               <option value="R0">R0</option>
               <option value="R1">R1</option>
               <option value="R2">R2</option>
               <option value="R3">R3</option>
-            </select>
+            </Select>
           </div>
           <div className="flex items-end">
             <Button variant="ghost" size="sm" className="w-full" onClick={() => setFilters(EMPTY_FILTERS)}>Temizle</Button>
@@ -226,100 +236,108 @@ export default function AuditLogPage() {
         </div>
       </Card>
 
-      {err && <div className="rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">{err}</div>}
-
-      <Card className="overflow-hidden">
-        <div className="border-b border-white/[0.06] px-4 py-3 text-sm font-medium text-white/60">
-          Kayıtlar {rows.length > 0 && <span className="ml-2 text-xs text-white/30">{rows.length} gösteriliyor</span>}
+      {err && (
+        <div className="flex items-start gap-2 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+          {err}
         </div>
+      )}
 
-        <div className="max-h-[60vh] overflow-auto scrollbar-none">
-          <table className="w-full text-left text-xs">
-            <thead className="sticky top-0 bg-[#0a1020]/95 backdrop-blur-sm">
-              <tr className="border-b border-white/[0.06] text-white/40">
-                <th className="whitespace-nowrap px-4 py-2.5">Zaman</th>
-                <th className="px-4 py-2.5">Aktör</th>
-                <th className="px-4 py-2.5">Eylem</th>
-                <th className="px-4 py-2.5">Kaynak</th>
-                <th className="px-4 py-2.5">Risk</th>
-                <th className="px-4 py-2.5">Şiddet</th>
-                <th className="px-4 py-2.5">Detay</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading && rows.length === 0 ? (
-                Array.from({ length: 5 }).map((_, i) => (
-                  <tr key={i} className="border-b border-white/[0.04]">
-                    {Array.from({ length: 7 }).map((_, j) => (
-                      <td key={j} className="px-4 py-3">
-                        <div className="h-3 animate-pulse rounded bg-white/[0.06]" style={{ width: `${40 + Math.random() * 40}%` }} />
-                      </td>
-                    ))}
-                  </tr>
-                ))
-              ) : rows.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center">
-                    <div className="flex flex-col items-center gap-2 text-white/30">
-                      <ShieldAlert size={24} />
-                      <span>Kayıt yok</span>
-                    </div>
-                  </td>
-                </tr>
-              ) : rows.map((row) => (
-                <tr key={row.id} className="border-b border-white/[0.04] align-top hover:bg-white/[0.02]">
-                  <td className="whitespace-nowrap px-4 py-2.5 text-white/35">
-                    {new Date(row.created_at).toLocaleString('tr-TR', {
-                      month: '2-digit', day: '2-digit',
-                      hour: '2-digit', minute: '2-digit', second: '2-digit',
-                    })}
-                  </td>
-                  <td className="px-4 py-2.5">
-                    <span className={`inline-flex items-center rounded border px-1.5 py-0.5 font-mono text-xs ${ACTOR_COLORS[row.actor_type] ?? ''}`}>
-                      {row.actor_type}
-                    </span>
-                    <div className="mt-0.5 max-w-[10rem] truncate font-mono text-white/40" title={row.actor_id}>
-                      {row.actor_id.length > 16 ? row.actor_id.slice(0, 8) + '…' : row.actor_id}
-                    </div>
-                  </td>
-                  <td className="px-4 py-2.5 font-mono text-white/70">{row.action}</td>
-                  <td className="px-4 py-2.5">
-                    {row.resource_type ? (
-                      <>
-                        <span className="text-white/55">{row.resource_type}</span>
-                        {row.resource_id && (
-                          <div className="font-mono text-white/25" title={row.resource_id}>
-                            {row.resource_id.slice(0, 8)}…
-                          </div>
-                        )}
-                      </>
-                    ) : <span className="text-white/20">—</span>}
-                  </td>
-                  <td className="px-4 py-2.5">
-                    {row.risk_level
-                      ? <span className={`font-mono font-semibold ${RISK_COLORS[row.risk_level] ?? ''}`}>{row.risk_level}</span>
-                      : <span className="text-white/20">—</span>}
-                  </td>
-                  <td className="px-4 py-2.5">
-                    <Badge tone={SEVERITY_TONE[row.severity] ?? 'yellow'}>{row.severity}</Badge>
-                  </td>
-                  <td className="max-w-[200px] px-4 py-2.5">
-                    <ExpandableDetail detail={row.detail} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        {hasMore && (
-          <div className="border-t border-white/[0.06] px-4 py-3 text-center">
-            <Button variant="outline" size="sm" onClick={() => cursor && load(cursor)} disabled={loading}>
-              {loading ? 'Yükleniyor...' : `Daha fazla yükle (${PAGE_SIZE}'er)`}
-            </Button>
+      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
+        <Card className="overflow-hidden">
+          <div className="border-b border-white/[0.06] px-4 py-3 text-sm font-medium text-white/60">
+            Kayıtlar {rows.length > 0 && <span className="ml-2 text-xs text-white/30">{rows.length} gösteriliyor</span>}
           </div>
-        )}
-      </Card>
+
+          <div className="max-h-[60vh] overflow-auto scrollbar-none">
+            <table className="w-full text-left text-xs">
+              <thead className="sticky top-0 bg-[#0a1020]/95 backdrop-blur-sm">
+                <tr className="border-b border-white/[0.06] text-white/40">
+                  <th className="whitespace-nowrap px-4 py-2.5">Zaman</th>
+                  <th className="px-4 py-2.5">Aktör</th>
+                  <th className="px-4 py-2.5">Eylem</th>
+                  <th className="px-4 py-2.5">Kaynak</th>
+                  <th className="px-4 py-2.5">Risk</th>
+                  <th className="px-4 py-2.5">Şiddet</th>
+                  <th className="px-4 py-2.5">Detay</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loading && rows.length === 0 ? (
+                  Array.from({ length: 5 }).map((_, i) => (
+                    <tr key={i} className="border-b border-white/[0.04]">
+                      {Array.from({ length: 7 }).map((_, j) => (
+                        <td key={j} className="px-4 py-3">
+                          <div className="h-3 animate-pulse rounded-full bg-white/[0.05]" style={{ width: `${40 + j * 8}%` }} />
+                        </td>
+                      ))}
+                    </tr>
+                  ))
+                ) : rows.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="px-4 py-12 text-center">
+                      <div className="flex flex-col items-center gap-2 text-white/30">
+                        <ShieldAlert size={24} />
+                        <span>Kayıt yok</span>
+                      </div>
+                    </td>
+                  </tr>
+                ) : rows.map((row) => (
+                  <tr key={row.id} className="border-b border-white/[0.04] align-top hover:bg-white/[0.02] group">
+                    <td className="whitespace-nowrap px-4 py-2.5 text-white/35">
+                      <div className="border-l-2 border-white/[0.06] pl-2 group-hover:border-blue-500/30 transition-colors">
+                        {new Date(row.created_at).toLocaleString('tr-TR', {
+                          month: '2-digit', day: '2-digit',
+                          hour: '2-digit', minute: '2-digit', second: '2-digit',
+                        })}
+                      </div>
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <span className={`inline-flex items-center rounded border px-1.5 py-0.5 font-mono text-xs ${ACTOR_COLORS[row.actor_type] ?? ''}`}>
+                        {row.actor_type}
+                      </span>
+                      <div className="mt-0.5 max-w-[10rem] truncate font-mono text-white/40" title={row.actor_id}>
+                        {row.actor_id.length > 16 ? row.actor_id.slice(0, 8) + '…' : row.actor_id}
+                      </div>
+                    </td>
+                    <td className="px-4 py-2.5 font-mono text-white/70">{row.action}</td>
+                    <td className="px-4 py-2.5">
+                      {row.resource_type ? (
+                        <>
+                          <span className="text-white/55">{row.resource_type}</span>
+                          {row.resource_id && (
+                            <div className="font-mono text-white/25" title={row.resource_id}>
+                              {row.resource_id.slice(0, 8)}…
+                            </div>
+                          )}
+                        </>
+                      ) : <span className="text-white/20">—</span>}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      {row.risk_level
+                        ? <span className={`font-mono font-semibold ${RISK_COLORS[row.risk_level] ?? ''}`}>{row.risk_level}</span>
+                        : <span className="text-white/20">—</span>}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <Badge tone={SEVERITY_TONE[row.severity] ?? 'yellow'}>{row.severity}</Badge>
+                    </td>
+                    <td className="max-w-[200px] px-4 py-2.5">
+                      <ExpandableDetail detail={row.detail} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {hasMore && (
+            <div className="border-t border-white/[0.06] px-4 py-3 text-center">
+              <Button variant="outline" size="sm" onClick={() => cursor && load(cursor)} disabled={loading}>
+                {loading ? 'Yükleniyor...' : `Daha fazla yükle (${PAGE_SIZE}'er)`}
+              </Button>
+            </div>
+          )}
+        </Card>
+      </motion.div>
     </div>
   )
 }

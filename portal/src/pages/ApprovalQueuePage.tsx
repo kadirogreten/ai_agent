@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { motion } from 'framer-motion'
 import { supabase } from '@/lib/supabaseClient'
 import { useAuthStore } from '@/stores/authStore'
 import { Card } from '@/components/ui/Card'
@@ -6,8 +7,7 @@ import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { PageHeader } from '@/components/PageHeader'
 import { DataTable, type Column } from '@/components/DataTable'
-import { useNavigate } from 'react-router-dom'
-import { CheckCircle, XCircle, Clock } from 'lucide-react'
+import { CheckCircle, Clock, CheckSquare } from 'lucide-react'
 
 type ApprovalItem = {
   id: string
@@ -127,106 +127,121 @@ export default function ApprovalQueuePage() {
       <PageHeader
         title="Approval Queue"
         description="R2/R3 adımları onay bekliyor — KPI hedefi: P50 <4 saat"
+        icon={<CheckSquare size={18} />}
         actions={
-          <button onClick={load} disabled={loading} className="flex items-center gap-1.5 rounded-lg border border-white/10 px-3 py-1.5 text-xs text-white/50 hover:text-white/80 transition-colors">
+          <Button variant="outline" size="sm" onClick={load} disabled={loading}>
             Yenile
-          </button>
+          </Button>
         }
       />
 
-      {err && <div className="rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">{err}</div>}
+      {err && (
+        <div className="flex items-start gap-2 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+          {err}
+        </div>
+      )}
 
       {/* Bekleyen Onaylar */}
-      <Card className="overflow-hidden">
-        <div className="border-b border-white/[0.06] px-4 py-3 text-sm font-medium text-white/60">
-          Bekleyen Onaylar
-          {pendingCount > 0 && <span className="ml-2 text-amber-400">({pendingCount})</span>}
-        </div>
+      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+        <Card className="overflow-hidden">
+          <div className="border-b border-white/[0.06] px-4 py-3 text-sm font-medium text-white/60 flex items-center gap-2">
+            Bekleyen Onaylar
+            {pendingCount > 0 && (
+              <Badge tone="yellow">{pendingCount}</Badge>
+            )}
+          </div>
 
-        {loading && pending.length === 0 ? (
-          <div className="px-4 py-12 text-center text-sm text-white/40">Yükleniyor...</div>
-        ) : pending.length === 0 ? (
-          <div className="px-4 py-12 text-center">
-            <div className="flex flex-col items-center gap-2">
-              <CheckCircle size={24} className="text-emerald-400/40" />
-              <span className="text-sm font-medium text-emerald-400">Bekleyen onay yok</span>
-              <span className="text-xs text-white/40">Tüm R2/R3 adımlar onaylandı veya henüz tetiklenmedi.</span>
+          {loading && pending.length === 0 ? (
+            <div className="space-y-3 px-4 py-6">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="h-5 animate-pulse rounded-full bg-white/[0.05]" style={{ width: `${50 + i * 15}%` }} />
+              ))}
             </div>
-          </div>
-        ) : (
-          <div className="divide-y divide-white/[0.06]">
-            {pending.map((item) => (
-              <div key={item.id} className="p-4 space-y-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className={`inline-flex items-center rounded border px-1.5 py-0.5 text-xs font-mono ${RISK_COLORS[item.risk_level]}`}>
-                        {item.risk_level}
-                      </span>
-                      {item.agent_code && (
-                        <span className="rounded border border-white/10 px-1.5 py-0.5 font-mono text-xs text-white/50">{item.agent_code}</span>
-                      )}
-                      {item.step_name && <span className="text-xs text-white/40">Adım: {item.step_name}</span>}
-                    </div>
-                    <div className="mt-1 text-sm text-white/80">{item.action_summary}</div>
-                  </div>
-                  <div className="shrink-0 text-right">
-                    <div className="flex items-center gap-1 text-xs text-amber-400/70">
-                      <Clock size={12} /> {timeUntilExpiry(item.expires_at)}
-                    </div>
-                    <div className="mt-0.5 text-xs text-white/25">{new Date(item.created_at).toLocaleString('tr-TR')}</div>
-                  </div>
-                </div>
-
-                {item.action_detail && (
-                  <pre className="whitespace-pre-wrap rounded-lg border border-white/[0.06] bg-black/20 px-3 py-2 text-xs text-white/40">
-                    {JSON.stringify(item.action_detail, null, 2)}
-                  </pre>
-                )}
-
-                <div className="flex flex-wrap gap-2">
-                  <input
-                    type="text"
-                    value={notes[item.id] ?? ''}
-                    onChange={(e) => setNotes((prev) => ({ ...prev, [item.id]: e.target.value }))}
-                    placeholder="Geri alma planı / gerekçe notu (opsiyonel)"
-                    className="flex-1 min-w-[200px] rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-1.5 text-xs text-white outline-none focus:border-blue-500/60"
-                  />
-                  <Button
-                    size="sm"
-                    onClick={() => decide(item.id, 'approved')}
-                    disabled={acting === item.id}
-                  >
-                    {acting === item.id ? '...' : 'Onayla'}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={() => decide(item.id, 'rejected')}
-                    disabled={acting === item.id}
-                  >
-                    Reddet
-                  </Button>
-                </div>
+          ) : pending.length === 0 ? (
+            <div className="px-4 py-12 text-center">
+              <div className="flex flex-col items-center gap-2">
+                <CheckCircle size={24} className="text-emerald-400/40" />
+                <span className="text-sm font-medium text-emerald-400">Bekleyen onay yok</span>
+                <span className="text-xs text-white/40">Tüm R2/R3 adımlar onaylandı veya henüz tetiklenmedi.</span>
               </div>
-            ))}
-          </div>
-        )}
-      </Card>
+            </div>
+          ) : (
+            <div className="divide-y divide-white/[0.05]">
+              {pending.map((item) => (
+                <div key={item.id} className="p-4 space-y-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className={`inline-flex items-center rounded border px-1.5 py-0.5 text-xs font-mono ${RISK_COLORS[item.risk_level]}`}>
+                          {item.risk_level}
+                        </span>
+                        {item.agent_code && (
+                          <span className="rounded border border-white/10 px-1.5 py-0.5 font-mono text-xs text-white/50">{item.agent_code}</span>
+                        )}
+                        {item.step_name && <span className="text-xs text-white/40">Adım: {item.step_name}</span>}
+                      </div>
+                      <div className="mt-1.5 text-sm text-white/80">{item.action_summary}</div>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <div className="flex items-center gap-1 text-xs text-amber-400/70">
+                        <Clock size={12} /> {timeUntilExpiry(item.expires_at)}
+                      </div>
+                      <div className="mt-0.5 text-xs text-white/25">{new Date(item.created_at).toLocaleString('tr-TR')}</div>
+                    </div>
+                  </div>
+
+                  {item.action_detail && (
+                    <pre className="whitespace-pre-wrap rounded-xl border border-white/[0.06] bg-black/20 px-3 py-2 text-xs text-white/40">
+                      {JSON.stringify(item.action_detail, null, 2)}
+                    </pre>
+                  )}
+
+                  <div className="flex flex-wrap gap-2">
+                    <input
+                      type="text"
+                      value={notes[item.id] ?? ''}
+                      onChange={(e) => setNotes((prev) => ({ ...prev, [item.id]: e.target.value }))}
+                      placeholder="Geri alma planı / gerekçe notu (opsiyonel)"
+                      className="flex-1 min-w-[200px] rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-1.5 text-xs text-white outline-none focus:border-blue-500/60"
+                    />
+                    <Button
+                      size="sm"
+                      onClick={() => decide(item.id, 'approved')}
+                      disabled={acting === item.id}
+                    >
+                      {acting === item.id ? '...' : 'Onayla'}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => decide(item.id, 'rejected')}
+                      disabled={acting === item.id}
+                    >
+                      Reddet
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+      </motion.div>
 
       {/* Geçmiş */}
       {history.length > 0 && (
-        <Card className="overflow-hidden">
-          <div className="border-b border-white/[0.06] px-4 py-3 text-sm font-medium text-white/60">
-            {history.length} Geçmiş Karar
-          </div>
-          <DataTable
-            columns={historyColumns}
-            rows={history}
-            loading={false}
-            empty={<div />}
-          />
-        </Card>
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.08 }}>
+          <Card className="overflow-hidden">
+            <div className="border-b border-white/[0.06] px-4 py-3 text-sm font-medium text-white/60">
+              {history.length} Geçmiş Karar
+            </div>
+            <DataTable
+              columns={historyColumns}
+              rows={history}
+              loading={false}
+              empty={<div />}
+            />
+          </Card>
+        </motion.div>
       )}
     </div>
   )

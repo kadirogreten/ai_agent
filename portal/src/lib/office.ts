@@ -53,7 +53,13 @@ export function mapStatusToColor(status: string): number {
 }
 
 // Get data flow paths from agent connections
-export function getDataFlowPaths(agents: any[], runs: any[]): Array<{ from: number; to: number; intensity: number }> {
+type DataFlowAgent = { id: string }
+type DataFlowRun = { agent_id: string | null; status: string }
+
+export function getDataFlowPaths(
+  agents: DataFlowAgent[],
+  runs: DataFlowRun[],
+): Array<{ from: number; to: number; intensity: number }> {
   const flows: Array<{ from: number; to: number; intensity: number }> = []
 
   // Group active runs by agents
