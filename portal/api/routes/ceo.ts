@@ -671,6 +671,81 @@ router.post('/jobs/:jobId/review/iterate', async (req: Request, res: Response) =
 
 type WikiImage = { url: string; title: string; description: string }
 
+// ── Google Custom Search image API ───────────────────────────────────────────
+
+type GoogleImage = { url: string; title: string; description: string }
+
+async function searchGoogleImages(query: string, limit = 6): Promise<GoogleImage[]> {
+  const apiKey = process.env.GOOGLE_API_KEY
+  const cseId  = process.env.GOOGLE_CSE_ID
+  if (!apiKey || !cseId) return []
+  try {
+    const params = new URLSearchParams({
+      key: apiKey, cx: cseId,
+      q: query,
+      searchType: 'image',
+      num: String(Math.min(limit, 10)),
+      imgSize: 'large',
+      safe: 'active',
+    })
+    const res = await fetch(`https://www.googleapis.com/customsearch/v1?${params}`)
+    if (!res.ok) return []
+    const data = await res.json() as {
+      items?: Array<{
+        link?: string
+        title?: string
+        snippet?: string
+        image?: { thumbnailLink?: string; contextLink?: string }
+      }>
+    }
+    return (data.items ?? [])
+      .filter((item) => item.link)
+      .map((item) => ({
+        url: item.link!,
+        title: (item.title ?? query).slice(0, 120),
+        description: (item.snippet ?? '').replace(/<[^>]+>/g, '').trim().slice(0, 300),
+      }))
+      .slice(0, limit)
+  } catch { return [] }
+}
+
+// ── Unsplash image API ────────────────────────────────────────────────────────
+
+type UnsplashImage = { url: string; title: string; description: string; credit: string }
+
+async function searchUnsplashImages(query: string, limit = 6): Promise<UnsplashImage[]> {
+  const accessKey = process.env.UNSPLASH_ACCESS_KEY
+  if (!accessKey) return []
+  try {
+    const params = new URLSearchParams({
+      query, per_page: String(Math.min(limit, 30)), orientation: 'landscape',
+    })
+    const res = await fetch(`https://api.unsplash.com/search/photos?${params}`, {
+      headers: { Authorization: `Client-ID ${accessKey}` },
+    })
+    if (!res.ok) return []
+    const data = await res.json() as {
+      results?: Array<{
+        urls?: { regular?: string; full?: string }
+        description?: string | null
+        alt_description?: string | null
+        user?: { name?: string }
+      }>
+    }
+    return (data.results ?? [])
+      .filter((r) => r.urls?.regular)
+      .map((r) => ({
+        url: r.urls!.regular!,
+        title: (r.description ?? r.alt_description ?? query).slice(0, 120),
+        description: (r.alt_description ?? r.description ?? '').slice(0, 300),
+        credit: r.user?.name ?? 'Unsplash',
+      }))
+      .slice(0, limit)
+  } catch { return [] }
+}
+
+// ── Wikimedia commons image search ───────────────────────────────────────────
+
 async function searchWikimediaImages(query: string, limit = 4): Promise<WikiImage[]> {
   try {
     const params = new URLSearchParams({
@@ -790,8 +865,33 @@ router.post('/jobs/:jobId/generate-visuals', async (req: Request, res: Response)
       }
     }
 
-    // 2. Wikimedia real photos — always run, no API key needed
-    const wikiImages = await searchWikimediaImages(searchQuery, 6)
+    // 2a. Google Custom Search images (if GOOGLE_API_KEY + GOOGLE_CSE_ID set)
+    const googleImages = await searchGoogleImages(searchQuery, 6)
+    for (const img of googleImages) {
+      inserts.push({
+        run_id: primaryRunId, step_id: 'visual-google', agent_id: 'VisualAgent',
+        owner_user_id: user.id,
+        artifact_name: img.title.slice(0, 100),
+        output_type: 'image',
+        content_json: { url: img.url, type: 'google', source: 'Google Images', alt: img.description || img.title, title: img.title },
+      })
+    }
+
+    // 2b. Unsplash images (if UNSPLASH_ACCESS_KEY set)
+    const unsplashImages = await searchUnsplashImages(searchQuery, googleImages.length > 0 ? 3 : 6)
+    for (const img of unsplashImages) {
+      inserts.push({
+        run_id: primaryRunId, step_id: 'visual-unsplash', agent_id: 'VisualAgent',
+        owner_user_id: user.id,
+        artifact_name: img.title.slice(0, 100),
+        output_type: 'image',
+        content_json: { url: img.url, type: 'unsplash', source: `Unsplash · ${img.credit}`, alt: img.description || img.title, title: img.title },
+      })
+    }
+
+    // 2c. Wikimedia Commons — always runs as fallback / supplement
+    const wikiLimit = googleImages.length > 0 ? 2 : unsplashImages.length > 0 ? 3 : 6
+    const wikiImages = await searchWikimediaImages(searchQuery, wikiLimit)
     for (const img of wikiImages) {
       inserts.push({
         run_id: primaryRunId, step_id: 'visual-wikimedia', agent_id: 'VisualAgent',
@@ -827,7 +927,15 @@ router.post('/jobs/:jobId/generate-visuals', async (req: Request, res: Response)
     }
     if (insertError) throw insertError
 
-    res.status(200).json({ success: true, count: inserts.length, dalle: !!dalleUrl, wikimedia: wikiImages.length, map: true })
+    res.status(200).json({
+      success: true,
+      count: inserts.length,
+      dalle: !!dalleUrl,
+      google: googleImages.length,
+      unsplash: unsplashImages.length,
+      wikimedia: wikiImages.length,
+      map: true,
+    })
   } catch (e: unknown) {
     const message = getErrorMessage(e, 'Visual generation failed')
     res.status(500).json({ success: false, error: message })

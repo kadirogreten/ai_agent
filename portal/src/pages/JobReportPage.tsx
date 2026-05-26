@@ -842,7 +842,14 @@ export default function JobReportPage() {
       const json = await res.json().catch(() => null)
       if (!res.ok) throw new Error(json?.error ?? `HTTP ${res.status}`)
       const count = json?.count ?? 0
-      setVisualNotice(`${count} görsel kaydedildi (DALL-E: ${json?.dalle ? '✓' : '✗'}, Wikimedia: ${json?.wikimedia ?? 0}, Harita: ${json?.map ? '✓' : '✗'}). Yenileniyor…`)
+      const sources = [
+        json?.google   > 0 ? `Google: ${json.google}`     : null,
+        json?.unsplash > 0 ? `Unsplash: ${json.unsplash}` : null,
+        json?.wikimedia > 0 ? `Wikimedia: ${json.wikimedia}` : null,
+        json?.dalle    ? 'DALL-E: ✓' : null,
+        json?.map      ? 'Harita: ✓' : null,
+      ].filter(Boolean).join(', ')
+      setVisualNotice(`${count} görsel kaydedildi (${sources}). Yenileniyor…`)
       // Wait a bit for DB replication, then re-fetch
       setTimeout(() => { load(); setVisualNotice(null) }, 2500)
     } catch (e) {
@@ -1219,14 +1226,52 @@ export default function JobReportPage() {
                       )
                     })}
 
+                    {/* Google Images grid */}
+                    {(() => {
+                      const googleOutputs = imageOutputs.filter(o => (o.content_json as ImageContent | null)?.type === 'google')
+                      if (googleOutputs.length === 0) return null
+                      return (
+                        <>
+                          <div style={{ fontSize: 12, fontFamily: 'Arial', color: '#888', marginBottom: 10, marginTop: 16 }}>
+                            🔍 Google Görselleri ({googleOutputs.length})
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12, marginBottom: 16 }}>
+                            {googleOutputs.map(o => {
+                              const img = o.content_json as ImageContent
+                              return <WikiCard key={o.id} img={img} />
+                            })}
+                          </div>
+                        </>
+                      )
+                    })()}
+
+                    {/* Unsplash grid */}
+                    {(() => {
+                      const unsplashOutputs = imageOutputs.filter(o => (o.content_json as ImageContent | null)?.type === 'unsplash')
+                      if (unsplashOutputs.length === 0) return null
+                      return (
+                        <>
+                          <div style={{ fontSize: 12, fontFamily: 'Arial', color: '#888', marginBottom: 10, marginTop: 16 }}>
+                            📸 Unsplash Fotoğrafları ({unsplashOutputs.length})
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12, marginBottom: 16 }}>
+                            {unsplashOutputs.map(o => {
+                              const img = o.content_json as ImageContent
+                              return <WikiCard key={o.id} img={img} />
+                            })}
+                          </div>
+                        </>
+                      )
+                    })()}
+
                     {/* Wikimedia grid */}
                     {(() => {
                       const wikiOutputs = imageOutputs.filter(o => (o.content_json as ImageContent | null)?.type === 'wikimedia')
                       if (wikiOutputs.length === 0) return null
                       return (
                         <>
-                          <div style={{ fontSize: 12, fontFamily: 'Arial', color: '#888', marginBottom: 10 }}>
-                            📷 Gerçek Fotoğraflar ({wikiOutputs.length}) — Wikimedia Commons
+                          <div style={{ fontSize: 12, fontFamily: 'Arial', color: '#888', marginBottom: 10, marginTop: 16 }}>
+                            📷 Wikimedia Commons ({wikiOutputs.length})
                           </div>
                           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12, marginBottom: 16 }}>
                             {wikiOutputs.map(o => {
