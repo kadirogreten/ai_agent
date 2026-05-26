@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabaseClient'
 import { useAuthStore } from '@/stores/authStore'
+import { listAgents } from '@/lib/agents'
+import type { AgentRow } from '@/lib/agents'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -187,6 +189,65 @@ function WikiCard({ img }: { img: ImageContent }) {
   )
 }
 
+// ── Mermaid chart renderer ────────────────────────────────────────────────────
+
+declare global {
+  interface Window {
+    mermaid?: {
+      initialize: (cfg: Record<string, unknown>) => void
+      render: (id: string, definition: string) => Promise<{ svg: string }>
+    }
+  }
+}
+
+let mermaidLoading: Promise<void> | null = null
+
+function loadMermaid(): Promise<void> {
+  if (window.mermaid) return Promise.resolve()
+  if (mermaidLoading) return mermaidLoading
+  mermaidLoading = new Promise<void>((resolve, reject) => {
+    const s = document.createElement('script')
+    s.src = 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js'
+    s.onload = () => resolve()
+    s.onerror = () => reject(new Error('Mermaid yüklenemedi'))
+    document.head.appendChild(s)
+  })
+  return mermaidLoading
+}
+
+let mermaidCounter = 0
+
+function MermaidChart({ code }: { code: string }) {
+  const [svg, setSvg] = useState<string | null>(null)
+  const [err, setErr] = useState<string | null>(null)
+
+  useEffect(() => {
+    const id = `mermaid-chart-${++mermaidCounter}`
+    loadMermaid()
+      .then(() => {
+        window.mermaid!.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'loose' })
+        return window.mermaid!.render(id, code)
+      })
+      .then(({ svg: rendered }) => setSvg(rendered))
+      .catch((e) => setErr(e instanceof Error ? e.message : 'Diyagram oluşturulamadı'))
+  }, [code])
+
+  if (err) return <pre className="report-pre"><code>{code}</code></pre>
+  if (!svg) {
+    return (
+      <div style={{ padding: '20px 0', color: '#aaa', fontFamily: 'Arial', fontSize: 12, textAlign: 'center' }}>
+        ⏳ Diyagram yükleniyor…
+      </div>
+    )
+  }
+  return (
+    <div
+      style={{ margin: '16px 0 24px', overflow: 'auto', textAlign: 'center' }}
+      dangerouslySetInnerHTML={{ __html: svg }}
+    />
+  )
+}
+
 // ── Markdown renderer ─────────────────────────────────────────────────────────
 
 // Inline: **bold**, *italic*, `code`, [text](url)
@@ -305,11 +366,17 @@ function renderMd(md: string) {
       ); continue
     }
 
-    // Code block
+    // Code block (or Mermaid diagram)
     else if (/^```/.test(line)) {
+      const lang = line.slice(3).trim().toLowerCase()
       const codeLines: string[] = []; i++
       while (i < lines.length && !/^```/.test(lines[i])) { codeLines.push(lines[i]); i++ }
-      elements.push(<pre key={i} className="report-pre"><code>{codeLines.join('\n')}</code></pre>)
+      const codeText = codeLines.join('\n')
+      if (lang === 'mermaid') {
+        elements.push(<MermaidChart key={i} code={codeText} />)
+      } else {
+        elements.push(<pre key={i} className="report-pre"><code>{codeText}</code></pre>)
+      }
     }
 
     // Empty line
@@ -633,6 +700,9 @@ export default function JobReportPage() {
   const [visualNotice, setVisualNotice] = useState<string | null>(null)
   const [generatingSummary, setGeneratingSummary] = useState(false)
   const [summaryNotice, setSummaryNotice] = useState<string | null>(null)
+  const [summaryError, setSummaryError] = useState<string | null>(null)
+  const [agents, setAgents] = useState<AgentRow[]>([])
+  const [selectedAgentCode, setSelectedAgentCode] = useState<string>('')
 
   // Inject styles
   useEffect(() => {
@@ -679,10 +749,15 @@ export default function JobReportPage() {
         console.error('[JobReportPage] text outputs fetch error:', textRes.error)
         setErr('Çıktılar yüklenirken hata: ' + textRes.error.message)
       } else {
+        if (imgRes.error) {
+          console.error('[JobReportPage] image outputs fetch error:', imgRes.error)
+        }
         const combined = [
           ...((textRes.data ?? []) as RunOutput[]),
           ...((imgRes.data ?? []) as RunOutput[]),
         ]
+        console.debug('[JobReportPage] runIds:', runIds, 'total outputs:', combined.length,
+          'images:', (imgRes.data ?? []).length, 'text:', (textRes.data ?? []).length)
         setOutputs(combined)
       }
     } else {
@@ -692,6 +767,11 @@ export default function JobReportPage() {
   }, [jobId])
 
   useEffect(() => { load() }, [load])
+
+  // Load agents once for the summary agent selector
+  useEffect(() => {
+    listAgents({ q: '', limit: 50 }).then(({ data }) => setAgents(data))
+  }, [])
 
   const shouldPoll = useMemo(() => job?.status === 'pending' || job?.status === 'running', [job?.status])
   useEffect(() => {
@@ -704,17 +784,23 @@ export default function JobReportPage() {
     if (!session?.access_token || !jobId) return
     setGeneratingSummary(true)
     setSummaryNotice(null)
+    setSummaryError(null)
     try {
+      const body: Record<string, string> = {}
+      if (selectedAgentCode) body.agentCode = selectedAgentCode
+
       const res = await fetch(`/api/ceo/jobs/${jobId}/generate-summary`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
       })
       const json = await res.json().catch(() => null)
       if (!res.ok) throw new Error(json?.error ?? `HTTP ${res.status}`)
-      setSummaryNotice('Özet oluşturuldu. Yenileniyor…')
+      const agentUsed = json?.agentUsed ?? 'SummaryAgent'
+      setSummaryNotice(`Özet oluşturuldu (${agentUsed}). Yenileniyor…`)
       setTimeout(() => { load(); setSummaryNotice(null) }, 1500)
     } catch (e) {
-      setSummaryNotice('Özet oluşturma hatası: ' + (e instanceof Error ? e.message : String(e)))
+      setSummaryError('Özet hatası: ' + (e instanceof Error ? e.message : String(e)))
     } finally {
       setGeneratingSummary(false)
     }
@@ -802,12 +888,26 @@ export default function JobReportPage() {
         >
           {generatingVisuals ? '⏳ Görseller…' : '🎨 Görsel Oluştur'}
         </button>
+        {agents.length > 0 ? (
+          <select
+            value={selectedAgentCode}
+            onChange={e => setSelectedAgentCode(e.target.value)}
+            className="report-toolbar-btn"
+            style={{ cursor: 'pointer', paddingRight: 8 }}
+            title="Özeti hangi ajan yazsın?"
+          >
+            <option value="">Ajan seç (varsayılan)</option>
+            {agents.map(a => (
+              <option key={a.id} value={a.code}>{a.name ?? a.code}</option>
+            ))}
+          </select>
+        ) : null}
         <button
           className="report-toolbar-btn"
           onClick={generateSummary}
           disabled={generatingSummary || !job || job.status !== 'success'}
           style={{ borderColor: 'rgba(134,239,172,0.4)', color: 'rgba(134,239,172,0.9)' }}
-          title="SummaryAgent tüm ajan çıktılarını okuyarak kapsamlı bir özet yazar"
+          title="Seçili ajan tüm raporu okuyarak kapsamlı bir özet yazar"
         >
           {generatingSummary ? '⏳ Özet yazılıyor…' : '📋 Özet Oluştur'}
         </button>
@@ -829,6 +929,12 @@ export default function JobReportPage() {
       {summaryNotice ? (
         <div style={{ padding: '10px 56px', background: '#1a1a2e', fontFamily: 'Arial', fontSize: 13, color: 'rgba(134,239,172,0.9)', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
           {summaryNotice}
+        </div>
+      ) : null}
+      {summaryError ? (
+        <div style={{ padding: '10px 56px', background: '#2a1010', fontFamily: 'Arial', fontSize: 13, color: 'rgba(255,150,150,0.95)', borderBottom: '1px solid rgba(255,100,100,0.2)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>⚠️ {summaryError}</span>
+          <button onClick={() => setSummaryError(null)} style={{ background: 'none', border: 'none', color: 'rgba(255,150,150,0.7)', cursor: 'pointer', fontSize: 16 }}>✕</button>
         </div>
       ) : null}
 

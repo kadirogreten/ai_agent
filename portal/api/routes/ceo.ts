@@ -675,7 +675,7 @@ async function searchWikimediaImages(query: string, limit = 4): Promise<WikiImag
   try {
     const params = new URLSearchParams({
       action: 'query', generator: 'search',
-      gsrsearch: `${query} archaeological site photo`,
+      gsrsearch: query,
       gsrnamespace: '6', prop: 'imageinfo',
       iiprop: 'url|thumburl|extmetadata', iiurlwidth: '900',
       format: 'json', gsrlimit: String(limit + 4), // fetch extra, filter below
@@ -760,54 +760,72 @@ router.post('/jobs/:jobId/generate-visuals', async (req: Request, res: Response)
     const { supabase, user } = await getAuthedUser(req)
     const job = await getOwnedJob(supabase, user.id, req.params.jobId)
 
-    const apiKey = process.env.OPENAI_API_KEY
-    if (!apiKey) throw new Error('Missing OPENAI_API_KEY')
-    const model = process.env.OPENAI_MODEL || job.model || 'gpt-4.1-mini'
+    // OPENAI_API_KEY is optional — DALL-E and location extraction need it,
+    // but Wikimedia images and map always work without it
+    const apiKey = process.env.OPENAI_API_KEY ?? null
+    const model  = process.env.OPENAI_MODEL || job.model || 'gpt-4.1-mini'
 
     const runIds = extractRunIdsFromResult(job.result_json)
     const primaryRunId = runIds[0]
     if (!primaryRunId) throw new Error('Job henüz run_id üretmemiş — job tamamlandıktan sonra tekrar deneyin')
 
-    const topic = job.request_text ?? job.domain_pack ?? 'archaeological research'
+    const topic = job.request_text ?? job.domain_pack ?? 'research'
     const searchQuery = (job.domain_pack ?? topic).replace(/-/g, ' ').slice(0, 80)
 
     const inserts: Array<Record<string, unknown>> = []
 
-    // 1. DALL-E illustrative image
-    const dallePrompt = `Archaeological research visualization: ${topic.slice(0, 200)}. Detailed, photorealistic, museum-quality historical illustration, professional lighting, no text overlays, cinematic perspective.`
-    const dalleUrl = await generateDalleImage(dallePrompt, apiKey)
-    if (dalleUrl) {
-      inserts.push({
-        run_id: primaryRunId, step_id: 'visual-dalle', agent_id: 'VisualAgent',
-        artifact_name: 'AI İllüstrasyon',
-        output_type: 'image',
-        content_json: { url: dalleUrl, type: 'dalle', source: 'DALL-E 3', alt: topic.slice(0, 150), expiring: true },
-      })
+    // 1. DALL-E illustrative image (only if OpenAI key available)
+    let dalleUrl: string | null = null
+    if (apiKey) {
+      const dallePrompt = `Research visualization: ${topic.slice(0, 200)}. Detailed, photorealistic illustration, professional lighting, no text overlays, cinematic perspective.`
+      dalleUrl = await generateDalleImage(dallePrompt, apiKey)
+      if (dalleUrl) {
+        inserts.push({
+          run_id: primaryRunId, step_id: 'visual-dalle', agent_id: 'VisualAgent',
+          owner_user_id: user.id,
+          artifact_name: 'AI İllüstrasyon',
+          output_type: 'image',
+          content_json: { url: dalleUrl, type: 'dalle', source: 'DALL-E 3', alt: topic.slice(0, 150), expiring: true },
+        })
+      }
     }
 
-    // 2. Wikimedia real photos
-    const wikiImages = await searchWikimediaImages(searchQuery, 4)
+    // 2. Wikimedia real photos — always run, no API key needed
+    const wikiImages = await searchWikimediaImages(searchQuery, 6)
     for (const img of wikiImages) {
       inserts.push({
         run_id: primaryRunId, step_id: 'visual-wikimedia', agent_id: 'VisualAgent',
+        owner_user_id: user.id,
         artifact_name: img.title.slice(0, 100),
         output_type: 'image',
         content_json: { url: img.url, type: 'wikimedia', source: 'Wikimedia Commons', alt: img.description || img.title, title: img.title },
       })
     }
 
-    // 3. Geographic map
-    const locations = await extractLocations(topic, apiKey, model)
+    // 3. Geographic map — location extraction needs API key; fall back to topic centroid
+    const locations = apiKey ? await extractLocations(topic, apiKey, model) : []
     const mapUrl = buildMapUrl(locations)
     inserts.push({
       run_id: primaryRunId, step_id: 'visual-map', agent_id: 'VisualAgent',
+      owner_user_id: user.id,
       artifact_name: 'Coğrafi Harita',
       output_type: 'image',
-      content_json: { url: mapUrl, type: 'map', source: 'OpenStreetMap', alt: 'Araştırma bölgesi haritası', locations },
+      content_json: { url: mapUrl, type: 'map', source: 'Wikimedia Maps', alt: 'Araştırma bölgesi haritası', locations },
     })
 
-    const { error } = await supabase.from('run_outputs').insert(inserts)
-    if (error) throw error
+    if (inserts.length === 0) throw new Error('Eklenecek görsel üretilemedi')
+    let { error: insertError } = await supabase.from('run_outputs').insert(inserts)
+    // If insert failed because owner_user_id column doesn't exist in older schema, retry without it
+    if (insertError && insertError.message?.includes('owner_user_id')) {
+      const insertsWithoutOwner = inserts.map((row) => {
+        const copy = { ...row }
+        delete copy.owner_user_id
+        return copy
+      })
+      const retry = await supabase.from('run_outputs').insert(insertsWithoutOwner)
+      insertError = retry.error
+    }
+    if (insertError) throw insertError
 
     res.status(200).json({ success: true, count: inserts.length, dalle: !!dalleUrl, wikimedia: wikiImages.length, map: true })
   } catch (e: unknown) {
@@ -824,15 +842,54 @@ router.post('/jobs/:jobId/generate-summary', async (req: Request, res: Response)
     const { supabase, user } = await getAuthedUser(req)
     const job = await getOwnedJob(supabase, user.id, req.params.jobId)
 
-    const apiKey = process.env.OPENAI_API_KEY
-    if (!apiKey) throw new Error('Missing OPENAI_API_KEY')
-    const model = process.env.OPENAI_MODEL || job.model || 'gpt-4.1-mini'
+    const apiKey = process.env.OPENAI_API_KEY ?? null
+    if (!apiKey) throw new Error('OPENAI_API_KEY ortam değişkeni tanımlı değil')
+    const model  = process.env.OPENAI_MODEL || job.model || 'gpt-4.1-mini'
+
+    // ── Agent seçimi ───────────────────────────────────────────────────────────
+    // agentCode body'den geliyorsa o ajanı kullan, yoksa uygun bir ajanı seç
+    const requestedCode = typeof req.body?.agentCode === 'string' ? req.body.agentCode.trim() : null
+
+    let agentSystemPrompt: string | null = null
+    let agentName = 'SummaryAgent'
+
+    // Agents tablosundan ajan çek
+    const agentQuery = supabase
+      .from('agents')
+      .select('id,name,code,system_prompt,role')
+      .eq('tenant_id', user.id)  // tenant'a ait ajanlar
+
+    const agentsRes = requestedCode
+      ? await agentQuery.eq('code', requestedCode).maybeSingle()
+      : await agentQuery.in('role', ['analyst', 'researcher', 'writer', 'synthesizer']).limit(1).maybeSingle()
+
+    if (!agentsRes.error && agentsRes.data) {
+      const agent = agentsRes.data as { name?: string; system_prompt?: string | null }
+      agentSystemPrompt = agent.system_prompt ?? null
+      agentName = (agent.name as string | undefined) ?? agentName
+    }
+
+    // Hiç ajan bulunamazsa global (tenant_id null) ajanlara bak
+    if (!agentSystemPrompt) {
+      const globalRes = await supabase
+        .from('agents')
+        .select('id,name,code,system_prompt,role')
+        .is('tenant_id', null)
+        .in('role', ['analyst', 'researcher', 'writer', 'synthesizer'])
+        .limit(1)
+        .maybeSingle()
+      if (!globalRes.error && globalRes.data) {
+        const agent = globalRes.data as { name?: string; system_prompt?: string | null }
+        agentSystemPrompt = agent.system_prompt ?? null
+        agentName = (agent.name as string | undefined) ?? agentName
+      }
+    }
 
     const runIds = extractRunIdsFromResult(job.result_json)
     const primaryRunId = runIds[0]
     if (!primaryRunId) throw new Error('Job henüz run_id üretmemiş')
 
-    // Check if summary already exists
+    // Delete existing summary to regenerate
     const existing = await supabase
       .from('run_outputs')
       .select('id')
@@ -840,11 +897,10 @@ router.post('/jobs/:jobId/generate-summary', async (req: Request, res: Response)
       .eq('output_type', 'summary')
       .maybeSingle()
     if (existing.data) {
-      // Delete old summary to regenerate
       await supabase.from('run_outputs').delete().eq('id', existing.data.id)
     }
 
-    // Fetch all text outputs for this job
+    // Fetch all text outputs
     const outRes = await supabase
       .from('run_outputs')
       .select('artifact_name,step_id,agent_id,output_type,content_md,content_json')
@@ -853,39 +909,50 @@ router.post('/jobs/:jobId/generate-summary', async (req: Request, res: Response)
       .neq('output_type', 'summary')
       .order('created_at', { ascending: true })
     if (outRes.error) throw outRes.error
-
     const outputs = outRes.data ?? []
 
-    // Build context from outputs (trim to avoid token limits)
-    const contextBlocks = outputs.map((o) => {
-      const title = o.artifact_name ?? o.step_id ?? o.agent_id ?? o.output_type
-      let body = ''
-      if (o.content_md?.trim()) {
-        body = o.content_md.slice(0, 1200)
-      } else if (o.content_json && typeof o.content_json === 'object' && !Array.isArray(o.content_json)) {
+    // Helper: extract text body
+    function extractText(o: typeof outputs[0], limit = 1500): string {
+      if (o.content_md?.trim()) return o.content_md.slice(0, limit)
+      if (o.content_json && typeof o.content_json === 'object' && !Array.isArray(o.content_json)) {
         const obj = o.content_json as Record<string, unknown>
         for (const key of ['work', 'content', 'text', 'report', 'output', 'result']) {
-          if (typeof obj[key] === 'string') { body = (obj[key] as string).slice(0, 1200); break }
+          if (typeof obj[key] === 'string') return (obj[key] as string).slice(0, limit)
         }
-        if (!body) body = JSON.stringify(o.content_json).slice(0, 800)
       }
-      return body ? `### ${title}\n${body}` : null
-    }).filter(Boolean).join('\n\n---\n\n')
+      return ''
+    }
+
+    const contextBlocks = outputs
+      .map((o) => {
+        const body = extractText(o)
+        return body ? `### ${o.artifact_name ?? o.step_id ?? o.agent_id ?? o.output_type}\n${body}` : null
+      })
+      .filter(Boolean)
+      .join('\n\n---\n\n')
 
     if (!contextBlocks) throw new Error('Özetlenecek içerik bulunamadı')
 
-    const systemPrompt = `Sen kapsamlı araştırma raporları yazan uzman bir SummaryAgent'sın.
+    // ── System prompt: önce seçilen ajanın promptu, yoksa varsayılan ──────────
+    const defaultSystemPrompt = `Sen araştırma bulgularını sentezleyen uzman bir analistsin.
 Görevin: Birden fazla ajan tarafından üretilen araştırma çıktılarını okuyarak kapsamlı, bilimsel ve okunabilir bir Türkçe özet yazmak.
+Markdown formatında yaz: ## başlıklar, **bold**, madde işaretleri.
 
-Özetin yapısı:
-- **Araştırma Özeti** (3-4 paragraf): Araştırmanın genel bulgularını, önemli tespitleri ve ana temalarını kapsa
-- **Temel Bulgular**: Madde madde en önemli 5-7 bulgu
-- **Metodolojik Değerlendirme**: Kullanılan yaklaşımların güçlü ve zayıf yönleri
-- **Sonuç ve Çıkarımlar**: Araştırmanın pratik önemi ve gelecek çalışmalar için öneriler
+Şu bölümleri mutlaka yaz:
+## Araştırma Özeti
+(3-4 paragraf: genel bulgular, önemli tespitler, ana temalar)
 
-Yazım stili: Akademik ama anlaşılır. Markdown formatında yaz (## başlıklar, **bold**, madde işaretleri).`
+## Temel Bulgular
+(madde madde en önemli 5-7 bulgu)
 
-    const userPrompt = `Araştırma konusu: ${job.request_text ?? job.domain_pack ?? 'Araştırma'}\n\nAjan çıktıları:\n\n${contextBlocks.slice(0, 12000)}`
+## Sonuç ve Çıkarımlar
+(araştırmanın önemi ve gelecek çalışmalar için öneriler)`
+
+    const systemPrompt = agentSystemPrompt
+      ? `${agentSystemPrompt}\n\n---\nEk görev: Aşağıdaki araştırma çıktılarını okuyarak kapsamlı bir Türkçe özet çıkar. Markdown formatında yaz (## başlıklar, **bold**, madde işaretleri). Şu bölümleri yaz: ## Araştırma Özeti, ## Temel Bulgular, ## Sonuç ve Çıkarımlar.`
+      : defaultSystemPrompt
+
+    const userPrompt = `Araştırma konusu: ${job.request_text ?? job.domain_pack ?? 'Araştırma'}\n\nAjan çıktıları (${outputs.length} bölüm):\n\n${contextBlocks.slice(0, 14000)}`
 
     const llmRes = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -896,26 +963,43 @@ Yazım stili: Akademik ama anlaşılır. Markdown formatında yaz (## başlıkla
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt },
         ],
-        max_tokens: 2000,
+        max_tokens: 2500,
         temperature: 0.4,
       }),
     })
-    if (!llmRes.ok) throw new Error(`LLM error: ${llmRes.status}`)
-    const llmData = await llmRes.json() as { choices?: Array<{ message?: { content?: string } }> }
+    if (!llmRes.ok) {
+      const errText = await llmRes.text().catch(() => '')
+      throw new Error(`LLM API hatası: HTTP ${llmRes.status} — ${errText.slice(0, 200)}`)
+    }
+    const llmData = await llmRes.json() as { choices?: Array<{ message?: { content?: string } }>; error?: { message: string } }
+    if (llmData.error) throw new Error(`OpenAI hatası: ${llmData.error.message}`)
     const summaryMd = llmData.choices?.[0]?.message?.content?.trim()
-    if (!summaryMd) throw new Error('Özet üretilemedi')
+    if (!summaryMd) throw new Error('LLM boş yanıt döndürdü')
 
-    const { error } = await supabase.from('run_outputs').insert({
+    let { error: summaryInsertError } = await supabase.from('run_outputs').insert({
       run_id: primaryRunId,
+      owner_user_id: user.id,
       step_id: 'summary',
-      agent_id: 'SummaryAgent',
+      agent_id: agentName,
       artifact_name: '📋 Araştırma Özeti',
       output_type: 'summary',
       content_md: summaryMd,
     })
-    if (error) throw error
+    // Retry without owner_user_id if column doesn't exist in schema
+    if (summaryInsertError && summaryInsertError.message?.includes('owner_user_id')) {
+      const retry = await supabase.from('run_outputs').insert({
+        run_id: primaryRunId,
+        step_id: 'summary',
+        agent_id: agentName,
+        artifact_name: '📋 Araştırma Özeti',
+        output_type: 'summary',
+        content_md: summaryMd,
+      })
+      summaryInsertError = retry.error
+    }
+    if (summaryInsertError) throw summaryInsertError
 
-    res.status(200).json({ success: true, summaryMd })
+    res.status(200).json({ success: true, agentUsed: agentName, summaryMd })
   } catch (e: unknown) {
     const message = getErrorMessage(e, 'Summary generation failed')
     res.status(500).json({ success: false, error: message })
