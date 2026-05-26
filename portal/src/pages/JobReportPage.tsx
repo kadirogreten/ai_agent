@@ -790,7 +790,13 @@ const STYLES = `
       top: 0 !important;
       left: 0 !important;
       width: 100% !important;
+      height: auto !important;
+      overflow: visible !important;
       background: white !important;
+    }
+    .report-scroll-area {
+      overflow: visible !important;
+      height: auto !important;
     }
     .report-toolbar { display: none !important; }
     /* Force color printing */
@@ -1028,7 +1034,7 @@ export default function JobReportPage() {
     : 'AgentArmy'
 
   return (
-    <div className="report-root" style={{ background: '#f0ede8', minHeight: '100vh' }}>
+    <div className="report-root" style={{ background: '#f0ede8', height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
       {/* Toolbar */}
       <div className="report-toolbar">
@@ -1116,6 +1122,9 @@ export default function JobReportPage() {
         </div>
       ) : null}
 
+      {/* ── Scrollable content area ── */}
+      <div className="report-scroll-area" style={{ flex: 1, overflowY: 'auto' }}>
+
       {err ? (
         <div style={{ padding: '24px 56px', color: '#c00', fontFamily: 'Arial', fontSize: 13 }}>{err}</div>
       ) : null}
@@ -1169,8 +1178,86 @@ export default function JobReportPage() {
             const chartOutputs   = outputs.filter(o => o.output_type === 'charts')
             const textOutputs    = outputs.filter(o => o.output_type !== 'image' && o.output_type !== 'summary' && o.output_type !== 'charts')
 
+            // Helper: stable section ID from output
+            const sectionId = (o: RunOutput) =>
+              `section-${(o.artifact_name ?? o.step_id ?? o.id).replace(/\s+/g, '-').replace(/[^a-zA-Z0-9-_]/g, '').slice(0, 40)}-${o.id.slice(0, 8)}`
+
             return (
               <>
+                {/* ── Table of Contents ── */}
+                {textOutputs.length > 1 ? (
+                  <div style={{
+                    margin: '0 0 40px',
+                    background: 'white',
+                    border: '1px solid #e8e4de',
+                    borderRadius: 10,
+                    overflow: 'hidden',
+                  }}>
+                    <div style={{
+                      background: 'linear-gradient(90deg, #1a1a2e 0%, #0f3460 100%)',
+                      padding: '12px 20px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 10,
+                    }}>
+                      <span style={{ fontSize: 15 }}>📑</span>
+                      <span style={{ fontFamily: 'Arial', fontWeight: 700, fontSize: 13, color: 'white', letterSpacing: 0.3 }}>İçindekiler</span>
+                    </div>
+                    <div style={{ padding: '12px 0' }}>
+                      {textOutputs.map((o, i) => (
+                        <a
+                          key={o.id}
+                          href={`#${sectionId(o)}`}
+                          onClick={(e) => {
+                            e.preventDefault()
+                            document.getElementById(sectionId(o))?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                          }}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'baseline',
+                            gap: 10,
+                            padding: '7px 20px',
+                            textDecoration: 'none',
+                            color: '#1a1a2e',
+                            fontFamily: 'Arial',
+                            fontSize: 13,
+                            borderBottom: i < textOutputs.length - 1 ? '1px solid #f0ede8' : 'none',
+                            transition: 'background 0.1s',
+                          }}
+                          onMouseEnter={e => (e.currentTarget.style.background = '#f8f6f2')}
+                          onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                        >
+                          <span style={{ minWidth: 22, fontWeight: 700, color: '#0f3460', fontSize: 12 }}>{i + 1}.</span>
+                          <span style={{ flex: 1 }}>{o.artifact_name ?? o.step_id ?? o.output_type}</span>
+                          <span style={{ color: '#bbb', fontSize: 11 }}>↓</span>
+                        </a>
+                      ))}
+                      {summaryOutputs.length > 0 && (
+                        <a
+                          href="#section-summary"
+                          onClick={(e) => {
+                            e.preventDefault()
+                            document.getElementById('section-summary')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                          }}
+                          style={{
+                            display: 'flex', alignItems: 'baseline', gap: 10,
+                            padding: '7px 20px', textDecoration: 'none',
+                            color: '#0f3460', fontFamily: 'Arial', fontSize: 13,
+                            borderTop: '1px solid #e8e4de', fontWeight: 600,
+                            transition: 'background 0.1s',
+                          }}
+                          onMouseEnter={e => (e.currentTarget.style.background = '#f0f4ff')}
+                          onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                        >
+                          <span style={{ minWidth: 22, fontSize: 15 }}>📋</span>
+                          <span>Araştırma Özeti</span>
+                          <span style={{ color: '#bbb', fontSize: 11 }}>↓</span>
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                ) : null}
+
                 {/* Empty state */}
                 {textOutputs.length === 0 ? (
                   <div className="report-empty">
@@ -1190,7 +1277,7 @@ export default function JobReportPage() {
                     : body
 
                   return (
-                    <div key={o.id} className="report-section">
+                    <div key={o.id} id={sectionId(o)} className="report-section" style={{ scrollMarginTop: 16 }}>
                       <div className="report-section-header">
                         <div className="report-section-num">{idx + 1}</div>
                         <div style={{ flex: 1 }}>
@@ -1235,7 +1322,6 @@ export default function JobReportPage() {
 
                 {/* Charts section */}
                 {chartOutputs.length > 0 ? chartOutputs.map((o) => {
-                  const body = outputBody(o)
                   return (
                     <div key={o.id} style={{ margin: '48px 0', borderRadius: 12, border: '2px solid #1e3a5f', background: 'linear-gradient(135deg, #f0f6ff 0%, #e8f0ff 100%)', overflow: 'hidden' }}>
                       <div style={{ background: 'linear-gradient(90deg, #0f2744 0%, #1e3a5f 100%)', padding: '16px 24px', display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -1271,7 +1357,8 @@ export default function JobReportPage() {
                 {summaryOutputs.length > 0 ? summaryOutputs.map((o) => {
                   const body = outputBody(o)
                   return (
-                    <div key={o.id} style={{
+                    <div key={o.id} id="section-summary" style={{
+                      scrollMarginTop: 16,
                       margin: '48px 0',
                       borderRadius: 12,
                       border: '2px solid #0f3460',
@@ -1432,6 +1519,7 @@ export default function JobReportPage() {
 
         </div>
       </div>
+      </div>{/* end report-scroll-area */}
     </div>
   )
 }

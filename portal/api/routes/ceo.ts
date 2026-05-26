@@ -15,6 +15,9 @@ import {
   BorderStyle,
   WidthType,
   ShadingType,
+  TableOfContents,
+  StyleLevel,
+  PageBreak,
 } from 'docx'
 
 const router = Router()
@@ -1558,6 +1561,25 @@ router.get('/jobs/:jobId/report.docx', async (req: Request, res: Response) => {
 
     const textOutputs   = outputs.filter((o) => o.output_type !== 'image' && o.output_type !== 'summary')
     const summaryOutput = outputs.find((o) => o.output_type === 'summary')
+
+    // ── Table of Contents (after textOutputs is defined) ────────────────────
+    if (textOutputs.length > 1) {
+      bodyChildren.push(
+        new Paragraph({
+          children: [new TextRun({ text: 'İÇİNDEKİLER', size: 24, bold: true, font: 'Arial', color: '0F3460', allCaps: true })],
+          spacing: { before: 360, after: 160 },
+        }),
+        new TableOfContents('İçindekiler', {
+          hyperlink: true,
+          headingStyleRange: '2-3',
+          stylesWithLevels: [
+            new StyleLevel('Heading2', 1),
+            new StyleLevel('Heading3', 2),
+          ],
+        }),
+        new Paragraph({ children: [new PageBreak()] }),
+      )
+    }
 
     for (let i = 0; i < textOutputs.length; i++) {
       const o = textOutputs[i]
