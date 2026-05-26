@@ -104,37 +104,55 @@ function FailsafeImage({
 }
 
 function MapImage({ img }: { img: ImageContent }) {
-  const [failed, setFailed] = useState(false)
+  // Track which URL sources have failed so we cascade through fallbacks
+  const [urlIndex, setUrlIndex] = useState(0)
 
-  // Build an OpenStreetMap embed URL as fallback
   const locations = img.locations ?? []
   const avgLat = locations.length > 0 ? locations.reduce((s, l) => s + l.lat, 0) / locations.length : 39.5
   const avgLon = locations.length > 0 ? locations.reduce((s, l) => s + l.lon, 0) / locations.length : 35.0
-  const zoom = locations.length <= 2 ? 8 : 7
-  const embedUrl = `https://www.openstreetmap.org/export/embed.html?bbox=${(avgLon - 3).toFixed(2)}%2C${(avgLat - 2).toFixed(2)}%2C${(avgLon + 3).toFixed(2)}%2C${(avgLat + 2).toFixed(2)}&layer=mapnik`
+  const zoom   = locations.length === 0 ? 6 : locations.length <= 2 ? 8 : 7
+
+  // Ordered list of fallback map sources — try each in turn
+  const imgSources = [
+    // 1. Wikimedia Maps (reliable, no key needed)
+    `https://maps.wikimedia.org/img/osm-intl,${zoom},${avgLat.toFixed(4)},${avgLon.toFixed(4)},800x400.png`,
+    // 2. Original URL stored in DB (OSM static, sometimes works)
+    img.url,
+  ]
+
+  // OSM embed iframe as final fallback (always works in browser)
+  const spread = zoom <= 6 ? 5 : zoom <= 7 ? 3 : 1.5
+  const embedUrl = `https://www.openstreetmap.org/export/embed.html?bbox=${(avgLon - spread).toFixed(3)},${(avgLat - spread * 0.6).toFixed(3)},${(avgLon + spread).toFixed(3)},${(avgLat + spread * 0.6).toFixed(3)}&layer=mapnik`
+
+  const allFailed = urlIndex >= imgSources.length
 
   return (
     <div style={{ marginBottom: 24 }}>
       <div style={{ fontSize: 12, fontFamily: 'Arial', color: '#888', marginBottom: 8, display: 'flex', justifyContent: 'space-between' }}>
         <span>🗺 Coğrafi Harita</span>
-        <span style={{ fontSize: 11 }}>{img.source}</span>
+        <span style={{ fontSize: 11 }}>
+          {allFailed ? 'OpenStreetMap (embed)' : urlIndex === 0 ? 'Wikimedia Maps' : img.source}
+        </span>
       </div>
-      {!failed ? (
-        <img
-          src={img.url}
-          alt={img.alt ?? 'Harita'}
-          style={{ width: '100%', borderRadius: 8, border: '1px solid #e0e0e0', display: 'block' }}
-          onError={() => setFailed(true)}
-        />
-      ) : (
-        // Fallback: embedded OSM iframe
+
+      {allFailed ? (
+        // Final fallback: OSM embed iframe (interactive, always loads)
         <iframe
           src={embedUrl}
           title="Coğrafi Harita"
-          style={{ width: '100%', height: 340, borderRadius: 8, border: '1px solid #e0e0e0', display: 'block' }}
+          style={{ width: '100%', height: 360, borderRadius: 8, border: '1px solid #e0e0e0', display: 'block' }}
           loading="lazy"
         />
+      ) : (
+        <img
+          key={urlIndex}
+          src={imgSources[urlIndex]}
+          alt={img.alt ?? 'Harita'}
+          style={{ width: '100%', borderRadius: 8, border: '1px solid #e0e0e0', display: 'block' }}
+          onError={() => setUrlIndex(i => i + 1)}
+        />
       )}
+
       {locations.length > 0 ? (
         <div style={{ fontSize: 11, color: '#999', fontFamily: 'Arial', marginTop: 6 }}>
           {locations.map(l => l.name).join(' · ')}
@@ -567,27 +585,35 @@ const STYLES = `
     font-family: 'Arial', sans-serif;
     font-size: 14px;
   }
-  /* Print — hide everything except report */
+  /* Print — hide sidebar/shell, keep only report */
   @media print {
-    /* Hide the whole page, then reveal only report content */
+    /* Visibility trick: hide everything, then unhide report */
     body * { visibility: hidden !important; }
     .report-root,
     .report-root * { visibility: visible !important; }
+    /* absolute (NOT fixed) so multi-page content flows correctly */
     .report-root {
-      position: fixed !important;
+      position: absolute !important;
       top: 0 !important;
       left: 0 !important;
       width: 100% !important;
       background: white !important;
     }
     .report-toolbar { display: none !important; }
-    .report-cover { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    .report-section-num { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    .report-table thead th { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    .report-table tbody tr:nth-child(even) td { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    .report-page { padding-bottom: 0; }
-    @page { margin: 1.5cm 2cm; size: A4; }
+    /* Force color printing */
+    .report-cover,
+    .report-section-num,
+    .report-table thead th,
+    .report-table tbody tr:nth-child(even) td {
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+    .report-page { padding-bottom: 0; max-width: 100%; }
+    .report-body { padding: 0 40px; }
+    @page { margin: 1.5cm 2cm; size: A4 portrait; }
     .report-section { page-break-inside: avoid; }
+    /* Don't break images across pages */
+    img { page-break-inside: avoid; max-width: 100%; }
   }
 `
 
@@ -605,6 +631,8 @@ export default function JobReportPage() {
   const [downloading, setDownloading] = useState(false)
   const [generatingVisuals, setGeneratingVisuals] = useState(false)
   const [visualNotice, setVisualNotice] = useState<string | null>(null)
+  const [generatingSummary, setGeneratingSummary] = useState(false)
+  const [summaryNotice, setSummaryNotice] = useState<string | null>(null)
 
   // Inject styles
   useEffect(() => {
@@ -631,12 +659,32 @@ export default function JobReportPage() {
 
     const runIds = collectRunIds(row)
     if (runIds.length > 0) {
-      const outRes = await supabase
-        .from('run_outputs')
-        .select('id,run_id,step_id,agent_id,artifact_name,output_type,content_md,content_json,created_at')
-        .in('run_id', runIds)
-        .order('created_at', { ascending: true })
-      if (!outRes.error) setOutputs((outRes.data ?? []) as RunOutput[])
+      // Fetch text outputs (with full content) and image outputs (metadata only) separately
+      // to avoid huge payloads when content_json contains large data
+      const [textRes, imgRes] = await Promise.all([
+        supabase
+          .from('run_outputs')
+          .select('id,run_id,step_id,agent_id,artifact_name,output_type,content_md,content_json,created_at')
+          .in('run_id', runIds)
+          .neq('output_type', 'image')
+          .order('created_at', { ascending: true }),
+        supabase
+          .from('run_outputs')
+          .select('id,run_id,step_id,agent_id,artifact_name,output_type,content_json,created_at')
+          .in('run_id', runIds)
+          .eq('output_type', 'image')
+          .order('created_at', { ascending: true }),
+      ])
+      if (textRes.error) {
+        console.error('[JobReportPage] text outputs fetch error:', textRes.error)
+        setErr('Çıktılar yüklenirken hata: ' + textRes.error.message)
+      } else {
+        const combined = [
+          ...((textRes.data ?? []) as RunOutput[]),
+          ...((imgRes.data ?? []) as RunOutput[]),
+        ]
+        setOutputs(combined)
+      }
     } else {
       setOutputs([])
     }
@@ -652,6 +700,26 @@ export default function JobReportPage() {
     return () => window.clearInterval(id)
   }, [load, shouldPoll])
 
+  async function generateSummary() {
+    if (!session?.access_token || !jobId) return
+    setGeneratingSummary(true)
+    setSummaryNotice(null)
+    try {
+      const res = await fetch(`/api/ceo/jobs/${jobId}/generate-summary`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+      })
+      const json = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(json?.error ?? `HTTP ${res.status}`)
+      setSummaryNotice('Özet oluşturuldu. Yenileniyor…')
+      setTimeout(() => { load(); setSummaryNotice(null) }, 1500)
+    } catch (e) {
+      setSummaryNotice('Özet oluşturma hatası: ' + (e instanceof Error ? e.message : String(e)))
+    } finally {
+      setGeneratingSummary(false)
+    }
+  }
+
   async function generateVisuals() {
     if (!session?.access_token || !jobId) return
     setGeneratingVisuals(true)
@@ -664,8 +732,9 @@ export default function JobReportPage() {
       const json = await res.json().catch(() => null)
       if (!res.ok) throw new Error(json?.error ?? `HTTP ${res.status}`)
       const count = json?.count ?? 0
-      setVisualNotice(`${count} görsel oluşturuldu. Sayfa yenileniyor…`)
-      setTimeout(() => { load(); setVisualNotice(null) }, 1500)
+      setVisualNotice(`${count} görsel kaydedildi (DALL-E: ${json?.dalle ? '✓' : '✗'}, Wikimedia: ${json?.wikimedia ?? 0}, Harita: ${json?.map ? '✓' : '✗'}). Yenileniyor…`)
+      // Wait a bit for DB replication, then re-fetch
+      setTimeout(() => { load(); setVisualNotice(null) }, 2500)
     } catch (e) {
       setVisualNotice('Görsel oluşturma hatası: ' + (e instanceof Error ? e.message : String(e)))
     } finally {
@@ -729,19 +798,37 @@ export default function JobReportPage() {
           onClick={generateVisuals}
           disabled={generatingVisuals || !job || job.status !== 'success'}
           style={{ borderColor: 'rgba(251,191,36,0.4)', color: 'rgba(251,191,36,0.9)' }}
-          title="Görseller oluşturuldu ama görünmüyorsa DALL-E URL'i expire olmuş olabilir — tekrar tıkla"
+          title="DALL-E illüstrasyonu, Wikimedia fotoğrafları ve coğrafi harita oluşturur"
         >
-          {generatingVisuals ? '⏳ Oluşturuluyor…' : '🎨 Görsel Oluştur / Yenile'}
+          {generatingVisuals ? '⏳ Görseller…' : '🎨 Görsel Oluştur'}
+        </button>
+        <button
+          className="report-toolbar-btn"
+          onClick={generateSummary}
+          disabled={generatingSummary || !job || job.status !== 'success'}
+          style={{ borderColor: 'rgba(134,239,172,0.4)', color: 'rgba(134,239,172,0.9)' }}
+          title="SummaryAgent tüm ajan çıktılarını okuyarak kapsamlı bir özet yazar"
+        >
+          {generatingSummary ? '⏳ Özet yazılıyor…' : '📋 Özet Oluştur'}
         </button>
         <button className="report-toolbar-btn" onClick={load}>↻ Yenile</button>
         <span className="report-toolbar-title">
-          {job?.domain_pack ?? 'Rapor'} · {outputs.filter(o => o.output_type !== 'image').length} bölüm
+          {job?.domain_pack ?? 'Rapor'} · {outputs.filter(o => o.output_type !== 'image' && o.output_type !== 'summary').length} bölüm
+          {outputs.filter(o => o.output_type === 'image').length > 0
+            ? ` · ${outputs.filter(o => o.output_type === 'image').length} görsel`
+            : ''}
+          {outputs.filter(o => o.output_type === 'summary').length > 0 ? ' · özet ✓' : ''}
         </span>
       </div>
 
       {visualNotice ? (
         <div style={{ padding: '10px 56px', background: '#1a1a2e', fontFamily: 'Arial', fontSize: 13, color: 'rgba(251,191,36,0.9)', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
           {visualNotice}
+        </div>
+      ) : null}
+      {summaryNotice ? (
+        <div style={{ padding: '10px 56px', background: '#1a1a2e', fontFamily: 'Arial', fontSize: 13, color: 'rgba(134,239,172,0.9)', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+          {summaryNotice}
         </div>
       ) : null}
 
@@ -793,8 +880,9 @@ export default function JobReportPage() {
 
           {/* Separate image vs text outputs */}
           {(() => {
-            const imageOutputs = outputs.filter(o => o.output_type === 'image')
-            const textOutputs  = outputs.filter(o => o.output_type !== 'image')
+            const imageOutputs   = outputs.filter(o => o.output_type === 'image')
+            const summaryOutputs = outputs.filter(o => o.output_type === 'summary')
+            const textOutputs    = outputs.filter(o => o.output_type !== 'image' && o.output_type !== 'summary')
 
             return (
               <>
@@ -859,6 +947,61 @@ export default function JobReportPage() {
                     </div>
                   </div>
                 ) : null}
+
+                {/* Summary section — shown at end before images */}
+                {summaryOutputs.length > 0 ? summaryOutputs.map((o) => {
+                  const body = outputBody(o)
+                  return (
+                    <div key={o.id} style={{
+                      margin: '48px 0',
+                      borderRadius: 12,
+                      border: '2px solid #0f3460',
+                      background: 'linear-gradient(135deg, #f8f7ff 0%, #f0f4ff 100%)',
+                      overflow: 'hidden',
+                    }}>
+                      <div style={{
+                        background: 'linear-gradient(90deg, #1a1a2e 0%, #0f3460 100%)',
+                        padding: '16px 24px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 12,
+                      }}>
+                        <span style={{ fontSize: 20 }}>📋</span>
+                        <div>
+                          <div style={{ color: '#fff', fontWeight: 700, fontSize: 16, fontFamily: 'Georgia, serif' }}>
+                            Araştırma Özeti
+                          </div>
+                          <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11, fontFamily: 'Arial', marginTop: 2 }}>
+                            SummaryAgent · Tüm ajan çıktıları sentezlendi
+                          </div>
+                        </div>
+                      </div>
+                      <div style={{ padding: '24px 28px' }}>
+                        {body ? <div>{renderMd(body)}</div> : null}
+                      </div>
+                    </div>
+                  )
+                }) : (job?.status === 'success' && textOutputs.length > 0 ? (
+                  <div style={{
+                    margin: '48px 0',
+                    padding: '20px 24px',
+                    borderRadius: 10,
+                    border: '1.5px dashed #b0b8d0',
+                    background: '#f8f7ff',
+                    fontFamily: 'Arial, sans-serif',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 16,
+                  }}>
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: 14, color: '#1a1a2e', marginBottom: 4 }}>Henüz özet yok</div>
+                      <div style={{ fontSize: 13, color: '#666' }}>
+                        <strong>📋 Özet Oluştur</strong> butonuna tıklayarak SummaryAgent tüm ajan çıktılarını okuyup kapsamlı bir özet yazar.
+                      </div>
+                    </div>
+                  </div>
+                ) : null)}
 
                 {/* Image gallery */}
                 {imageOutputs.length > 0 ? (

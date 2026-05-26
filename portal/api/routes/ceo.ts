@@ -712,16 +712,11 @@ async function generateDalleImage(prompt: string, apiKey: string): Promise<strin
     const res = await fetch('https://api.openai.com/v1/images/generations', {
       method: 'POST',
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      // Request base64 so the image is stored permanently (no expiry)
-      body: JSON.stringify({ model: 'dall-e-3', prompt, n: 1, size: '1792x1024', quality: 'standard', response_format: 'b64_json' }),
+      body: JSON.stringify({ model: 'dall-e-3', prompt, n: 1, size: '1792x1024', quality: 'standard' }),
     })
     if (!res.ok) return null
-    const data = await res.json() as { data?: Array<{ b64_json?: string; url?: string }> }
-    const item = data.data?.[0]
-    if (!item) return null
-    // Prefer base64 data URL (permanent), fall back to expiring URL
-    if (item.b64_json) return `data:image/png;base64,${item.b64_json}`
-    return item.url ?? null
+    const data = await res.json() as { data?: Array<{ url?: string }> }
+    return data.data?.[0]?.url ?? null
   } catch { return null }
 }
 
@@ -753,10 +748,9 @@ function buildMapUrl(locations: Array<{ name: string; lat: number; lon: number }
     ? locations.reduce((s, l) => s + l.lon, 0) / locations.length
     : 35.0
   const zoom = locations.length === 0 ? 6 : locations.length <= 2 ? 8 : 7
-  const markerStr = locations.length > 0
-    ? '&markers=' + locations.map((l) => `${l.lat},${l.lon},red-pushpin`).join('|')
-    : ''
-  return `https://staticmap.openstreetmap.de/staticmap.php?center=${avgLat.toFixed(4)},${avgLon.toFixed(4)}&zoom=${zoom}&size=800x400&maptype=mapnik${markerStr}`
+  // Wikimedia Maps static image API — reliable, no API key needed
+  // Format: https://maps.wikimedia.org/img/osm-intl,{zoom},{lat},{lon},{width}x{height}.png
+  return `https://maps.wikimedia.org/img/osm-intl,${zoom},${avgLat.toFixed(4)},${avgLon.toFixed(4)},800x400.png`
 }
 
 // ── POST /api/ceo/jobs/:jobId/generate-visuals ───────────────────────────────
@@ -787,7 +781,7 @@ router.post('/jobs/:jobId/generate-visuals', async (req: Request, res: Response)
         run_id: primaryRunId, step_id: 'visual-dalle', agent_id: 'VisualAgent',
         artifact_name: 'AI İllüstrasyon',
         output_type: 'image',
-        content_json: { url: dalleUrl, type: 'dalle', source: 'DALL-E 3', alt: topic.slice(0, 150), expiring: !dalleUrl.startsWith('data:') },
+        content_json: { url: dalleUrl, type: 'dalle', source: 'DALL-E 3', alt: topic.slice(0, 150), expiring: true },
       })
     }
 
@@ -818,6 +812,112 @@ router.post('/jobs/:jobId/generate-visuals', async (req: Request, res: Response)
     res.status(200).json({ success: true, count: inserts.length, dalle: !!dalleUrl, wikimedia: wikiImages.length, map: true })
   } catch (e: unknown) {
     const message = getErrorMessage(e, 'Visual generation failed')
+    res.status(500).json({ success: false, error: message })
+  }
+})
+
+// ── POST /api/ceo/jobs/:jobId/generate-summary ───────────────────────────────
+// SummaryAgent — araştırma çıktılarını okuyup kapsamlı bir özet yazar
+
+router.post('/jobs/:jobId/generate-summary', async (req: Request, res: Response) => {
+  try {
+    const { supabase, user } = await getAuthedUser(req)
+    const job = await getOwnedJob(supabase, user.id, req.params.jobId)
+
+    const apiKey = process.env.OPENAI_API_KEY
+    if (!apiKey) throw new Error('Missing OPENAI_API_KEY')
+    const model = process.env.OPENAI_MODEL || job.model || 'gpt-4.1-mini'
+
+    const runIds = extractRunIdsFromResult(job.result_json)
+    const primaryRunId = runIds[0]
+    if (!primaryRunId) throw new Error('Job henüz run_id üretmemiş')
+
+    // Check if summary already exists
+    const existing = await supabase
+      .from('run_outputs')
+      .select('id')
+      .in('run_id', runIds)
+      .eq('output_type', 'summary')
+      .maybeSingle()
+    if (existing.data) {
+      // Delete old summary to regenerate
+      await supabase.from('run_outputs').delete().eq('id', existing.data.id)
+    }
+
+    // Fetch all text outputs for this job
+    const outRes = await supabase
+      .from('run_outputs')
+      .select('artifact_name,step_id,agent_id,output_type,content_md,content_json')
+      .in('run_id', runIds)
+      .neq('output_type', 'image')
+      .neq('output_type', 'summary')
+      .order('created_at', { ascending: true })
+    if (outRes.error) throw outRes.error
+
+    const outputs = outRes.data ?? []
+
+    // Build context from outputs (trim to avoid token limits)
+    const contextBlocks = outputs.map((o) => {
+      const title = o.artifact_name ?? o.step_id ?? o.agent_id ?? o.output_type
+      let body = ''
+      if (o.content_md?.trim()) {
+        body = o.content_md.slice(0, 1200)
+      } else if (o.content_json && typeof o.content_json === 'object' && !Array.isArray(o.content_json)) {
+        const obj = o.content_json as Record<string, unknown>
+        for (const key of ['work', 'content', 'text', 'report', 'output', 'result']) {
+          if (typeof obj[key] === 'string') { body = (obj[key] as string).slice(0, 1200); break }
+        }
+        if (!body) body = JSON.stringify(o.content_json).slice(0, 800)
+      }
+      return body ? `### ${title}\n${body}` : null
+    }).filter(Boolean).join('\n\n---\n\n')
+
+    if (!contextBlocks) throw new Error('Özetlenecek içerik bulunamadı')
+
+    const systemPrompt = `Sen kapsamlı araştırma raporları yazan uzman bir SummaryAgent'sın.
+Görevin: Birden fazla ajan tarafından üretilen araştırma çıktılarını okuyarak kapsamlı, bilimsel ve okunabilir bir Türkçe özet yazmak.
+
+Özetin yapısı:
+- **Araştırma Özeti** (3-4 paragraf): Araştırmanın genel bulgularını, önemli tespitleri ve ana temalarını kapsa
+- **Temel Bulgular**: Madde madde en önemli 5-7 bulgu
+- **Metodolojik Değerlendirme**: Kullanılan yaklaşımların güçlü ve zayıf yönleri
+- **Sonuç ve Çıkarımlar**: Araştırmanın pratik önemi ve gelecek çalışmalar için öneriler
+
+Yazım stili: Akademik ama anlaşılır. Markdown formatında yaz (## başlıklar, **bold**, madde işaretleri).`
+
+    const userPrompt = `Araştırma konusu: ${job.request_text ?? job.domain_pack ?? 'Araştırma'}\n\nAjan çıktıları:\n\n${contextBlocks.slice(0, 12000)}`
+
+    const llmRes = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        max_tokens: 2000,
+        temperature: 0.4,
+      }),
+    })
+    if (!llmRes.ok) throw new Error(`LLM error: ${llmRes.status}`)
+    const llmData = await llmRes.json() as { choices?: Array<{ message?: { content?: string } }> }
+    const summaryMd = llmData.choices?.[0]?.message?.content?.trim()
+    if (!summaryMd) throw new Error('Özet üretilemedi')
+
+    const { error } = await supabase.from('run_outputs').insert({
+      run_id: primaryRunId,
+      step_id: 'summary',
+      agent_id: 'SummaryAgent',
+      artifact_name: '📋 Araştırma Özeti',
+      output_type: 'summary',
+      content_md: summaryMd,
+    })
+    if (error) throw error
+
+    res.status(200).json({ success: true, summaryMd })
+  } catch (e: unknown) {
+    const message = getErrorMessage(e, 'Summary generation failed')
     res.status(500).json({ success: false, error: message })
   }
 })
@@ -1055,19 +1155,36 @@ router.get('/jobs/:jobId/report.docx', async (req: Request, res: Response) => {
 
     bodyChildren.push(divider())
 
-    if (outputs.length === 0) {
+    if (outputs.filter((o) => o.output_type !== 'image').length === 0) {
       bodyChildren.push(new Paragraph({
         children: [new TextRun({ text: 'Bu job için henüz çıktı kaydedilmemiş.', size: 22, color: '999999', italics: true })],
         spacing: { before: 240 },
       }))
     }
 
-    for (let i = 0; i < outputs.length; i++) {
-      const o = outputs[i]
+    // Helper: extract markdown from output (same logic as frontend)
+    function extractBodyMd(o: { content_md?: string | null; content_json?: unknown }): string {
+      if (o.content_md?.trim()) return o.content_md
+      if (o.content_json != null) {
+        if (typeof o.content_json === 'object' && o.content_json !== null && !Array.isArray(o.content_json)) {
+          const obj = o.content_json as Record<string, unknown>
+          for (const key of ['work', 'content', 'text', 'md', 'markdown', 'report', 'output', 'result']) {
+            if (typeof obj[key] === 'string' && (obj[key] as string).trim()) return obj[key] as string
+          }
+        }
+        try { return JSON.stringify(o.content_json, null, 2) } catch { return String(o.content_json) }
+      }
+      return ''
+    }
+
+    const textOutputs   = outputs.filter((o) => o.output_type !== 'image' && o.output_type !== 'summary')
+    const summaryOutput = outputs.find((o) => o.output_type === 'summary')
+
+    for (let i = 0; i < textOutputs.length; i++) {
+      const o = textOutputs[i]
       const title = o.artifact_name ?? o.step_id ?? o.output_type
       const agentLabel = o.agent_id ? ` — ${o.agent_id}` : ''
 
-      // Section number + title
       bodyChildren.push(
         new Paragraph({
           children: [
@@ -1083,17 +1200,33 @@ router.get('/jobs/:jobId/report.docx', async (req: Request, res: Response) => {
         }),
       )
 
-      // Content
-      let bodyMd = ''
-      if (o.content_md?.trim()) {
-        bodyMd = o.content_md
-      } else if (o.content_json != null) {
-        try { bodyMd = JSON.stringify(o.content_json, null, 2) }
-        catch { bodyMd = String(o.content_json) }
-      }
-
+      const bodyMd = extractBodyMd(o)
       if (bodyMd) bodyChildren.push(...mdToDocx(bodyMd))
       bodyChildren.push(divider())
+    }
+
+    // Summary section at end
+    if (summaryOutput) {
+      const summaryMd = extractBodyMd(summaryOutput)
+      bodyChildren.push(
+        new Paragraph({ text: '', spacing: { before: 400, after: 0 } }),
+        new Paragraph({
+          children: [new TextRun({ text: '📋  ARAŞTIRMA ÖZETİ', size: 28, bold: true, font: 'Arial', color: 'FFFFFF', allCaps: true })],
+          shading: { fill: '1A1A2E', type: ShadingType.CLEAR },
+          spacing: { before: 0, after: 0 },
+          indent: { left: 240, right: 240 },
+          border: {
+            top: { style: BorderStyle.SINGLE, size: 1, color: '1A1A2E' },
+            bottom: { style: BorderStyle.SINGLE, size: 1, color: '1A1A2E' },
+          },
+        }),
+        new Paragraph({
+          children: [new TextRun({ text: 'SummaryAgent · Tüm ajan çıktıları sentezlendi', size: 16, color: '0F3460', font: 'Arial', italics: true })],
+          spacing: { before: 120, after: 120 },
+        }),
+        ...mdToDocx(summaryMd),
+        divider(),
+      )
     }
 
     // Footer
