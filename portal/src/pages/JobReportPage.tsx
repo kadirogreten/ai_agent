@@ -347,7 +347,17 @@ function MermaidChart({ code }: { code: string }) {
       .catch((e) => setErr(e instanceof Error ? e.message : 'Diyagram oluşturulamadı'))
   }, [code])
 
-  if (err) return <pre className="report-pre"><code>{code}</code></pre>
+  if (err) {
+    const numbered = code.split('\n').map((l, idx) => `${String(idx + 1).padStart(3, ' ')} | ${l}`).join('\n')
+    return (
+      <div style={{ margin: '16px 0 24px' }}>
+        <div style={{ marginBottom: 10, padding: '10px 12px', borderRadius: 8, background: '#fff3f3', border: '1px solid rgba(220,38,38,0.25)', fontFamily: 'Arial', fontSize: 12, color: '#991b1b' }}>
+          Mermaid diyagram hatası: {err}
+        </div>
+        <pre className="report-pre"><code>{numbered}</code></pre>
+      </div>
+    )
+  }
   if (!svg) {
     return (
       <div style={{ padding: '20px 0', color: '#aaa', fontFamily: 'Arial', fontSize: 12, textAlign: 'center' }}>
@@ -482,10 +492,11 @@ function renderMd(md: string) {
     }
 
     // Code block (or Mermaid diagram)
-    else if (/^```/.test(line)) {
-      const lang = line.slice(3).trim().toLowerCase()
+    else if (/^\s*```/.test(raw)) {
+      const fence = raw.trim()
+      const lang = fence.slice(3).trim().toLowerCase().split(/\s+/)[0] ?? ''
       const codeLines: string[] = []; i++
-      while (i < lines.length && !/^```/.test(lines[i])) { codeLines.push(lines[i]); i++ }
+      while (i < lines.length && !/^\s*```/.test(lines[i])) { codeLines.push(lines[i]); i++ }
       const codeText = codeLines.join('\n')
       if (lang === 'mermaid') {
         elements.push(<MermaidChart key={i} code={codeText} />)
