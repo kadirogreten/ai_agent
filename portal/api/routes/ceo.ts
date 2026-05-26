@@ -1006,6 +1006,137 @@ Markdown formatında yaz: ## başlıklar, **bold**, madde işaretleri.
   }
 })
 
+// ── POST /api/ceo/jobs/:jobId/generate-charts ────────────────────────────────
+// Araştırma çıktılarından sayısal/kategorik veri çıkararak Mermaid grafikleri üretir
+
+router.post('/jobs/:jobId/generate-charts', async (req: Request, res: Response) => {
+  try {
+    const { supabase, user } = await getAuthedUser(req)
+    const job = await getOwnedJob(supabase, user.id, req.params.jobId)
+
+    const apiKey = process.env.OPENAI_API_KEY ?? null
+    if (!apiKey) throw new Error('OPENAI_API_KEY tanımlı değil')
+    const model = process.env.OPENAI_MODEL || job.model || 'gpt-4.1-mini'
+
+    const runIds = extractRunIdsFromResult(job.result_json)
+    const primaryRunId = runIds[0]
+    if (!primaryRunId) throw new Error('Job henüz run_id üretmemiş')
+
+    // Mevcut grafik çıktısını sil (yeniden oluşturmak için)
+    const existingChart = await supabase
+      .from('run_outputs')
+      .select('id')
+      .in('run_id', runIds)
+      .eq('output_type', 'charts')
+      .maybeSingle()
+    if (existingChart.data) {
+      await supabase.from('run_outputs').delete().eq('id', existingChart.data.id)
+    }
+
+    // Tüm metin çıktılarını çek
+    const outRes = await supabase
+      .from('run_outputs')
+      .select('artifact_name,step_id,output_type,content_md,content_json')
+      .in('run_id', runIds)
+      .not('output_type', 'in', '("image","summary","charts")')
+      .order('created_at', { ascending: true })
+    if (outRes.error) throw outRes.error
+    const outputs = outRes.data ?? []
+
+    function extractText(o: typeof outputs[0], limit = 2000): string {
+      if (o.content_md?.trim()) return o.content_md.slice(0, limit)
+      if (o.content_json && typeof o.content_json === 'object' && !Array.isArray(o.content_json)) {
+        const obj = o.content_json as Record<string, unknown>
+        for (const key of ['work', 'content', 'text', 'report', 'output', 'result']) {
+          if (typeof obj[key] === 'string') return (obj[key] as string).slice(0, limit)
+        }
+      }
+      return ''
+    }
+
+    const contextBlocks = outputs
+      .map((o) => {
+        const body = extractText(o)
+        return body ? `### ${o.artifact_name ?? o.step_id ?? o.output_type}\n${body}` : null
+      })
+      .filter(Boolean)
+      .join('\n\n---\n\n')
+
+    if (!contextBlocks) throw new Error('Grafik oluşturmak için içerik bulunamadı')
+
+    const systemPrompt = `Sen araştırma metinlerinden görsel grafikler üreten bir veri analistisin.
+Görevin: Verilen araştırma metnindeki sayısal verileri, yüzdeleri, karşılaştırmaları ve kategorik bilgileri tespit edip
+anlamlı Mermaid diyagramları oluşturmak.
+
+Kullanabileceğin Mermaid grafik türleri:
+- xychart-beta (bar ve line grafikler için)
+- pie (pasta grafik için)
+- graph LR / TD (ilişki diyagramı için)
+- timeline (zaman çizelgesi için)
+
+KURALLAR:
+- Sadece metinde gerçekten VAR OLAN sayısal veya kategorik bilgiyi kullan — uydurma
+- Her grafik için önce ## başlık yaz, sonra Markdown kod bloğu (\`\`\`mermaid ... \`\`\`)
+- Minimum 2, maksimum 5 grafik üret
+- Türkçe etiketler kullan
+- Sadece Markdown döndür, başka açıklama ekleme`
+
+    const userPrompt = `Araştırma konusu: ${job.request_text ?? job.domain_pack ?? 'Araştırma'}
+
+Araştırma içeriği:
+${contextBlocks.slice(0, 12000)}`
+
+    const llmRes = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        max_tokens: 2000,
+        temperature: 0.3,
+      }),
+    })
+    if (!llmRes.ok) {
+      const errText = await llmRes.text().catch(() => '')
+      throw new Error(`LLM API hatası: HTTP ${llmRes.status} — ${errText.slice(0, 200)}`)
+    }
+    const llmData = await llmRes.json() as { choices?: Array<{ message?: { content?: string } }>; error?: { message: string } }
+    if (llmData.error) throw new Error(`OpenAI hatası: ${llmData.error.message}`)
+    const chartsMd = llmData.choices?.[0]?.message?.content?.trim()
+    if (!chartsMd) throw new Error('LLM boş yanıt döndürdü')
+
+    let { error: chartInsertError } = await supabase.from('run_outputs').insert({
+      run_id: primaryRunId,
+      owner_user_id: user.id,
+      step_id: 'charts',
+      agent_id: 'ChartAgent',
+      artifact_name: '📊 Araştırma Grafikleri',
+      output_type: 'charts',
+      content_md: chartsMd,
+    })
+    if (chartInsertError && chartInsertError.message?.includes('owner_user_id')) {
+      const retry = await supabase.from('run_outputs').insert({
+        run_id: primaryRunId,
+        step_id: 'charts',
+        agent_id: 'ChartAgent',
+        artifact_name: '📊 Araştırma Grafikleri',
+        output_type: 'charts',
+        content_md: chartsMd,
+      })
+      chartInsertError = retry.error
+    }
+    if (chartInsertError) throw chartInsertError
+
+    res.status(200).json({ success: true, chartsMd })
+  } catch (e: unknown) {
+    const message = getErrorMessage(e, 'Chart generation failed')
+    res.status(500).json({ success: false, error: message })
+  }
+})
+
 // ── Markdown → docx elements (paragraphs + tables) ──────────────────────────
 
 type DocxChild = Paragraph | Table

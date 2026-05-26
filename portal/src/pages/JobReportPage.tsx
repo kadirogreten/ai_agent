@@ -701,6 +701,9 @@ export default function JobReportPage() {
   const [generatingSummary, setGeneratingSummary] = useState(false)
   const [summaryNotice, setSummaryNotice] = useState<string | null>(null)
   const [summaryError, setSummaryError] = useState<string | null>(null)
+  const [generatingCharts, setGeneratingCharts] = useState(false)
+  const [chartNotice, setChartNotice] = useState<string | null>(null)
+  const [chartError, setChartError] = useState<string | null>(null)
   const [agents, setAgents] = useState<AgentRow[]>([])
   const [selectedAgentCode, setSelectedAgentCode] = useState<string>('')
 
@@ -803,6 +806,27 @@ export default function JobReportPage() {
       setSummaryError('Özet hatası: ' + (e instanceof Error ? e.message : String(e)))
     } finally {
       setGeneratingSummary(false)
+    }
+  }
+
+  async function generateCharts() {
+    if (!session?.access_token || !jobId) return
+    setGeneratingCharts(true)
+    setChartNotice(null)
+    setChartError(null)
+    try {
+      const res = await fetch(`/api/ceo/jobs/${jobId}/generate-charts`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+      })
+      const json = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(json?.error ?? `HTTP ${res.status}`)
+      setChartNotice('Grafikler oluşturuldu. Yenileniyor…')
+      setTimeout(() => { load(); setChartNotice(null) }, 1500)
+    } catch (e) {
+      setChartError('Grafik hatası: ' + (e instanceof Error ? e.message : String(e)))
+    } finally {
+      setGeneratingCharts(false)
     }
   }
 
@@ -911,6 +935,15 @@ export default function JobReportPage() {
         >
           {generatingSummary ? '⏳ Özet yazılıyor…' : '📋 Özet Oluştur'}
         </button>
+        <button
+          className="report-toolbar-btn"
+          onClick={generateCharts}
+          disabled={generatingCharts || !job || job.status !== 'success'}
+          style={{ borderColor: 'rgba(96,165,250,0.4)', color: 'rgba(96,165,250,0.9)' }}
+          title="Araştırma metnindeki verilerden Mermaid grafikleri üretir"
+        >
+          {generatingCharts ? '⏳ Grafikler…' : '📊 Grafik Oluştur'}
+        </button>
         <button className="report-toolbar-btn" onClick={load}>↻ Yenile</button>
         <span className="report-toolbar-title">
           {job?.domain_pack ?? 'Rapor'} · {outputs.filter(o => o.output_type !== 'image' && o.output_type !== 'summary').length} bölüm
@@ -929,6 +962,17 @@ export default function JobReportPage() {
       {summaryNotice ? (
         <div style={{ padding: '10px 56px', background: '#1a1a2e', fontFamily: 'Arial', fontSize: 13, color: 'rgba(134,239,172,0.9)', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
           {summaryNotice}
+        </div>
+      ) : null}
+      {chartNotice ? (
+        <div style={{ padding: '10px 56px', background: '#1a1a2e', fontFamily: 'Arial', fontSize: 13, color: 'rgba(96,165,250,0.9)', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+          {chartNotice}
+        </div>
+      ) : null}
+      {chartError ? (
+        <div style={{ padding: '10px 56px', background: '#1a0a10', fontFamily: 'Arial', fontSize: 13, color: 'rgba(255,150,150,0.95)', borderBottom: '1px solid rgba(255,100,100,0.15)', display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span>⚠️ {chartError}</span>
+          <button onClick={() => setChartError(null)} style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', fontSize: 16, lineHeight: 1 }}>✕</button>
         </div>
       ) : null}
       {summaryError ? (
@@ -988,7 +1032,8 @@ export default function JobReportPage() {
           {(() => {
             const imageOutputs   = outputs.filter(o => o.output_type === 'image')
             const summaryOutputs = outputs.filter(o => o.output_type === 'summary')
-            const textOutputs    = outputs.filter(o => o.output_type !== 'image' && o.output_type !== 'summary')
+            const chartOutputs   = outputs.filter(o => o.output_type === 'charts')
+            const textOutputs    = outputs.filter(o => o.output_type !== 'image' && o.output_type !== 'summary' && o.output_type !== 'charts')
 
             return (
               <>
@@ -1053,6 +1098,42 @@ export default function JobReportPage() {
                     </div>
                   </div>
                 ) : null}
+
+                {/* Charts section */}
+                {chartOutputs.length > 0 ? chartOutputs.map((o) => {
+                  const body = outputBody(o)
+                  return (
+                    <div key={o.id} style={{ margin: '48px 0', borderRadius: 12, border: '2px solid #1e3a5f', background: 'linear-gradient(135deg, #f0f6ff 0%, #e8f0ff 100%)', overflow: 'hidden' }}>
+                      <div style={{ background: 'linear-gradient(90deg, #0f2744 0%, #1e3a5f 100%)', padding: '16px 24px', display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <span style={{ fontSize: 20 }}>📊</span>
+                        <div>
+                          <div style={{ fontFamily: 'Arial', fontWeight: 700, fontSize: 15, color: 'white', letterSpacing: 0.3 }}>
+                            Araştırma Grafikleri
+                          </div>
+                          <div style={{ fontFamily: 'Arial', fontSize: 11, color: 'rgba(150,200,255,0.8)', marginTop: 2 }}>
+                            ChartAgent · Araştırma verilerinden otomatik üretildi
+                          </div>
+                        </div>
+                      </div>
+                      <div style={{ padding: '24px 28px' }}>
+                        {body ? <div>{renderMd(body)}</div> : (
+                          <p style={{ fontFamily: 'Arial', fontSize: 13, color: '#888', fontStyle: 'italic' }}>Grafik içeriği bulunamadı.</p>
+                        )}
+                      </div>
+                    </div>
+                  )
+                }) : (
+                  // No charts yet — prompt only if job is done and there's content
+                  textOutputs.length > 0 && job?.status === 'success' ? (
+                    <div style={{ margin: '32px 0', padding: '16px 20px', border: '1px dashed rgba(96,165,250,0.3)', borderRadius: 10, display: 'flex', alignItems: 'center', gap: 16 }}>
+                      <span style={{ fontSize: 28 }}>📊</span>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontFamily: 'Arial', fontSize: 13, fontWeight: 600, color: '#60a5fa', marginBottom: 4 }}>Grafik henüz oluşturulmadı</div>
+                        <div style={{ fontFamily: 'Arial', fontSize: 12, color: '#888' }}>Yukarıdaki <strong>📊 Grafik Oluştur</strong> butonuna tıklayarak araştırma verilerini görselleştirin.</div>
+                      </div>
+                    </div>
+                  ) : null
+                )}
 
                 {/* Summary section — shown at end before images */}
                 {summaryOutputs.length > 0 ? summaryOutputs.map((o) => {
