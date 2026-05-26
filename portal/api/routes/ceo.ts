@@ -741,13 +741,17 @@ async function extractLocations(text: string, apiKey: string, model: string) {
 }
 
 function buildMapUrl(locations: Array<{ name: string; lat: number; lon: number }>): string {
-  const base = 'https://staticmap.openstreetmap.de/staticmap.php'
-  if (locations.length === 0) return `${base}?center=39.5,35&zoom=6&size=800x400&maptype=mapnik`
-  const avgLat = locations.reduce((s, l) => s + l.lat, 0) / locations.length
-  const avgLon = locations.reduce((s, l) => s + l.lon, 0) / locations.length
-  const zoom = locations.length <= 2 ? 8 : 7
-  const markers = locations.map((l) => `${l.lat},${l.lon},red-pushpin`).join('|')
-  return `${base}?center=${avgLat.toFixed(4)},${avgLon.toFixed(4)}&zoom=${zoom}&size=800x400&maptype=mapnik&markers=${markers}`
+  const avgLat = locations.length > 0
+    ? locations.reduce((s, l) => s + l.lat, 0) / locations.length
+    : 39.5
+  const avgLon = locations.length > 0
+    ? locations.reduce((s, l) => s + l.lon, 0) / locations.length
+    : 35.0
+  const zoom = locations.length === 0 ? 6 : locations.length <= 2 ? 8 : 7
+  const markerStr = locations.length > 0
+    ? '&markers=' + locations.map((l) => `${l.lat},${l.lon},red-pushpin`).join('|')
+    : ''
+  return `https://staticmap.openstreetmap.de/staticmap.php?center=${avgLat.toFixed(4)},${avgLon.toFixed(4)}&zoom=${zoom}&size=800x400&maptype=mapnik${markerStr}`
 }
 
 // ── POST /api/ceo/jobs/:jobId/generate-visuals ───────────────────────────────

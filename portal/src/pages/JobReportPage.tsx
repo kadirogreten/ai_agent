@@ -55,6 +55,15 @@ function collectRunIds(job: JobRow | null): string[] {
 function outputBody(o: RunOutput): string | null {
   if (o.content_md?.trim()) return o.content_md
   if (o.content_json != null) {
+    // If content_json is an object with known text fields, extract the markdown directly
+    if (typeof o.content_json === 'object' && o.content_json !== null && !Array.isArray(o.content_json)) {
+      const obj = o.content_json as Record<string, unknown>
+      for (const key of ['work', 'content', 'text', 'md', 'markdown', 'report', 'output', 'result']) {
+        if (typeof obj[key] === 'string' && (obj[key] as string).trim()) {
+          return obj[key] as string
+        }
+      }
+    }
     try { return JSON.stringify(o.content_json, null, 2) }
     catch { return String(o.content_json) }
   }
@@ -97,9 +106,10 @@ function renderMd(md: string) {
     const line = raw.trimEnd()
 
     // Headings
-    if      (/^### /.test(line)) { elements.push(<h3 key={i} className="report-h3">{inlineMd(line.slice(4))}</h3>); i++; continue }
-    else if (/^## /.test(line))  { elements.push(<h2 key={i} className="report-h2">{inlineMd(line.slice(3))}</h2>); i++; continue }
-    else if (/^# /.test(line))   { elements.push(<h1 key={i} className="report-h1">{inlineMd(line.slice(2))}</h1>); i++; continue }
+    if      (/^#### /.test(line)) { elements.push(<h4 key={i} className="report-h4">{inlineMd(line.slice(5))}</h4>); i++; continue }
+    else if (/^### /.test(line))  { elements.push(<h3 key={i} className="report-h3">{inlineMd(line.slice(4))}</h3>); i++; continue }
+    else if (/^## /.test(line))   { elements.push(<h2 key={i} className="report-h2">{inlineMd(line.slice(3))}</h2>); i++; continue }
+    else if (/^# /.test(line))    { elements.push(<h1 key={i} className="report-h1">{inlineMd(line.slice(2))}</h1>); i++; continue }
 
     // Horizontal rule
     else if (/^(-{3,}|\*{3,}|_{3,})$/.test(line.trim())) {
@@ -146,13 +156,23 @@ function renderMd(md: string) {
       ); continue
     }
 
-    // Bullet list
-    else if (/^[-*] /.test(line)) {
-      const items: string[] = []
-      while (i < lines.length && /^[-*] /.test(lines[i].trimEnd())) { items.push(lines[i].trimEnd().slice(2)); i++ }
+    // Bullet list (handles both top-level "- " and indented "  - ")
+    else if (/^(\s*)[-*] /.test(line)) {
+      type ListItem = { text: string; depth: number }
+      const items: ListItem[] = []
+      while (i < lines.length && /^(\s*)[-*] /.test(lines[i])) {
+        const m2 = lines[i].match(/^(\s*)[-*] (.*)$/)
+        if (m2) items.push({ text: m2[2], depth: Math.floor(m2[1].length / 2) })
+        i++
+      }
+      // Render as flat ul for now, with depth-based indent style
       elements.push(
         <ul key={i} className="report-ul">
-          {items.map((b, bi) => <li key={bi}>{inlineMd(b)}</li>)}
+          {items.map((b, bi) => (
+            <li key={bi} style={b.depth > 0 ? { marginLeft: b.depth * 20, listStyleType: 'circle' } : undefined}>
+              {inlineMd(b.text)}
+            </li>
+          ))}
         </ul>
       ); continue
     }
@@ -327,6 +347,7 @@ const STYLES = `
   .report-h1 { font-size: 22px; font-weight: 700; color: #1a1a2e; margin: 28px 0 10px; }
   .report-h2 { font-size: 18px; font-weight: 700; color: #16213e; margin: 22px 0 8px; border-bottom: 1px solid #e5e5e5; padding-bottom: 4px; }
   .report-h3 { font-size: 15px; font-weight: 700; color: #0f3460; margin: 18px 0 6px; }
+  .report-h4 { font-size: 13.5px; font-weight: 700; color: #444; margin: 14px 0 4px; text-transform: uppercase; letter-spacing: 0.4px; }
   .report-p  { font-size: 14.5px; color: #2d2d2d; margin: 0 0 10px; }
   .report-ul { margin: 8px 0 14px 24px; padding: 0; list-style: disc; }
   .report-ol { margin: 8px 0 14px 24px; padding: 0; list-style: decimal; }
@@ -705,6 +726,27 @@ export default function JobReportPage() {
                     </div>
                   )
                 })}
+
+                {/* No images yet — prompt */}
+                {imageOutputs.length === 0 && textOutputs.length > 0 && job?.status === 'success' ? (
+                  <div style={{
+                    margin: '32px 0',
+                    padding: '20px 24px',
+                    borderRadius: 10,
+                    border: '1.5px dashed #c8c0b8',
+                    background: '#faf8f5',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 16,
+                    fontFamily: 'Arial, sans-serif',
+                  }}>
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: 14, color: '#1a1a2e', marginBottom: 4 }}>Görsel henüz oluşturulmadı</div>
+                      <div style={{ fontSize: 13, color: '#888' }}>Üstteki <strong>🎨 Görsel Oluştur</strong> butonuna tıklayarak DALL-E illüstrasyonu, Wikimedia fotoğrafları ve coğrafi harita ekleyebilirsiniz.</div>
+                    </div>
+                  </div>
+                ) : null}
 
                 {/* Image gallery */}
                 {imageOutputs.length > 0 ? (
