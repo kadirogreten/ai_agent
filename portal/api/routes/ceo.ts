@@ -815,6 +815,34 @@ async function extractLocations(text: string, apiKey: string, model: string) {
   } catch { return [] }
 }
 
+async function extractImageSearchQuery(topic: string, apiKey: string, model: string): Promise<string> {
+  try {
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model,
+        messages: [{
+          role: 'user',
+          content: `Bu araştırma konusu için en iyi görsel arama sorgusunu İngilizce olarak yaz.
+Sadece 3-6 kelimelik arama terimi döndür, başka hiçbir şey yazma.
+Somut, görsel, gerçek fotoğraflarda bulunabilecek terimler seç.
+
+Konu: ${topic.slice(0, 300)}
+
+Örnek: "ancient Roman ruins Italy" veya "Istanbul Bosphorus bridge aerial" gibi.`
+        }],
+        max_tokens: 30,
+        temperature: 0.3,
+      }),
+    })
+    if (!res.ok) return topic.slice(0, 60)
+    const data = await res.json() as { choices?: Array<{ message?: { content?: string } }> }
+    const query = data.choices?.[0]?.message?.content?.trim().replace(/^["']|["']$/g, '')
+    return query && query.length > 3 ? query : topic.slice(0, 60)
+  } catch { return topic.slice(0, 60) }
+}
+
 function buildMapUrl(locations: Array<{ name: string; lat: number; lon: number }>): string {
   const avgLat = locations.length > 0
     ? locations.reduce((s, l) => s + l.lat, 0) / locations.length
@@ -845,7 +873,10 @@ router.post('/jobs/:jobId/generate-visuals', async (req: Request, res: Response)
     if (!primaryRunId) throw new Error('Job henüz run_id üretmemiş — job tamamlandıktan sonra tekrar deneyin')
 
     const topic = job.request_text ?? job.domain_pack ?? 'research'
-    const searchQuery = (job.domain_pack ?? topic).replace(/-/g, ' ').slice(0, 80)
+    // Use LLM to extract a focused, visual image search query (if API key available)
+    const searchQuery = apiKey
+      ? await extractImageSearchQuery(topic, apiKey, model)
+      : (job.domain_pack ?? topic).replace(/-/g, ' ').slice(0, 80)
 
     const inserts: Array<Record<string, unknown>> = []
 
@@ -930,6 +961,7 @@ router.post('/jobs/:jobId/generate-visuals', async (req: Request, res: Response)
     res.status(200).json({
       success: true,
       count: inserts.length,
+      searchQuery,
       dalle: !!dalleUrl,
       google: googleImages.length,
       unsplash: unsplashImages.length,
@@ -1172,22 +1204,39 @@ router.post('/jobs/:jobId/generate-charts', async (req: Request, res: Response) 
 
     if (!contextBlocks) throw new Error('Grafik oluşturmak için içerik bulunamadı')
 
-    const systemPrompt = `Sen araştırma metinlerinden görsel grafikler üreten bir veri analistisin.
-Görevin: Verilen araştırma metnindeki sayısal verileri, yüzdeleri, karşılaştırmaları ve kategorik bilgileri tespit edip
-anlamlı Mermaid diyagramları oluşturmak.
+    const systemPrompt = `Sen araştırma metinlerinden veri çıkaran bir analistsin.
+Görevin: Araştırma metnindeki sayısal verileri, yüzdeleri, karşılaştırmaları bul ve JSON formatında grafik verisi üret.
 
-Kullanabileceğin Mermaid grafik türleri:
-- xychart-beta (bar ve line grafikler için)
-- pie (pasta grafik için)
-- graph LR / TD (ilişki diyagramı için)
-- timeline (zaman çizelgesi için)
+Aşağıdaki JSON formatını kullan:
+{
+  "charts": [
+    {
+      "type": "bar",
+      "title": "Grafik Başlığı",
+      "labels": ["Etiket1", "Etiket2", "Etiket3"],
+      "datasets": [{"label": "Veri Adı", "data": [10, 25, 15]}]
+    },
+    {
+      "type": "pie",
+      "title": "Dağılım Grafiği",
+      "labels": ["A", "B", "C"],
+      "datasets": [{"data": [40, 35, 25]}]
+    },
+    {
+      "type": "line",
+      "title": "Zaman Serisi",
+      "labels": ["2020", "2021", "2022", "2023"],
+      "datasets": [{"label": "Değer", "data": [100, 150, 130, 200]}]
+    }
+  ]
+}
 
 KURALLAR:
-- Sadece metinde gerçekten VAR OLAN sayısal veya kategorik bilgiyi kullan — uydurma
-- Her grafik için önce ## başlık yaz, sonra Markdown kod bloğu (\`\`\`mermaid ... \`\`\`)
+- Sadece metinde gerçekten VAR OLAN verileri kullan — asla uydurma
 - Minimum 2, maksimum 5 grafik üret
-- Türkçe etiketler kullan
-- Sadece Markdown döndür, başka açıklama ekleme`
+- Grafik başlıkları ve etiketler Türkçe olsun
+- type: "bar" | "pie" | "line" | "doughnut" | "polarArea"
+- Sadece JSON döndür, başka hiçbir şey yazma`
 
     const userPrompt = `Araştırma konusu: ${job.request_text ?? job.domain_pack ?? 'Araştırma'}
 
@@ -1203,8 +1252,9 @@ ${contextBlocks.slice(0, 12000)}`
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt },
         ],
+        response_format: { type: 'json_object' },
         max_tokens: 2000,
-        temperature: 0.3,
+        temperature: 0.2,
       }),
     })
     if (!llmRes.ok) {
@@ -1213,8 +1263,14 @@ ${contextBlocks.slice(0, 12000)}`
     }
     const llmData = await llmRes.json() as { choices?: Array<{ message?: { content?: string } }>; error?: { message: string } }
     if (llmData.error) throw new Error(`OpenAI hatası: ${llmData.error.message}`)
-    const chartsMd = llmData.choices?.[0]?.message?.content?.trim()
-    if (!chartsMd) throw new Error('LLM boş yanıt döndürdü')
+    const rawContent = llmData.choices?.[0]?.message?.content?.trim()
+    if (!rawContent) throw new Error('LLM boş yanıt döndürdü')
+
+    // Validate JSON structure
+    const parsed = JSON.parse(rawContent) as { charts?: unknown[] }
+    if (!Array.isArray(parsed.charts) || parsed.charts.length === 0) {
+      throw new Error('Araştırma metninde grafik oluşturmaya yetecek sayısal veri bulunamadı')
+    }
 
     let { error: chartInsertError } = await supabase.from('run_outputs').insert({
       run_id: primaryRunId,
@@ -1223,7 +1279,7 @@ ${contextBlocks.slice(0, 12000)}`
       agent_id: 'ChartAgent',
       artifact_name: '📊 Araştırma Grafikleri',
       output_type: 'charts',
-      content_md: chartsMd,
+      content_json: parsed,
     })
     if (chartInsertError && chartInsertError.message?.includes('owner_user_id')) {
       const retry = await supabase.from('run_outputs').insert({
@@ -1232,13 +1288,13 @@ ${contextBlocks.slice(0, 12000)}`
         agent_id: 'ChartAgent',
         artifact_name: '📊 Araştırma Grafikleri',
         output_type: 'charts',
-        content_md: chartsMd,
+        content_json: parsed,
       })
       chartInsertError = retry.error
     }
     if (chartInsertError) throw chartInsertError
 
-    res.status(200).json({ success: true, chartsMd })
+    res.status(200).json({ success: true, count: parsed.charts.length })
   } catch (e: unknown) {
     const message = getErrorMessage(e, 'Chart generation failed')
     res.status(500).json({ success: false, error: message })

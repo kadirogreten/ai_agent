@@ -4,6 +4,17 @@ import { supabase } from '@/lib/supabaseClient'
 import { useAuthStore } from '@/stores/authStore'
 import { listAgents } from '@/lib/agents'
 import type { AgentRow } from '@/lib/agents'
+import {
+  Chart as ChartJS,
+  CategoryScale, LinearScale, BarElement, LineElement, PointElement,
+  ArcElement, RadialLinearScale, Title, Tooltip, Legend, Filler,
+} from 'chart.js'
+import { Bar, Line, Pie, Doughnut, PolarArea } from 'react-chartjs-2'
+
+ChartJS.register(
+  CategoryScale, LinearScale, BarElement, LineElement, PointElement,
+  ArcElement, RadialLinearScale, Title, Tooltip, Legend, Filler,
+)
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -185,6 +196,110 @@ function WikiCard({ img }: { img: ImageContent }) {
           {img.title.slice(0, 80)}
         </div>
       ) : null}
+    </div>
+  )
+}
+
+// ── Chart.js palette & renderer ──────────────────────────────────────────────
+
+const CHART_COLORS = [
+  '#0f3460', '#1a6fa8', '#2196f3', '#64b5f6',
+  '#0d7377', '#14a085', '#43c6ac', '#88d8b0',
+  '#6a3093', '#a044ff', '#c471ed', '#f64f59',
+  '#f7971e', '#ffd200', '#f9a825',
+]
+
+function chartColor(i: number, alpha = 1) {
+  const hex = CHART_COLORS[i % CHART_COLORS.length]
+  const r = parseInt(hex.slice(1, 3), 16)
+  const g = parseInt(hex.slice(3, 5), 16)
+  const b = parseInt(hex.slice(5, 7), 16)
+  return `rgba(${r},${g},${b},${alpha})`
+}
+
+type ChartConfig = {
+  type: 'bar' | 'line' | 'pie' | 'doughnut' | 'polarArea'
+  title: string
+  labels: string[]
+  datasets: Array<{ label?: string; data: number[] }>
+}
+
+const chartOptions = (title: string) => ({
+  responsive: true,
+  plugins: {
+    legend: { position: 'bottom' as const, labels: { font: { family: 'Arial', size: 12 }, padding: 16 } },
+    title: { display: true, text: title, font: { family: 'Arial', size: 14, weight: 'bold' as const }, color: '#1a1a2e', padding: { bottom: 16 } },
+    tooltip: { backgroundColor: 'rgba(15,52,96,0.9)', titleFont: { family: 'Arial' }, bodyFont: { family: 'Arial' }, padding: 10, cornerRadius: 6 },
+  },
+  scales: {},
+})
+
+const barLineOptions = (title: string) => ({
+  ...chartOptions(title),
+  scales: {
+    x: { ticks: { font: { family: 'Arial', size: 11 }, color: '#555' }, grid: { color: 'rgba(0,0,0,0.04)' } },
+    y: { ticks: { font: { family: 'Arial', size: 11 }, color: '#555' }, grid: { color: 'rgba(0,0,0,0.06)' }, beginAtZero: true },
+  },
+})
+
+function SingleChart({ cfg, idx }: { cfg: ChartConfig; idx: number }) {
+  const colors     = cfg.labels.map((_, i) => chartColor(i))
+  const colorsFill = cfg.labels.map((_, i) => chartColor(i, 0.75))
+
+  const data = {
+    labels: cfg.labels,
+    datasets: cfg.datasets.map((ds, di) => {
+      const base = { label: ds.label ?? cfg.title, data: ds.data }
+      if (cfg.type === 'bar') {
+        return { ...base, backgroundColor: colorsFill, borderColor: colors, borderWidth: 1.5, borderRadius: 4 }
+      }
+      if (cfg.type === 'line') {
+        const c = chartColor(di)
+        return { ...base, borderColor: c, backgroundColor: chartColor(di, 0.12), fill: true, tension: 0.4, pointRadius: 4, pointBackgroundColor: c }
+      }
+      return { ...base, backgroundColor: colorsFill, borderColor: colors, borderWidth: 2 }
+    }),
+  }
+
+  const style = { maxHeight: 320 }
+
+  if (cfg.type === 'bar')       return <Bar       key={idx} data={data} options={barLineOptions(cfg.title)} style={style} />
+  if (cfg.type === 'line')      return <Line      key={idx} data={data} options={barLineOptions(cfg.title)} style={style} />
+  if (cfg.type === 'pie')       return <Pie       key={idx} data={data} options={chartOptions(cfg.title)}   style={style} />
+  if (cfg.type === 'doughnut')  return <Doughnut  key={idx} data={data} options={chartOptions(cfg.title)}   style={style} />
+  if (cfg.type === 'polarArea') return <PolarArea key={idx} data={data} options={chartOptions(cfg.title)}   style={style} />
+  return null
+}
+
+function ChartJsPanel({ output }: { output: RunOutput }) {
+  const raw = output.content_json as { charts?: ChartConfig[] } | null
+  const charts = raw?.charts ?? []
+  if (charts.length === 0) return (
+    <p style={{ fontFamily: 'Arial', fontSize: 13, color: '#888', fontStyle: 'italic', padding: '16px 0' }}>
+      Grafik verisi bulunamadı.
+    </p>
+  )
+
+  // Split: wide charts (bar/line) full width, round charts (pie/doughnut/polar) in grid
+  const wide  = charts.filter(c => c.type === 'bar' || c.type === 'line')
+  const round = charts.filter(c => c.type !== 'bar' && c.type !== 'line')
+
+  return (
+    <div>
+      {wide.map((cfg, i) => (
+        <div key={i} style={{ marginBottom: 32, background: 'white', borderRadius: 10, padding: '20px 16px', boxShadow: '0 1px 6px rgba(0,0,0,0.07)' }}>
+          <SingleChart cfg={cfg} idx={i} />
+        </div>
+      ))}
+      {round.length > 0 && (
+        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(round.length, 2)}, 1fr)`, gap: 20 }}>
+          {round.map((cfg, i) => (
+            <div key={i} style={{ background: 'white', borderRadius: 10, padding: '20px 16px', boxShadow: '0 1px 6px rgba(0,0,0,0.07)' }}>
+              <SingleChart cfg={cfg} idx={wide.length + i} />
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -849,7 +964,8 @@ export default function JobReportPage() {
         json?.dalle    ? 'DALL-E: ✓' : null,
         json?.map      ? 'Harita: ✓' : null,
       ].filter(Boolean).join(', ')
-      setVisualNotice(`${count} görsel kaydedildi (${sources}). Yenileniyor…`)
+      const queryUsed = json?.searchQuery ? ` · Arama: "${json.searchQuery}"` : ''
+      setVisualNotice(`${count} görsel kaydedildi (${sources})${queryUsed}. Yenileniyor…`)
       // Wait a bit for DB replication, then re-fetch
       setTimeout(() => { load(); setVisualNotice(null) }, 2500)
     } catch (e) {
@@ -1123,9 +1239,7 @@ export default function JobReportPage() {
                         </div>
                       </div>
                       <div style={{ padding: '24px 28px' }}>
-                        {body ? <div>{renderMd(body)}</div> : (
-                          <p style={{ fontFamily: 'Arial', fontSize: 13, color: '#888', fontStyle: 'italic' }}>Grafik içeriği bulunamadı.</p>
-                        )}
+                        <ChartJsPanel output={o} />
                       </div>
                     </div>
                   )
