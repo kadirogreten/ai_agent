@@ -53,15 +53,21 @@ export default function LoginPage() {
     <div
       className="flex min-h-screen items-center justify-center px-4"
       style={{
-        background: 'radial-gradient(ellipse at 50% -10%, #1e3a5f 0%, #070d1a 55%)',
+        background: 'radial-gradient(ellipse at 50% 0%, #0f2244 0%, #060c18 60%)',
       }}
     >
       {/* Arka plan ışık lekeleri */}
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
-        <div className="absolute -left-32 -top-32 h-96 w-96 rounded-full opacity-10 blur-3xl"
-          style={{ background: '#3b82f6' }} />
-        <div className="absolute -right-32 bottom-0 h-96 w-96 rounded-full opacity-5 blur-3xl"
-          style={{ background: '#8b5cf6' }} />
+        <div className="absolute -left-24 -top-24 h-[500px] w-[500px] rounded-full opacity-[0.18] blur-3xl"
+          style={{ background: 'radial-gradient(circle, #3b82f6 0%, transparent 70%)' }} />
+        <div className="absolute -right-24 bottom-0 h-[400px] w-[400px] rounded-full opacity-[0.10] blur-3xl"
+          style={{ background: 'radial-gradient(circle, #8b5cf6 0%, transparent 70%)' }} />
+        {/* Subtle grid */}
+        <div className="absolute inset-0 opacity-[0.03]"
+          style={{
+            backgroundImage: 'linear-gradient(rgba(255,255,255,0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.5) 1px, transparent 1px)',
+            backgroundSize: '48px 48px',
+          }} />
       </div>
 
       <motion.div
@@ -71,22 +77,28 @@ export default function LoginPage() {
         className="w-full max-w-sm"
       >
         {/* Logo */}
-        <div className="mb-8 flex flex-col items-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-500/20 ring-1 ring-blue-500/30">
-            <Bot size={22} className="text-blue-400" />
+        <div className="mb-8 flex flex-col items-center gap-4">
+          <div className="relative flex h-14 w-14 items-center justify-center rounded-2xl"
+            style={{
+              background: 'linear-gradient(135deg, rgba(59,130,246,0.3) 0%, rgba(37,99,235,0.15) 100%)',
+              boxShadow: '0 0 0 1px rgba(59,130,246,0.3), 0 8px 32px rgba(59,130,246,0.2)',
+            }}
+          >
+            <Bot size={26} className="text-blue-300" />
           </div>
           <div className="text-center">
-            <h1 className="text-lg font-semibold text-white/90">Agent Portal</h1>
-            <p className="text-xs text-white/40">AI ajan yönetim platformu</p>
+            <h1 className="text-xl font-semibold tracking-tight text-white">Agent Portal</h1>
+            <p className="mt-1 text-xs text-white/40">AI ajan yönetim platformu</p>
           </div>
         </div>
 
         {/* Kart */}
         <div
-          className="rounded-2xl p-6 shadow-2xl"
+          className="rounded-2xl p-6 shadow-2xl backdrop-blur-sm"
           style={{
-            background: 'linear-gradient(160deg, #0f1829 0%, #0a1020 100%)',
-            border: '1px solid rgba(255,255,255,0.08)',
+            background: 'linear-gradient(160deg, rgba(15,24,41,0.95) 0%, rgba(10,16,32,0.95) 100%)',
+            border: '1px solid rgba(255,255,255,0.09)',
+            boxShadow: '0 24px 64px rgba(0,0,0,0.5), 0 0 0 1px rgba(59,130,246,0.05)',
           }}
         >
           <div className="mb-5 text-sm font-medium text-white/70">

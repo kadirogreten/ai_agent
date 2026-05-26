@@ -85,7 +85,7 @@ function NavGroup({ group }: { group: NavGroup }) {
           onClick={() => setOpen((v) => !v)}
           className="flex w-full items-center justify-between px-3 pb-1 pt-3"
         >
-          <span className="text-[10px] font-semibold uppercase tracking-widest text-white/30">
+          <span className="text-[10px] font-semibold uppercase tracking-widest text-white/25">
             {group.title}
           </span>
           <motion.span
@@ -110,21 +110,32 @@ function NavGroup({ group }: { group: NavGroup }) {
               <NavLink key={item.to} to={item.to} end={item.to === '/app/run'}>
                 {({ isActive }) => (
                   <motion.div
-                    className={`relative mx-2 mb-0.5 flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm ${
-                      isActive ? 'text-white' : 'text-white/50 hover:text-white/80'
+                    className={`relative mx-2 mb-0.5 flex items-center gap-2.5 rounded-lg px-3 py-[7px] text-sm ${
+                      isActive ? 'text-white' : 'text-white/45 hover:text-white/75'
                     }`}
-                    whileHover={{ x: 2 }}
+                    whileHover={{ x: isActive ? 0 : 2 }}
                     transition={{ type: 'spring', stiffness: 500, damping: 35 }}
                   >
                     {isActive && (
                       <motion.span
                         layoutId="sidebar-active"
-                        className="absolute inset-0 rounded-lg ring-1 ring-white/10"
-                        style={{ background: 'rgba(255,255,255,0.07)' }}
+                        className="absolute inset-0 rounded-lg"
+                        style={{
+                          background: 'linear-gradient(135deg, rgba(59,130,246,0.14) 0%, rgba(59,130,246,0.06) 100%)',
+                          boxShadow: 'inset 0 0 0 1px rgba(59,130,246,0.18)',
+                        }}
                         transition={{ type: 'spring', stiffness: 350, damping: 30 }}
                       />
                     )}
-                    <span className={`relative z-10 ${isActive ? 'text-blue-400' : ''}`}>
+                    {/* Left accent bar for active item */}
+                    {isActive && (
+                      <motion.span
+                        layoutId="sidebar-accent"
+                        className="absolute left-0 top-1 bottom-1 w-0.5 rounded-full bg-blue-400"
+                        transition={{ type: 'spring', stiffness: 350, damping: 30 }}
+                      />
+                    )}
+                    <span className={`relative z-10 transition-colors ${isActive ? 'text-blue-400' : ''}`}>
                       {item.icon}
                     </span>
                     <span className="relative z-10 font-medium">{item.label}</span>
@@ -189,14 +200,24 @@ export default function AppShell() {
   return (
     <div className="flex min-h-screen bg-[#0B1020] text-white">
       {/* Sidebar */}
-      <aside className="flex w-56 flex-shrink-0 flex-col border-r border-white/[0.06] bg-[#080e1c]">
+      <aside className="flex w-56 flex-shrink-0 flex-col border-r border-white/[0.06]"
+        style={{ background: 'linear-gradient(180deg, #0a1020 0%, #070d19 100%)' }}
+      >
         {/* Logo */}
-        <div className="flex h-14 items-center border-b border-white/[0.06] px-5">
+        <div className="flex h-14 items-center border-b border-white/[0.06] px-4">
           <div className="flex items-center gap-2.5">
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-500/20 ring-1 ring-blue-500/30">
-              <Bot size={14} className="text-blue-400" />
+            <div className="relative flex h-8 w-8 items-center justify-center rounded-xl"
+              style={{
+                background: 'linear-gradient(135deg, rgba(59,130,246,0.25) 0%, rgba(37,99,235,0.15) 100%)',
+                boxShadow: '0 0 0 1px rgba(59,130,246,0.25), 0 4px 12px rgba(59,130,246,0.15)',
+              }}
+            >
+              <Bot size={15} className="text-blue-300" />
             </div>
-            <span className="text-sm font-semibold tracking-tight text-white/90">Agent Portal</span>
+            <div>
+              <div className="text-sm font-semibold tracking-tight text-white/90">Agent Portal</div>
+              <div className="text-[10px] text-white/30 leading-none mt-0.5">AI Management</div>
+            </div>
           </div>
         </div>
 
@@ -210,22 +231,28 @@ export default function AppShell() {
         {/* Footer */}
         <div className="border-t border-white/[0.06] p-3 space-y-1">
           {importMsg && (
-            <p className="px-2 pb-1 text-[11px] text-white/40">{importMsg}</p>
+            <p className="px-2 pb-1 text-[11px] text-white/35">{importMsg}</p>
           )}
           <button
             onClick={runImport}
             disabled={importing}
-            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-white/40 transition-colors hover:bg-white/5 hover:text-white/70 disabled:opacity-40"
+            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs text-white/35 transition-all hover:bg-white/[0.05] hover:text-white/60 disabled:opacity-40"
           >
-            <Download size={14} />
+            <Download size={13} />
             <span>{importing ? 'İçe aktarılıyor…' : 'Local Import'}</span>
           </button>
+          {/* User row */}
           <button
             onClick={async () => { await signOut(); navigate('/login') }}
-            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-white/40 transition-colors hover:bg-white/5 hover:text-white/70"
+            className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 transition-all hover:bg-white/[0.05] group"
           >
-            <LogOut size={14} />
-            <span className="truncate">{user?.email ?? 'Çıkış'}</span>
+            <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white/10 text-[10px] font-semibold text-white/60 group-hover:text-white/80">
+              {user?.email?.[0]?.toUpperCase() ?? '?'}
+            </div>
+            <span className="truncate text-xs text-white/40 group-hover:text-white/60">
+              {user?.email ?? 'Çıkış'}
+            </span>
+            <LogOut size={12} className="ml-auto shrink-0 text-white/20 group-hover:text-white/40" />
           </button>
         </div>
       </aside>
