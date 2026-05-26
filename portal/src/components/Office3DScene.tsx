@@ -9,135 +9,108 @@ interface Office3DSceneProps {
 
 export default function Office3DScene({ onSceneReady, children }: Office3DSceneProps) {
   const containerRef = useRef<HTMLDivElement>(null)
-  const sceneRef = useRef<THREE.Scene | null>(null)
-  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null)
-  const rendererRef = useRef<THREE.WebGLRenderer | null>(null)
-  const animationIdRef = useRef<number | null>(null)
+  const sceneRef     = useRef<THREE.Scene | null>(null)
+  const cameraRef    = useRef<THREE.PerspectiveCamera | null>(null)
+  const rendererRef  = useRef<THREE.WebGLRenderer | null>(null)
+  const animIdRef    = useRef<number | null>(null)
+  const clockRef     = useRef(new THREE.Clock())
 
   useEffect(() => {
     if (!containerRef.current) return
 
-    const width = containerRef.current.clientWidth
-    const height = containerRef.current.clientHeight
-    console.log('Canvas size:', { width, height })
+    const w = containerRef.current.clientWidth
+    const h = containerRef.current.clientHeight
 
-    // Scene setup
+    // ── Scene ──────────────────────────────────────────────────────────
     const scene = new THREE.Scene()
-    scene.background = new THREE.Color(0xc5d3e0) // Light gray-blue office wall color
+    scene.background = new THREE.Color(0x04080f)   // deep navy-black
+    scene.fog = new THREE.FogExp2(0x04080f, 0.018) // atmospheric depth fog
     sceneRef.current = scene
 
-    // Camera setup - positioned as if standing in office looking across space
-    const camera = new THREE.PerspectiveCamera(70, width / height, 0.1, 1000)
-    camera.position.set(15, 7, 25)
-    camera.lookAt(0, 2, 0)
+    // ── Camera ─────────────────────────────────────────────────────────
+    const camera = new THREE.PerspectiveCamera(65, w / h, 0.1, 200)
+    camera.position.set(14, 9, 22)
+    camera.lookAt(0, 1, 0)
     cameraRef.current = camera
-    console.log('Camera positioned:', camera.position)
 
-    // Renderer setup
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false })
-    renderer.setSize(width, height)
-    renderer.setPixelRatio(window.devicePixelRatio)
+    // ── Renderer ───────────────────────────────────────────────────────
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' })
+    renderer.setSize(w, h)
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
     renderer.shadowMap.enabled = true
-    renderer.shadowMap.type = THREE.PCFShadowMap
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap
+    renderer.toneMapping = THREE.ACESFilmicToneMapping
+    renderer.toneMappingExposure = 0.9
     containerRef.current.appendChild(renderer.domElement)
     rendererRef.current = renderer
 
-    // Realistic office lighting system
-    // Ambient light - overall office illumination
-    const ambientLight = new THREE.AmbientLight(0xd0d8e0, 0.7)
-    scene.add(ambientLight)
+    // ── Lighting ───────────────────────────────────────────────────────
+    // Very dim ambient — this is a moody, dramatic scene
+    scene.add(new THREE.AmbientLight(0x0a1530, 0.6))
 
-    // Main overhead directional light - primary ceiling light
-    const directionalLight = new THREE.DirectionalLight(0xf8f6f0, 1.2)
-    directionalLight.position.set(8, 24, 8)
-    directionalLight.castShadow = true
-    directionalLight.shadow.mapSize.width = 2048
-    directionalLight.shadow.mapSize.height = 2048
-    directionalLight.shadow.camera.far = 60
-    directionalLight.shadow.camera.left = -35
-    directionalLight.shadow.camera.right = 35
-    directionalLight.shadow.camera.top = 35
-    directionalLight.shadow.camera.bottom = -35
-    scene.add(directionalLight)
+    // Primary overhead — cool blue-white
+    const keyLight = new THREE.DirectionalLight(0x8ab4f8, 0.8)
+    keyLight.position.set(5, 20, 10)
+    keyLight.castShadow = true
+    keyLight.shadow.mapSize.set(2048, 2048)
+    keyLight.shadow.camera.far = 80
+    keyLight.shadow.camera.left = keyLight.shadow.camera.bottom = -30
+    keyLight.shadow.camera.right = keyLight.shadow.camera.top = 30
+    keyLight.shadow.bias = -0.0003
+    scene.add(keyLight)
 
-    // Grid of ceiling lights across the office
-    const ceilingHeight = 20
-    const gridSize = 10
-    const lightIntensity = 0.6
+    // Blue accent — left side
+    const blueLight = new THREE.PointLight(0x3b82f6, 2.5, 35)
+    blueLight.position.set(-18, 6, 0)
+    scene.add(blueLight)
 
-    for (let i = -15; i <= 15; i += gridSize) {
-      for (let j = -15; j <= 15; j += gridSize) {
-        const ceilingLight = new THREE.PointLight(0xf5f5f0, lightIntensity, 25)
-        ceilingLight.position.set(i, ceilingHeight, j)
-        ceilingLight.castShadow = false
-        scene.add(ceilingLight)
-      }
-    }
+    // Purple accent — right side
+    const purpleLight = new THREE.PointLight(0x8b5cf6, 1.5, 30)
+    purpleLight.position.set(18, 4, -8)
+    scene.add(purpleLight)
 
-    // Warm task lighting at desk areas
-    const deskPositions = [
-      { x: -12, z: 0 },
-      { x: -6, z: -10 },
-      { x: 0, z: -15 },
-      { x: 6, z: -10 },
-      { x: 12, z: 0 },
-    ]
+    // Cyan ground fill
+    const cyanFill = new THREE.PointLight(0x06b6d4, 0.8, 40)
+    cyanFill.position.set(0, 0.5, 8)
+    scene.add(cyanFill)
 
-    deskPositions.forEach((pos) => {
-      const taskLight = new THREE.PointLight(0xf5e6d3, 0.8, 12) // Warm light
-      taskLight.position.set(pos.x, 2.5, pos.z)
-      scene.add(taskLight)
-    })
+    if (onSceneReady) onSceneReady(scene, camera, renderer)
 
-    // Window light effect - soft natural light from left
-    const windowLight = new THREE.PointLight(0xe8eef8, 0.5, 60)
-    windowLight.position.set(-28, 10, 0)
-    scene.add(windowLight)
-
-    // Fill light from opposite side for balanced lighting
-    const fillLight = new THREE.PointLight(0xd4d8e0, 0.3, 50)
-    fillLight.position.set(25, 8, 0)
-    scene.add(fillLight)
-
-    // Notify parent that scene is ready
-    if (onSceneReady) {
-      onSceneReady(scene, camera, renderer)
-    }
-
-    // Animation loop
+    // ── Animation ──────────────────────────────────────────────────────
     const animate = () => {
-      animationIdRef.current = requestAnimationFrame(animate)
+      animIdRef.current = requestAnimationFrame(animate)
+      const t = clockRef.current.getElapsedTime()
+
+      // Subtle pulsing on accent lights
+      blueLight.intensity   = 2.5 + Math.sin(t * 0.7) * 0.4
+      purpleLight.intensity = 1.5 + Math.sin(t * 0.5 + 1) * 0.3
+      cyanFill.intensity    = 0.8 + Math.sin(t * 1.1) * 0.2
+
       renderer.render(scene, camera)
     }
     animate()
 
-    // Handle window resize
-    const handleResize = () => {
-      const newWidth = containerRef.current?.clientWidth ?? width
-      const newHeight = containerRef.current?.clientHeight ?? height
-
-      camera.aspect = newWidth / newHeight
+    // ── Resize ─────────────────────────────────────────────────────────
+    const onResize = () => {
+      const nw = containerRef.current?.clientWidth  ?? w
+      const nh = containerRef.current?.clientHeight ?? h
+      camera.aspect = nw / nh
       camera.updateProjectionMatrix()
-      renderer.setSize(newWidth, newHeight)
+      renderer.setSize(nw, nh)
     }
-
-    window.addEventListener('resize', handleResize)
+    window.addEventListener('resize', onResize)
 
     return () => {
-      window.removeEventListener('resize', handleResize)
-      if (animationIdRef.current !== null) {
-        cancelAnimationFrame(animationIdRef.current)
-      }
+      window.removeEventListener('resize', onResize)
+      if (animIdRef.current !== null) cancelAnimationFrame(animIdRef.current)
       renderer.dispose()
-      containerRef.current?.removeChild(renderer.domElement)
+      if (containerRef.current?.contains(renderer.domElement)) {
+        containerRef.current.removeChild(renderer.domElement)
+      }
     }
   }, [])
 
-  // Setup camera controls
-  useOfficeCamera({
-    camera: cameraRef.current,
-    renderer: containerRef.current,
-  })
+  useOfficeCamera({ camera: cameraRef.current, renderer: containerRef.current })
 
   return (
     <div ref={containerRef} className="w-full h-full">

@@ -87,16 +87,20 @@ function StatCard({
   href?: string
 }) {
   const inner = (
-    <motion.div variants={item} whileHover={{ y: -3 }} transition={{ type: 'spring', stiffness: 400, damping: 30 }}>
-      <Card className="relative overflow-hidden p-4">
-        <div className={`absolute right-3 top-3 rounded-lg p-1.5 ${accent ?? 'bg-white/5'}`}>
+    <motion.div variants={item} whileHover={{ y: -4, scale: 1.01 }} transition={{ type: 'spring', stiffness: 400, damping: 30 }}>
+      <Card className="relative overflow-hidden p-4 transition-shadow hover:shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
+        {/* Subtle top gradient accent */}
+        <div className="absolute inset-x-0 top-0 h-px opacity-60"
+          style={{ background: 'linear-gradient(90deg, transparent, rgba(59,130,246,0.4), transparent)' }}
+        />
+        <div className={`absolute right-3 top-3 rounded-xl p-2 ${accent ?? 'bg-white/[0.06]'}`}>
           {icon}
         </div>
-        <div className="text-xs text-white/40">{label}</div>
-        <div className={`mt-1.5 text-2xl font-bold tracking-tight ${accent ? '' : 'text-white'}`}>
+        <div className="text-xs font-medium text-white/40 tracking-wide">{label}</div>
+        <div className={`mt-2 text-2xl font-bold tracking-tight ${accent ? '' : 'text-white'}`}>
           {value}
         </div>
-        {sub && <div className="mt-1 text-xs text-white/30">{sub}</div>}
+        {sub && <div className="mt-1.5 text-[11px] text-white/28">{sub}</div>}
       </Card>
     </motion.div>
   )
@@ -287,10 +291,10 @@ export default function DashboardPage() {
         animate="show"
         className="grid gap-3 sm:grid-cols-3"
       >
-        <motion.div variants={item}>
+        <motion.div variants={item} whileHover={{ y: -3 }} transition={{ type: 'spring', stiffness: 400, damping: 30 }}>
           <Link to="/app/cost-ledger">
-            <Card className="p-4 transition-colors hover:bg-white/[0.06]">
-              <div className="flex items-center gap-2 text-xs text-white/40">
+            <Card className="p-4 transition-all hover:shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
+              <div className="flex items-center gap-2 text-xs font-medium text-white/40">
                 <DollarSign size={12} />
                 Ort. Maliyet / Run
               </div>
@@ -308,10 +312,10 @@ export default function DashboardPage() {
           </Link>
         </motion.div>
 
-        <motion.div variants={item}>
+        <motion.div variants={item} whileHover={{ y: -3 }} transition={{ type: 'spring', stiffness: 400, damping: 30 }}>
           <Link to="/app/cost-ledger">
-            <Card className="p-4 transition-colors hover:bg-white/[0.06]">
-              <div className="flex items-center gap-2 text-xs text-white/40">
+            <Card className="p-4 transition-all hover:shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
+              <div className="flex items-center gap-2 text-xs font-medium text-white/40">
                 <Clock size={12} />
                 Ort. Süre / Run
               </div>
@@ -329,10 +333,10 @@ export default function DashboardPage() {
           </Link>
         </motion.div>
 
-        <motion.div variants={item}>
+        <motion.div variants={item} whileHover={{ y: -3 }} transition={{ type: 'spring', stiffness: 400, damping: 30 }}>
           <Link to="/app/cost-ledger">
-            <Card className="p-4 transition-colors hover:bg-white/[0.06]">
-              <div className="flex items-center gap-2 text-xs text-white/40">
+            <Card className="p-4 transition-all hover:shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
+              <div className="flex items-center gap-2 text-xs font-medium text-white/40">
                 <Zap size={12} />
                 Verifier FAIL
               </div>

@@ -5,237 +5,257 @@ import OfficeGeometry from '@/components/office/OfficeGeometry'
 import OfficeAssets from '@/components/office/OfficeAssets'
 import { useOfficeSimulation } from '@/hooks/useOfficeSimulation'
 import { supabase } from '@/lib/supabaseClient'
+import { motion, AnimatePresence } from 'framer-motion'
+import { Bot, Activity, Users, Cpu, Zap, AlertCircle, CheckCircle2, Clock } from 'lucide-react'
 import * as THREE from 'three'
 
-type Agent = { id: string; name: string | null; code: string | null; role: string | null }
-type Run = { id: string; agent_id: string | null; status: string; created_at: string }
+type Agent   = { id: string; name: string | null; code: string | null; role: string | null }
+type Run     = { id: string; agent_id: string | null; status: string; created_at: string }
 type Persona = { id: string; slug: string; name: string | null }
-type Job = { id: string; agent_id: string | null; status: string; created_at: string }
+type Job     = { id: string; agent_id: string | null; status: string; created_at: string }
+
+const ROLE_COLORS: Record<string, string> = {
+  research:     '#3b82f6',
+  analysis:     '#8b5cf6',
+  writing:      '#06b6d4',
+  code:         '#10b981',
+  verification: '#f59e0b',
+  operation:    '#ef4444',
+  contrarian:   '#f97316',
+  design:       '#ec4899',
+  editing:      '#84cc16',
+}
+
+function StatusDot({ status }: { status: string }) {
+  if (status === 'running') return (
+    <span className="relative flex h-2 w-2">
+      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-75" />
+      <span className="relative inline-flex h-2 w-2 rounded-full bg-blue-400" />
+    </span>
+  )
+  if (status === 'success' || status === 'completed') return <CheckCircle2 size={12} className="text-emerald-400" />
+  if (status === 'fail'    || status === 'failed')    return <AlertCircle  size={12} className="text-red-400" />
+  return <Clock size={12} className="text-amber-400" />
+}
 
 export default function OfficePage() {
-  const init = useAuthStore((s) => s.init)
-  const user = useAuthStore((s) => s.user)
+  const init        = useAuthStore((s) => s.init)
+  const user        = useAuthStore((s) => s.user)
   const initialized = useAuthStore((s) => s.initialized)
 
-  const [scene, setScene] = useState<THREE.Scene | null>(null)
-  const [agents, setAgents] = useState<Agent[]>([])
-  const [runs, setRuns] = useState<Run[]>([])
+  const [scene,    setScene]    = useState<THREE.Scene | null>(null)
+  const [agents,   setAgents]   = useState<Agent[]>([])
+  const [runs,     setRuns]     = useState<Run[]>([])
   const [personas, setPersonas] = useState<Persona[]>([])
-  const [jobs, setJobs] = useState<Job[]>([])
-  const [err, setErr] = useState<string | null>(null)
+  const [jobs,     setJobs]     = useState<Job[]>([])
+  const [err,      setErr]      = useState<string | null>(null)
+  const [panel,    setPanel]    = useState<'agents' | 'jobs'>('agents')
 
-  const { agents: officeAgents, moveAgentTo, moveAgentToCeoZone, returnAgentToDesk, updateAgentStatus } = useOfficeSimulation({
-    scene,
-    dbAgents: agents,
-  })
+  const { agents: officeAgents, moveAgentToCeoZone, returnAgentToDesk, updateAgentStatus } =
+    useOfficeSimulation({ scene, dbAgents: agents })
 
-  useEffect(() => {
-    init()
-  }, [init])
+  useEffect(() => { init() }, [init])
 
-  // Animate agents based on job status
+  // Job-driven agent animation
   useEffect(() => {
     if (!moveAgentToCeoZone || !returnAgentToDesk || !updateAgentStatus) return
-
     jobs.forEach((job) => {
       if (!job.agent_id) return
-      const deskIndex = agents.findIndex((a) => a.id === job.agent_id)
-      if (deskIndex < 0) return
-
+      const deskIdx = agents.findIndex((a) => a.id === job.agent_id)
+      if (deskIdx < 0) return
       if (job.status === 'running' || job.status === 'pending') {
-        // Move agent to CEO zone when working
         moveAgentToCeoZone(job.agent_id)
         updateAgentStatus(job.agent_id, job.status)
-      } else if (job.status === 'completed' || job.status === 'failed') {
-        // Return agent to desk when done
-        returnAgentToDesk(job.agent_id, deskIndex)
+      } else {
+        returnAgentToDesk(job.agent_id, deskIdx)
         updateAgentStatus(job.agent_id, job.status)
       }
     })
   }, [jobs, agents, moveAgentToCeoZone, returnAgentToDesk, updateAgentStatus])
 
+  // Data load
   useEffect(() => {
     const load = async () => {
       if (!initialized || !user) return
-
       try {
-        const session = await supabase.auth.getSession()
-        console.log('Session:', session?.data?.session ? 'valid' : 'invalid')
-
-        // Fetch agents
-        const { data: agentsData, error: agentsErr } = await supabase
-          .from('agents')
-          .select('id,name,code,role')
-          .limit(20)
-
-        if (agentsErr) {
-          console.error('Agents error:', agentsErr)
-          setErr(`Agents: ${agentsErr.message}`)
-        } else {
-          setAgents((agentsData ?? []) as Agent[])
-          console.log('Agents loaded:', agentsData?.length)
-        }
-
-        // Fetch recent runs (instead of jobs table which doesn't exist)
-        try {
-          const { data: runsData, error: runsErr } = await supabase
-            .from('runs')
-            .select('id,status,created_at')
-            .order('created_at', { ascending: false })
-            .limit(10)
-
-          if (!runsErr && runsData) {
-            // Convert runs to job format
-            setJobs(
-              (runsData ?? []).map((r: any) => ({
-                id: r.id,
-                agent_id: null,
-                status: r.status,
-                created_at: r.created_at,
-              }))
-            )
-            console.log('Runs loaded:', runsData?.length)
-          }
-        } catch (e) {
-          // Silently fail - runs table may not be available
-          console.log('Runs table not available, showing demo mode')
-        }
-
-        // Fetch personas
-        const { data: personasData, error: personasErr } = await supabase
-          .from('personas')
-          .select('id,slug,name')
-          .limit(50)
-
-        if (personasErr) {
-          console.error('Personas error:', personasErr)
-        } else {
-          setPersonas((personasData ?? []) as Persona[])
-          console.log('Personas loaded:', personasData?.length)
-        }
+        const [{ data: agentsData }, { data: runsData }, { data: personasData }] = await Promise.all([
+          supabase.from('agents').select('id,name,code,role').limit(20),
+          supabase.from('runs').select('id,status,created_at').order('created_at', { ascending: false }).limit(10),
+          supabase.from('personas').select('id,slug,name').limit(50),
+        ])
+        setAgents((agentsData ?? []) as Agent[])
+        setRuns((runsData ?? []) as Run[])
+        setPersonas((personasData ?? []) as Persona[])
+        setJobs(
+          (runsData ?? []).map((r: any) => ({
+            id: r.id, agent_id: null, status: r.status, created_at: r.created_at,
+          }))
+        )
       } catch (ex) {
-        console.error('Load error:', ex)
-        setErr(ex instanceof Error ? ex.message : 'Failed to load data')
+        setErr(ex instanceof Error ? ex.message : 'Load error')
       }
     }
-
     load()
   }, [initialized, user])
 
-  const handleSceneReady = (sceneObj: THREE.Scene) => {
-    setScene(sceneObj)
-    console.log('Scene ready')
-  }
+  const activeJobs    = jobs.filter((j) => j.status === 'running').length
+  const completedJobs = jobs.filter((j) => j.status === 'success' || j.status === 'completed').length
 
   return (
-    <div className="space-y-4 h-screen flex flex-col">
-      <div className="px-4 py-3">
-        <h1 className="text-2xl font-bold text-white">3D Office Dashboard</h1>
-        <p className="text-sm text-white/40 mt-1">
-          Interactive visualization of agent workflows and task pipelines
-        </p>
+    <div className="relative h-[calc(100vh-3rem)] overflow-hidden rounded-2xl">
+
+      {/* ── 3D Canvas (full bleed) ─────────────────────────────────── */}
+      <div className="absolute inset-0">
+        <Office3DScene onSceneReady={setScene}>
+          {scene && (
+            <>
+              <OfficeGeometry scene={scene} />
+              <OfficeAssets scene={scene} />
+            </>
+          )}
+        </Office3DScene>
       </div>
 
+      {/* ── Top bar overlay ────────────────────────────────────────── */}
+      <div className="absolute inset-x-0 top-0 flex items-center justify-between px-5 py-3"
+        style={{ background: 'linear-gradient(to bottom, rgba(4,8,15,0.85) 0%, transparent 100%)' }}
+      >
+        <div className="flex items-center gap-3">
+          <div className="flex h-8 w-8 items-center justify-center rounded-xl"
+            style={{
+              background: 'linear-gradient(135deg, rgba(59,130,246,0.3), rgba(37,99,235,0.15))',
+              boxShadow: '0 0 0 1px rgba(59,130,246,0.3), 0 4px 12px rgba(59,130,246,0.2)',
+            }}
+          >
+            <Bot size={15} className="text-blue-300" />
+          </div>
+          <div>
+            <div className="text-sm font-semibold text-white">3D Office</div>
+            <div className="text-[10px] text-white/40">Agent workflow visualization</div>
+          </div>
+        </div>
+
+        {/* Live indicator */}
+        <div className="flex items-center gap-2 rounded-full border border-white/10 bg-black/40 px-3 py-1.5 backdrop-blur-sm">
+          <span className="relative flex h-1.5 w-1.5">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+            <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
+          </span>
+          <span className="text-xs font-medium text-emerald-400">LIVE</span>
+        </div>
+      </div>
+
+      {/* ── KPI bar overlay (bottom-left) ─────────────────────────── */}
+      <div className="absolute bottom-5 left-5 flex gap-2">
+        {[
+          { label: 'Agents', value: agents.length, icon: <Users size={12} />, color: 'blue' },
+          { label: 'Active', value: activeJobs,    icon: <Activity size={12} />, color: 'emerald' },
+          { label: 'Runs',   value: runs.length,   icon: <Cpu size={12} />, color: 'purple' },
+          { label: 'Done',   value: completedJobs, icon: <Zap size={12} />, color: 'cyan' },
+        ].map((kpi) => (
+          <motion.div
+            key={kpi.label}
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 }}
+            className="flex items-center gap-2 rounded-xl border border-white/[0.08] bg-black/50 px-3 py-2 backdrop-blur-md"
+          >
+            <span className={`text-${kpi.color}-400`}>{kpi.icon}</span>
+            <div>
+              <div className={`text-base font-bold leading-none text-${kpi.color}-300`}>{kpi.value}</div>
+              <div className="mt-0.5 text-[10px] text-white/40">{kpi.label}</div>
+            </div>
+          </motion.div>
+        ))}
+      </div>
+
+      {/* ── Right panel (agents / jobs) ────────────────────────────── */}
+      <motion.div
+        initial={{ opacity: 0, x: 20 }}
+        animate={{ opacity: 1, x: 0 }}
+        transition={{ delay: 0.15 }}
+        className="absolute right-5 top-16 bottom-5 w-60 flex flex-col gap-2"
+      >
+        {/* Panel toggle */}
+        <div className="flex rounded-xl border border-white/[0.07] bg-black/60 p-1 backdrop-blur-md">
+          {(['agents', 'jobs'] as const).map((p) => (
+            <button
+              key={p}
+              onClick={() => setPanel(p)}
+              className={`flex-1 rounded-lg py-1.5 text-xs font-medium transition-all ${
+                panel === p
+                  ? 'bg-blue-600/30 text-blue-300 shadow-sm'
+                  : 'text-white/40 hover:text-white/60'
+              }`}
+            >
+              {p === 'agents' ? 'Agents' : 'Runs'}
+            </button>
+          ))}
+        </div>
+
+        {/* Panel content */}
+        <div className="flex-1 overflow-hidden rounded-xl border border-white/[0.07] bg-black/60 backdrop-blur-md">
+          <div className="h-full overflow-y-auto scrollbar-none p-2 space-y-1">
+            <AnimatePresence mode="wait">
+              {panel === 'agents' ? (
+                <motion.div key="agents" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-1">
+                  {officeAgents.length === 0 ? (
+                    <p className="py-8 text-center text-xs text-white/30">Initializing…</p>
+                  ) : officeAgents.map((a, i) => (
+                    <motion.div
+                      key={a.agentId}
+                      initial={{ opacity: 0, x: 10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: i * 0.04 }}
+                      className="flex items-center gap-2.5 rounded-lg px-2.5 py-2 transition-colors hover:bg-white/5"
+                    >
+                      <div className="h-6 w-6 shrink-0 rounded-lg flex items-center justify-center text-[9px] font-bold"
+                        style={{ background: `${ROLE_COLORS[a.role ?? ''] ?? '#3b82f6'}22`, color: ROLE_COLORS[a.role ?? ''] ?? '#60a5fa' }}
+                      >
+                        {a.name?.[0]?.toUpperCase() ?? '?'}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-xs font-medium text-white/80">{a.name}</div>
+                        <div className="text-[10px] text-white/35 capitalize">{a.role ?? 'general'}</div>
+                      </div>
+                      <div className="h-1.5 w-1.5 rounded-full shrink-0"
+                        style={{ background: ROLE_COLORS[a.role ?? ''] ?? '#3b82f6', boxShadow: `0 0 4px ${ROLE_COLORS[a.role ?? ''] ?? '#3b82f6'}` }}
+                      />
+                    </motion.div>
+                  ))}
+                </motion.div>
+              ) : (
+                <motion.div key="jobs" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-1">
+                  {jobs.length === 0 ? (
+                    <p className="py-8 text-center text-xs text-white/30">No runs yet</p>
+                  ) : jobs.slice(0, 12).map((job, i) => (
+                    <motion.div
+                      key={job.id}
+                      initial={{ opacity: 0, x: 10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: i * 0.04 }}
+                      className="flex items-center gap-2.5 rounded-lg px-2.5 py-2 transition-colors hover:bg-white/5"
+                    >
+                      <StatusDot status={job.status} />
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate font-mono text-[10px] text-white/60">{job.id.slice(0, 12)}…</div>
+                        <div className="text-[10px] capitalize text-white/35">{job.status}</div>
+                      </div>
+                    </motion.div>
+                  ))}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        </div>
+      </motion.div>
+
+      {/* Error toast */}
       {err && (
-        <div className="mx-4 rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+        <div className="absolute bottom-5 left-1/2 -translate-x-1/2 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-2 text-xs text-red-300 backdrop-blur-sm">
           {err}
         </div>
       )}
-
-      <div className="mx-4 flex gap-4">
-        <div className="flex-1 rounded-lg border border-white/[0.06] bg-gradient-to-b from-[#0f1829] to-[#0a1020] p-4">
-          <div className="text-xs font-semibold text-white/60 mb-3">Statistics</div>
-          <div className="space-y-2 text-sm">
-            <div className="flex justify-between">
-              <span className="text-white/60">Agents</span>
-              <span className="text-white/90">{agents.length}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-white/60">Active Jobs</span>
-              <span className="text-emerald-400">{jobs.filter((j) => j.status === 'running').length}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-white/60">Personas</span>
-              <span className="text-white/90">{personas.length}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-white/60">Office Agents (3D)</span>
-              <span className="text-white/90">{officeAgents.length}</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex-1 rounded-lg border border-white/[0.06] bg-gradient-to-b from-[#0f1829] to-[#0a1020] p-4">
-          <div className="text-xs font-semibold text-white/60 mb-3">Active Agents</div>
-          <div className="space-y-2 text-xs max-h-40 overflow-y-auto scrollbar-none">
-            {officeAgents.length === 0 ? (
-              <p className="text-white/40">Initializing 3D office...</p>
-            ) : (
-              officeAgents.map((agent) => (
-                <div key={agent.agentId} className="flex items-center gap-2 p-1.5 rounded bg-white/5">
-                  <div
-                    className="w-2.5 h-2.5 rounded-full"
-                    style={{ backgroundColor: '#3b82f6' }}
-                  />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-white/90 truncate">{agent.name}</div>
-                    <div className="text-white/40 text-[10px]">{agent.role}</div>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-      </div>
-
-      <div className="mx-4 flex gap-4 flex-1 overflow-hidden">
-        <div className="flex-1 rounded-lg border border-white/[0.06] bg-gradient-to-b from-[#0f1829] to-[#0a1020] overflow-hidden">
-          <Office3DScene onSceneReady={handleSceneReady}>
-            {scene && (
-              <>
-                <OfficeGeometry scene={scene} />
-                <OfficeAssets scene={scene} />
-              </>
-            )}
-          </Office3DScene>
-        </div>
-
-        <div className="w-64 rounded-lg border border-white/[0.06] bg-gradient-to-b from-[#0f1829] to-[#0a1020] p-4 overflow-y-auto">
-          <div className="text-xs font-semibold text-white/60 mb-3">Active Jobs</div>
-          <div className="space-y-2 text-xs">
-            {jobs.length === 0 ? (
-              <p className="text-white/40">No active jobs</p>
-            ) : (
-              jobs.slice(0, 10).map((job) => {
-                const agent = agents.find((a) => a.id === job.agent_id)
-                const statusColor =
-                  job.status === 'running'
-                    ? 'text-emerald-400'
-                    : job.status === 'completed'
-                      ? 'text-blue-400'
-                      : job.status === 'failed'
-                        ? 'text-red-400'
-                        : 'text-amber-400'
-                return (
-                  <div key={job.id} className="p-2 rounded bg-white/5 border border-white/10">
-                    <div className="text-white/90 truncate">{job.id.slice(0, 8)}</div>
-                    <div className="text-white/60 text-[10px]">{agent?.name || 'Unassigned'}</div>
-                    <div className={`${statusColor} text-[10px] mt-1`}>{job.status}</div>
-                  </div>
-                )
-              })
-            )}
-          </div>
-        </div>
-      </div>
-
-      <div className="mx-4 py-4 text-xs text-white/30">
-        <div className="space-y-1">
-          <div>🎮 3D Office with 5 agents at desks + CEO meeting zone</div>
-          <div>📊 Dashboard shows live agent/run statistics when data loads</div>
-          <div>✨ Smooth animations and role-based color coding</div>
-        </div>
-      </div>
     </div>
   )
 }
