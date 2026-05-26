@@ -1,17 +1,16 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import AnomalyBanner from '@/components/AnomalyBanner'
-import { Button } from '@/components/ui/Button'
 import { useAuthStore } from '@/stores/authStore'
 import { motion, AnimatePresence } from 'framer-motion'
 import { PageTransition } from '@/components/PageTransition'
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import {
   LayoutDashboard, Play, Clock, List, Briefcase, CheckSquare,
   Bot, UserCircle, BookOpen, Wrench,
   Package, Layers, Database, Brain,
   DollarSign, ScrollText,
   Compass, FileStack, Boxes,
-  Download, LogOut, ChevronDown, ChevronRight,
+  Download, LogOut, ChevronDown,
 } from 'lucide-react'
 
 type NavItem = { to: string; label: string; icon: React.ReactNode }
@@ -146,6 +145,14 @@ export default function AppShell() {
   const navigate = useNavigate()
   const [importing, setImporting] = useState(false)
   const [importMsg, setImportMsg] = useState<string | null>(null)
+  const hasImported = useRef(false)
+
+  useEffect(() => {
+    if (user && !hasImported.current) {
+      hasImported.current = true
+      runImport()
+    }
+  }, [user]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function runImport() {
     const session = useAuthStore.getState().session
