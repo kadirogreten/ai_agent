@@ -712,11 +712,16 @@ async function generateDalleImage(prompt: string, apiKey: string): Promise<strin
     const res = await fetch('https://api.openai.com/v1/images/generations', {
       method: 'POST',
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: 'dall-e-3', prompt, n: 1, size: '1792x1024', quality: 'standard' }),
+      // Request base64 so the image is stored permanently (no expiry)
+      body: JSON.stringify({ model: 'dall-e-3', prompt, n: 1, size: '1792x1024', quality: 'standard', response_format: 'b64_json' }),
     })
     if (!res.ok) return null
-    const data = await res.json() as { data?: Array<{ url?: string }> }
-    return data.data?.[0]?.url ?? null
+    const data = await res.json() as { data?: Array<{ b64_json?: string; url?: string }> }
+    const item = data.data?.[0]
+    if (!item) return null
+    // Prefer base64 data URL (permanent), fall back to expiring URL
+    if (item.b64_json) return `data:image/png;base64,${item.b64_json}`
+    return item.url ?? null
   } catch { return null }
 }
 
@@ -782,7 +787,7 @@ router.post('/jobs/:jobId/generate-visuals', async (req: Request, res: Response)
         run_id: primaryRunId, step_id: 'visual-dalle', agent_id: 'VisualAgent',
         artifact_name: 'AI İllüstrasyon',
         output_type: 'image',
-        content_json: { url: dalleUrl, type: 'dalle', source: 'DALL-E 3', alt: topic.slice(0, 150), expiring: true },
+        content_json: { url: dalleUrl, type: 'dalle', source: 'DALL-E 3', alt: topic.slice(0, 150), expiring: !dalleUrl.startsWith('data:') },
       })
     }
 

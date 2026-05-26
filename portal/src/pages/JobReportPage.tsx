@@ -70,6 +70,105 @@ function outputBody(o: RunOutput): string | null {
   return null
 }
 
+// ── Image helper components ───────────────────────────────────────────────────
+
+function FailsafeImage({
+  img, label, labelRight,
+}: {
+  img: ImageContent
+  label: string
+  labelRight?: React.ReactNode
+}) {
+  const [failed, setFailed] = useState(false)
+  return (
+    <div style={{ marginBottom: 24 }}>
+      <div style={{ fontSize: 12, fontFamily: 'Arial', color: '#888', marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span>{label}</span>
+        {labelRight}
+      </div>
+      {failed ? (
+        <div style={{ width: '100%', background: '#f5f5f5', border: '1px dashed #ccc', borderRadius: 8, padding: '24px 16px', textAlign: 'center', fontFamily: 'Arial', fontSize: 12, color: '#999' }}>
+          ⚠️ Görsel yüklenemedi — URL geçmiş veya kaynak erişilemiyor<br />
+          <a href={img.url} target="_blank" rel="noreferrer" style={{ color: '#0f3460', fontSize: 11, marginTop: 4, display: 'inline-block' }}>Doğrudan aç →</a>
+        </div>
+      ) : (
+        <img
+          src={img.url}
+          alt={img.alt ?? label}
+          style={{ width: '100%', borderRadius: 8, border: '1px solid #e0e0e0', display: 'block' }}
+          onError={() => setFailed(true)}
+        />
+      )}
+    </div>
+  )
+}
+
+function MapImage({ img }: { img: ImageContent }) {
+  const [failed, setFailed] = useState(false)
+
+  // Build an OpenStreetMap embed URL as fallback
+  const locations = img.locations ?? []
+  const avgLat = locations.length > 0 ? locations.reduce((s, l) => s + l.lat, 0) / locations.length : 39.5
+  const avgLon = locations.length > 0 ? locations.reduce((s, l) => s + l.lon, 0) / locations.length : 35.0
+  const zoom = locations.length <= 2 ? 8 : 7
+  const embedUrl = `https://www.openstreetmap.org/export/embed.html?bbox=${(avgLon - 3).toFixed(2)}%2C${(avgLat - 2).toFixed(2)}%2C${(avgLon + 3).toFixed(2)}%2C${(avgLat + 2).toFixed(2)}&layer=mapnik`
+
+  return (
+    <div style={{ marginBottom: 24 }}>
+      <div style={{ fontSize: 12, fontFamily: 'Arial', color: '#888', marginBottom: 8, display: 'flex', justifyContent: 'space-between' }}>
+        <span>🗺 Coğrafi Harita</span>
+        <span style={{ fontSize: 11 }}>{img.source}</span>
+      </div>
+      {!failed ? (
+        <img
+          src={img.url}
+          alt={img.alt ?? 'Harita'}
+          style={{ width: '100%', borderRadius: 8, border: '1px solid #e0e0e0', display: 'block' }}
+          onError={() => setFailed(true)}
+        />
+      ) : (
+        // Fallback: embedded OSM iframe
+        <iframe
+          src={embedUrl}
+          title="Coğrafi Harita"
+          style={{ width: '100%', height: 340, borderRadius: 8, border: '1px solid #e0e0e0', display: 'block' }}
+          loading="lazy"
+        />
+      )}
+      {locations.length > 0 ? (
+        <div style={{ fontSize: 11, color: '#999', fontFamily: 'Arial', marginTop: 6 }}>
+          {locations.map(l => l.name).join(' · ')}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function WikiCard({ img }: { img: ImageContent }) {
+  const [failed, setFailed] = useState(false)
+  return (
+    <div style={{ borderRadius: 8, overflow: 'hidden', border: '1px solid #e0e0e0', background: '#fafafa' }}>
+      {failed ? (
+        <div style={{ height: 160, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f0f0f0', fontSize: 11, color: '#aaa', fontFamily: 'Arial' }}>
+          Yüklenemedi
+        </div>
+      ) : (
+        <img
+          src={img.url}
+          alt={img.alt ?? img.title ?? ''}
+          style={{ width: '100%', height: 160, objectFit: 'cover', display: 'block' }}
+          onError={() => setFailed(true)}
+        />
+      )}
+      {img.title ? (
+        <div style={{ padding: '6px 8px', fontSize: 11, color: '#666', fontFamily: 'Arial', lineHeight: 1.3 }}>
+          {img.title.slice(0, 80)}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 // ── Markdown renderer ─────────────────────────────────────────────────────────
 
 // Inline: **bold**, *italic*, `code`, [text](url)
@@ -468,14 +567,26 @@ const STYLES = `
     font-family: 'Arial', sans-serif;
     font-size: 14px;
   }
-  /* Print */
+  /* Print — hide everything except report */
   @media print {
+    /* Hide the whole page, then reveal only report content */
+    body * { visibility: hidden !important; }
+    .report-root,
+    .report-root * { visibility: visible !important; }
+    .report-root {
+      position: fixed !important;
+      top: 0 !important;
+      left: 0 !important;
+      width: 100% !important;
+      background: white !important;
+    }
     .report-toolbar { display: none !important; }
-    .report-root { background: white; }
     .report-cover { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     .report-section-num { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .report-table thead th { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .report-table tbody tr:nth-child(even) td { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     .report-page { padding-bottom: 0; }
-    @page { margin: 1.5cm 2cm; }
+    @page { margin: 1.5cm 2cm; size: A4; }
     .report-section { page-break-inside: avoid; }
   }
 `
@@ -618,8 +729,9 @@ export default function JobReportPage() {
           onClick={generateVisuals}
           disabled={generatingVisuals || !job || job.status !== 'success'}
           style={{ borderColor: 'rgba(251,191,36,0.4)', color: 'rgba(251,191,36,0.9)' }}
+          title="Görseller oluşturuldu ama görünmüyorsa DALL-E URL'i expire olmuş olabilir — tekrar tıkla"
         >
-          {generatingVisuals ? '⏳ Oluşturuluyor…' : '🎨 Görsel Oluştur'}
+          {generatingVisuals ? '⏳ Oluşturuluyor…' : '🎨 Görsel Oluştur / Yenile'}
         </button>
         <button className="report-toolbar-btn" onClick={load}>↻ Yenile</button>
         <span className="report-toolbar-title">
@@ -763,22 +875,7 @@ export default function JobReportPage() {
                     {imageOutputs.filter(o => (o.content_json as ImageContent | null)?.type === 'map').map(o => {
                       const img = o.content_json as ImageContent
                       return (
-                        <div key={o.id} style={{ marginBottom: 24 }}>
-                          <div style={{ fontSize: 12, fontFamily: 'Arial', color: '#888', marginBottom: 8, display: 'flex', justifyContent: 'space-between' }}>
-                            <span>🗺 Coğrafi Harita</span>
-                            <span style={{ fontSize: 11 }}>{img.source}</span>
-                          </div>
-                          <img
-                            src={img.url} alt={img.alt ?? 'Harita'}
-                            style={{ width: '100%', borderRadius: 8, border: '1px solid #e0e0e0', display: 'block' }}
-                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
-                          />
-                          {(img.locations && img.locations.length > 0) ? (
-                            <div style={{ fontSize: 11, color: '#999', fontFamily: 'Arial', marginTop: 6 }}>
-                              {img.locations.map(l => l.name).join(' · ')}
-                            </div>
-                          ) : null}
-                        </div>
+                        <MapImage key={o.id} img={img} />
                       )
                     })}
 
@@ -786,19 +883,9 @@ export default function JobReportPage() {
                     {imageOutputs.filter(o => (o.content_json as ImageContent | null)?.type === 'dalle').map(o => {
                       const img = o.content_json as ImageContent
                       return (
-                        <div key={o.id} style={{ marginBottom: 24 }}>
-                          <div style={{ fontSize: 12, fontFamily: 'Arial', color: '#888', marginBottom: 8, display: 'flex', justifyContent: 'space-between' }}>
-                            <span>🤖 AI İllüstrasyon</span>
-                            <span style={{ fontSize: 11, color: '#e2814a' }}>
-                              {img.source}{img.expiring ? ' · URL geçici (1-2 saat)' : ''}
-                            </span>
-                          </div>
-                          <img
-                            src={img.url} alt={img.alt ?? 'AI görseli'}
-                            style={{ width: '100%', borderRadius: 8, border: '1px solid #e0e0e0', display: 'block' }}
-                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
-                          />
-                        </div>
+                        <FailsafeImage key={o.id} img={img} label="🤖 AI İllüstrasyon"
+                          labelRight={<span style={{ fontSize: 11, color: '#e2814a' }}>{img.source}{img.expiring ? ' · URL geçici (1-2 saat)' : ''}</span>}
+                        />
                       )
                     })}
 
@@ -815,18 +902,7 @@ export default function JobReportPage() {
                             {wikiOutputs.map(o => {
                               const img = o.content_json as ImageContent
                               return (
-                                <div key={o.id} style={{ borderRadius: 8, overflow: 'hidden', border: '1px solid #e0e0e0', background: '#fafafa' }}>
-                                  <img
-                                    src={img.url} alt={img.alt ?? img.title ?? ''}
-                                    style={{ width: '100%', height: 160, objectFit: 'cover', display: 'block' }}
-                                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
-                                  />
-                                  {img.title ? (
-                                    <div style={{ padding: '6px 8px', fontSize: 11, color: '#666', fontFamily: 'Arial', lineHeight: 1.3 }}>
-                                      {img.title.slice(0, 80)}
-                                    </div>
-                                  ) : null}
-                                </div>
+                                <WikiCard key={o.id} img={img} />
                               )
                             })}
                           </div>
