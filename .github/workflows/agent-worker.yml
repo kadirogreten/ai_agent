@@ -3,7 +3,7 @@ name: Agent Worker
 on:
   workflow_dispatch:
   schedule:
-    - cron: "*/2 * * * *"
+    - cron: "*/15 * * * *"
 
 jobs:
   worker:
