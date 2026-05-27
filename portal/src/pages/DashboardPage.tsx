@@ -6,6 +6,7 @@ import { Card } from '@/components/ui/Card'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { motion, type Variants } from 'framer-motion'
+import OnboardingCard from '@/components/OnboardingCard'
 import {
   CheckCircle, XCircle, Clock, DollarSign,
   Zap, AlertTriangle, RefreshCw, ArrowRight,
@@ -223,6 +224,8 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
+      <OnboardingCard />
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

@@ -3,7 +3,7 @@ import AnomalyBanner from '@/components/AnomalyBanner'
 import { useAuthStore } from '@/stores/authStore'
 import { motion, AnimatePresence } from 'framer-motion'
 import { PageTransition } from '@/components/PageTransition'
-import { useState, useEffect, useRef } from 'react'
+import { useState } from 'react'
 import {
   LayoutDashboard, Play, Clock, List, Briefcase, CheckSquare,
   Bot, UserCircle, BookOpen, Wrench,
@@ -13,70 +13,66 @@ import {
   Download, LogOut, ChevronDown,
 } from 'lucide-react'
 
-type NavItem = { to: string; label: string; icon: React.ReactNode }
-type NavGroup = { title: string; items: NavItem[] }
+type NavItem = { to: string; label: string; icon: React.ReactNode; primary?: boolean }
+type NavGroup = { title: string; items: NavItem[]; defaultOpen?: boolean }
 
 const navGroups: NavGroup[] = [
   {
     title: '',
     items: [
-      { to: '/app/dashboard', label: 'Dashboard', icon: <LayoutDashboard size={15} /> },
-      { to: '/app/office', label: '3D Office', icon: <Boxes size={15} /> },
-      { to: '/app/run', label: 'Yeni Çalıştırma', icon: <Play size={15} /> },
+      { to: '/app/dashboard', label: 'Panel', icon: <LayoutDashboard size={15} /> },
+      { to: '/app/run', label: 'Yeni iş başlat', icon: <Play size={15} />, primary: true },
     ],
   },
   {
-    title: 'Operasyon',
+    title: 'Çalışmalarım',
     items: [
-      { to: '/app/runs', label: 'Runs', icon: <List size={15} /> },
-      { to: '/app/jobs', label: 'Jobs', icon: <Briefcase size={15} /> },
-      { to: '/app/schedules', label: 'Schedules', icon: <Clock size={15} /> },
-      { to: '/app/approval-queue', label: 'Approval Queue', icon: <CheckSquare size={15} /> },
+      { to: '/app/jobs', label: 'İşler (kuyruk)', icon: <Briefcase size={15} /> },
+      { to: '/app/runs', label: 'Çalıştırmalar', icon: <List size={15} /> },
+      { to: '/app/schedules', label: 'Zamanlananlar', icon: <Clock size={15} /> },
+      { to: '/app/approval-queue', label: 'Onay bekleyenler', icon: <CheckSquare size={15} /> },
     ],
   },
   {
-    title: 'Yapılandırma',
+    title: 'Tasarım',
     items: [
-      { to: '/app/agents', label: 'Agents', icon: <Bot size={15} /> },
-      { to: '/app/personas', label: 'Personas', icon: <UserCircle size={15} /> },
-      { to: '/app/playbooks', label: 'Playbooks', icon: <BookOpen size={15} /> },
-      { to: '/app/tools', label: 'Tools', icon: <Wrench size={15} /> },
+      { to: '/app/agents', label: 'Ajanlar', icon: <Bot size={15} /> },
+      { to: '/app/personas', label: 'Personalar', icon: <UserCircle size={15} /> },
+      { to: '/app/playbooks', label: "Playbook'lar", icon: <BookOpen size={15} /> },
+      { to: '/app/tools', label: 'Araçlar', icon: <Wrench size={15} /> },
     ],
   },
   {
-    title: 'Bilgi Tabanı',
+    title: 'Bilgi & paketler',
     items: [
-      { to: '/app/domain-packs', label: 'Domain Packs', icon: <Package size={15} /> },
-      { to: '/app/playbook-bundles', label: 'Playbook Bundles', icon: <Layers size={15} /> },
-      { to: '/app/bundles', label: 'Run Bundles', icon: <Database size={15} /> },
-      { to: '/app/facts', label: 'Knowledge Facts', icon: <Brain size={15} /> },
+      { to: '/app/domain-packs', label: 'Domain paketleri', icon: <Package size={15} /> },
+      { to: '/app/playbook-bundles', label: 'Playbook setleri', icon: <Layers size={15} /> },
+      { to: '/app/bundles', label: 'Çalıştırma setleri', icon: <Database size={15} /> },
+      { to: '/app/facts', label: 'Bilgi tabanı', icon: <Brain size={15} /> },
     ],
   },
   {
-    title: 'Finans & Denetim',
+    title: 'Denetim',
     items: [
-      { to: '/app/cost-ledger', label: 'Cost Ledger', icon: <DollarSign size={15} /> },
-      { to: '/app/audit-log', label: 'Audit Log', icon: <ScrollText size={15} /> },
+      { to: '/app/audit-log', label: 'Audit log', icon: <ScrollText size={15} /> },
+      { to: '/app/cost-ledger', label: 'Maliyet', icon: <DollarSign size={15} /> },
     ],
   },
   {
-    title: 'Öz-Yönetim',
+    title: 'Gelişmiş',
+    defaultOpen: false,
     items: [
-      { to: '/app/self-reflection', label: 'Self-Reflection', icon: <Brain size={15} /> },
-      { to: '/app/empirical-check', label: 'Empirical Check', icon: <CheckSquare size={15} /> },
-    ],
-  },
-  {
-    title: 'Builder',
-    items: [
-      { to: '/app/sector-builder', label: 'Sektör Keşif', icon: <Compass size={15} /> },
+      { to: '/app/sector-builder', label: 'Sektör keşif', icon: <Compass size={15} /> },
       { to: '/app/pack-drafts', label: 'Taslaklar', icon: <FileStack size={15} /> },
+      { to: '/app/self-reflection', label: 'Öz-değerlendirme', icon: <Brain size={15} /> },
+      { to: '/app/empirical-check', label: 'Ampirik kontrol', icon: <CheckSquare size={15} /> },
+      { to: '/app/office', label: '3D office', icon: <Boxes size={15} /> },
     ],
   },
 ]
 
 function NavGroup({ group }: { group: NavGroup }) {
-  const [open, setOpen] = useState(true)
+  const [open, setOpen] = useState(group.defaultOpen ?? true)
 
   return (
     <div className="mb-1">
@@ -111,7 +107,9 @@ function NavGroup({ group }: { group: NavGroup }) {
                 {({ isActive }) => (
                   <motion.div
                     className={`relative mx-2 mb-0.5 flex items-center gap-2.5 rounded-lg px-3 py-[7px] text-sm ${
-                      isActive ? 'text-white' : 'text-white/45 hover:text-white/75'
+                      item.primary
+                        ? 'bg-blue-500/10 text-blue-200 hover:bg-blue-500/15'
+                        : isActive ? 'text-white' : 'text-white/45 hover:text-white/75'
                     }`}
                     whileHover={{ x: isActive ? 0 : 2 }}
                     transition={{ type: 'spring', stiffness: 500, damping: 35 }}
@@ -156,15 +154,6 @@ export default function AppShell() {
   const navigate = useNavigate()
   const [importing, setImporting] = useState(false)
   const [importMsg, setImportMsg] = useState<string | null>(null)
-  const hasImported = useRef(false)
-
-  useEffect(() => {
-    if (user && !hasImported.current) {
-      hasImported.current = true
-      runImport()
-    }
-  }, [user]) // eslint-disable-line react-hooks/exhaustive-deps
-
   async function runImport() {
     const session = useAuthStore.getState().session
     if (!session?.access_token) {
