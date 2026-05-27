@@ -16,10 +16,24 @@ type Tool = {
   category: string
   auth_type: 'none' | 'api_key' | 'oauth2'
   config_schema: Record<string, unknown>
+  side_effect: 'none' | 'read' | 'write' | 'external'
+  reversible: boolean
+  min_risk: 'R0' | 'R1' | 'R2' | 'R3'
+  compensation: string | null
   enabled: boolean
   tenant_id: string | null
   created_at: string
   updated_at: string
+}
+
+type ToolInvocation = {
+  id: string
+  tool_slug: string
+  status: 'pending' | 'succeeded' | 'failed' | 'blocked' | 'compensated'
+  side_effect: string | null
+  risk_level: string | null
+  error: string | null
+  created_at: string
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -36,6 +50,29 @@ const AUTH_BADGE: Record<string, { label: string; tone: 'green' | 'yellow' | 're
   none:    { label: 'Auth Yok',  tone: 'green'  },
   api_key: { label: 'API Key',   tone: 'yellow' },
   oauth2:  { label: 'OAuth 2.0', tone: 'blue'   },
+}
+
+type Tone = 'green' | 'yellow' | 'red' | 'blue' | 'gray'
+
+const SIDE_EFFECT_META: Record<string, { label: string; tone: Tone }> = {
+  none:     { label: 'etkisiz',    tone: 'gray'   },
+  read:     { label: 'okuma',      tone: 'green'  },
+  write:    { label: 'yazma',      tone: 'yellow' },
+  external: { label: 'dış sistem', tone: 'red'    },
+}
+
+const INV_STATUS_TONE: Record<string, Tone> = {
+  succeeded:   'green',
+  failed:      'red',
+  blocked:     'yellow',
+  pending:     'gray',
+  compensated: 'blue',
+}
+
+function riskTone(r: string): Tone {
+  if (r === 'R3') return 'red'
+  if (r === 'R2') return 'yellow'
+  return 'green'
 }
 
 function groupByCategory(tools: Tool[]): Map<string, Tool[]> {
@@ -57,6 +94,7 @@ export default function ToolsPage() {
   const [toggling, setToggling] = useState<string | null>(null)
   const [err,      setErr]      = useState<string | null>(null)
   const [q,        setQ]        = useState('')
+  const [invocations, setInvocations] = useState<ToolInvocation[]>([])
 
   useEffect(() => { init() }, [init])
 
@@ -71,6 +109,14 @@ export default function ToolsPage() {
 
     if (error) { setErr(error.message) }
     else { setTools((data ?? []) as Tool[]) }
+
+    const inv = await supabase
+      .from('tool_invocations')
+      .select('id,tool_slug,status,side_effect,risk_level,error,created_at')
+      .order('created_at', { ascending: false })
+      .limit(20)
+    if (!inv.error) setInvocations((inv.data ?? []) as ToolInvocation[])
+
     setLoading(false)
   }, [initialized, user])
 
@@ -113,8 +159,8 @@ export default function ToolsPage() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Tool Registry"
-        description="Ajan araç kataloğu — aktif araçlar çalıştırma sırasında kullanılabilir"
+        title="Araçlar"
+        description="Ajan araç kataloğu — sözleşme (yan etki/risk/geri-alınabilirlik) ve son çağrılar"
         actions={
           <Button variant="outline" size="sm" onClick={load} disabled={loading}>Yenile</Button>
         }
@@ -177,6 +223,15 @@ export default function ToolsPage() {
                           <span className="text-sm font-medium text-white/90">{tool.name}</span>
                           <span className="font-mono text-xs text-white/30">{tool.slug}</span>
                           <Badge tone={authMeta.tone}>{authMeta.label}</Badge>
+                          {SIDE_EFFECT_META[tool.side_effect] && (
+                            <Badge tone={SIDE_EFFECT_META[tool.side_effect].tone}>{SIDE_EFFECT_META[tool.side_effect].label}</Badge>
+                          )}
+                          {tool.min_risk && <Badge tone={riskTone(tool.min_risk)}>{tool.min_risk}</Badge>}
+                          {(tool.side_effect === 'write' || tool.side_effect === 'external') && (
+                            <Badge tone={tool.reversible ? 'green' : 'red'}>
+                              {tool.reversible ? 'geri-alınabilir' : 'geri-alınamaz'}
+                            </Badge>
+                          )}
                           {!tool.enabled && (
                             <span className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5 text-xs text-white/40">
                               Pasif
@@ -223,6 +278,31 @@ export default function ToolsPage() {
           </motion.div>
         ))
       )}
+
+      <Card className="overflow-hidden">
+        <div className="border-b border-white/[0.06] px-4 py-2.5 text-xs font-semibold uppercase tracking-widest text-white/30">
+          Son araç çağrıları
+        </div>
+        {invocations.length === 0 ? (
+          <div className="px-4 py-6 text-center text-sm text-white/30">Henüz araç çağrısı yok.</div>
+        ) : (
+          <div className="divide-y divide-white/[0.06]">
+            {invocations.map((iv) => (
+              <div key={iv.id} className="flex items-center justify-between gap-3 px-4 py-2 text-sm">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="font-mono text-xs text-white/70">{iv.tool_slug}</span>
+                  {iv.risk_level && <Badge tone={riskTone(iv.risk_level)}>{iv.risk_level}</Badge>}
+                  {iv.error && <span className="truncate text-xs text-red-300/70">{iv.error}</span>}
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <Badge tone={INV_STATUS_TONE[iv.status] ?? 'gray'}>{iv.status}</Badge>
+                  <span className="text-xs text-white/30">{new Date(iv.created_at).toLocaleString('tr-TR')}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
 
       <Card className="border border-white/[0.06] p-4">
         <div className="text-xs text-white/40">

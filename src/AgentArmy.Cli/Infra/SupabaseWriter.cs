@@ -107,6 +107,42 @@ public sealed class SupabaseWriter : IDisposable
     }
 
     /// <summary>
+    /// Bir Postgres fonksiyonunu (RPC) çağırır: POST /rest/v1/rpc/{fn}. Gövde, fonksiyon
+    /// parametre adlarıyla eşleşen bir JSON nesnesidir (null alanlar atlanır → SQL default).
+    /// Fire-and-forget; hata olursa stderr'e yazar, exception fırlatmaz.
+    /// </summary>
+    public async Task CallRpcAsync(string fn, object args, CancellationToken ct)
+    {
+        try
+        {
+            var url  = $"{_base}/rest/v1/rpc/{fn}";
+            var json = JsonSerializer.Serialize(args, _opts);
+
+            using var resp = await HttpRetry.SendAsync(_http, () =>
+            {
+                var req = new HttpRequestMessage(HttpMethod.Post, url)
+                {
+                    Content = new StringContent(json, Encoding.UTF8, "application/json")
+                };
+                req.Headers.Add("apikey",        _key);
+                req.Headers.Add("Authorization", $"Bearer {_key}");
+                req.Headers.Add("Prefer",        "return=minimal");
+                return req;
+            }, ct);
+
+            if (!resp.IsSuccessStatusCode)
+            {
+                var body = await resp.Content.ReadAsStringAsync(ct);
+                Console.Error.WriteLine($"[SupabaseWriter] RPC {fn} {(int)resp.StatusCode}: {body[..Math.Min(200, body.Length)]}");
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Console.Error.WriteLine($"[SupabaseWriter] RPC {fn} hata: {ex.Message}");
+        }
+    }
+
+    /// <summary>
     /// Paylaşılan HttpClient kullandığı için burada dispose yok — IDisposable
     /// yalnızca eski `using var` çağrılarıyla uyumluluk için duruyor.
     /// </summary>

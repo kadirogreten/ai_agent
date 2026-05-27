@@ -17,6 +17,23 @@ public static class RiskGate
     public sealed record GateOutcome(bool Approved, string? Reason, string? ApprovalQueueId);
 
     /// <summary>
+    /// Tool-call granülaritesinde onay kapısı (Faz A — PR5). <see cref="GateAsync"/>'i araç
+    /// çağrısı bağlamıyla sarmalar: action_summary = "tool:&lt;slug&gt;". R0/R1 oto-onay;
+    /// R2/R3 approval_queue'ya yazıp bekler.
+    /// </summary>
+    public static Task<GateOutcome> GateForToolAsync(
+        SupabaseWriter? db,
+        string risk,
+        string runId,
+        string agentId,
+        string toolSlug,
+        object? args,
+        CancellationToken ct)
+        => GateAsync(db, risk, runId, agentId,
+            actionSummary: $"tool:{toolSlug}",
+            actionDetail: new { tool = toolSlug, args }, ct);
+
+    /// <summary>
     /// Verilen risk seviyesi için onay kapısını çalıştırır.
     /// R0/R1: anında approved döner.
     /// R2/R3: approval_queue'ya yazar, kararı bekler (max 4 saat).
