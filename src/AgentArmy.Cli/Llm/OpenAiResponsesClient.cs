@@ -75,6 +75,170 @@ public sealed class OpenAiResponsesClient : ILlmClient
         return ExtractResult(respTextNoFilters);
     }
 
+    // ── Faz A — Tool Invocation: araç-farkında tur (PR3) ───────────────────────
+    // Tasarım: docs/faz-a-tool-invocation-tasarim.md (§3.3)
+    // NOT: Responses API function-calling wire formatı (function_call / function_call_output)
+    //      canlı API'ye karşı doğrulanmalıdır; sandbox'ta test edilemedi.
+
+    public async Task<LlmTurn> CompleteWithToolsAsync(
+        string systemPrompt,
+        string userPrompt,
+        IReadOnlyList<ToolDescriptor> tools,
+        IReadOnlyList<ToolExchange> priorExchanges,
+        CancellationToken cancellationToken)
+    {
+        // input: system + user + önceki (function_call / function_call_output) çiftleri
+        var input = new List<object>
+        {
+            new { role = "system", content = new object[] { new { type = "input_text", text = systemPrompt } } },
+            new { role = "user",   content = new object[] { new { type = "input_text", text = userPrompt } } },
+        };
+
+        foreach (var ex in priorExchanges)
+        {
+            // Modelin önceki araç çağrısı
+            input.Add(new Dictionary<string, object?>
+            {
+                ["type"]      = "function_call",
+                ["call_id"]   = ex.Call.CallId,
+                ["name"]      = ex.Call.Slug,
+                ["arguments"] = ArgsToString(ex.Call.Args),
+            });
+            // Bizim döndürdüğümüz sonuç
+            input.Add(new Dictionary<string, object?>
+            {
+                ["type"]    = "function_call_output",
+                ["call_id"] = ex.Call.CallId,
+                ["output"]  = ResultToString(ex.Result),
+            });
+        }
+
+        var toolDefs = BuildFunctionTools(tools);
+        var payload  = BuildPayload(input.ToArray(), tools: toolDefs, includeTemperature: true);
+        var respText = await PostWithFallbackAsync(payload, cancellationToken);
+        return ExtractTurn(respText);
+    }
+
+    /// <summary>ToolDescriptor listesini Responses API "function" araç tanımlarına çevirir;
+    /// web search açıksa onu da ekler. Hiç araç yoksa null döner.</summary>
+    private object[]? BuildFunctionTools(IReadOnlyList<ToolDescriptor> tools)
+    {
+        var list = new List<object>();
+        if (tools is not null)
+        {
+            foreach (var t in tools)
+            {
+                list.Add(new Dictionary<string, object?>
+                {
+                    ["type"]        = "function",
+                    ["name"]        = t.Slug,
+                    ["description"] = string.IsNullOrWhiteSpace(t.Description) ? t.Name : t.Description,
+                    ["parameters"]  = SchemaOrEmpty(t.InputSchema),
+                });
+            }
+        }
+
+        if (_enableWebSearch)
+            list.Add(new Dictionary<string, object?> { ["type"] = "web_search" });
+
+        return list.Count > 0 ? list.ToArray() : null;
+    }
+
+    private static object SchemaOrEmpty(JsonElement schema)
+    {
+        if (schema.ValueKind == JsonValueKind.Object) return schema;
+        return new Dictionary<string, object?>
+        {
+            ["type"]       = "object",
+            ["properties"] = new Dictionary<string, object?>(),
+        };
+    }
+
+    private static string ArgsToString(JsonElement args)
+        => args.ValueKind == JsonValueKind.Undefined ? "{}" : args.GetRawText();
+
+    private static string ResultToString(ToolResult result)
+    {
+        if (!result.Ok)
+            return JsonSerializer.Serialize(new { ok = false, error = result.Error });
+        if (result.Output is { ValueKind: not JsonValueKind.Undefined } o)
+            return o.GetRawText();
+        return JsonSerializer.Serialize(new { ok = true });
+    }
+
+    private LlmTurn ExtractTurn(string respText)
+    {
+        using var doc = JsonDocument.Parse(respText);
+        var root = doc.RootElement;
+
+        var (tokensIn, tokensOut) = ExtractUsage(root);
+
+        var calls = CollectFunctionCalls(root);
+        if (calls.Count > 0)
+            return new LlmTurn(null, calls, _model, tokensIn, tokensOut);
+
+        var text = TryGetOutputText(root) ?? TryGetMessageText(root) ?? string.Empty;
+        return new LlmTurn(text.Trim(), Array.Empty<ToolCall>(), _model, tokensIn, tokensOut);
+    }
+
+    private static List<ToolCall> CollectFunctionCalls(JsonElement root)
+    {
+        var calls = new List<ToolCall>();
+        if (!root.TryGetProperty("output", out var output) || output.ValueKind != JsonValueKind.Array)
+            return calls;
+
+        foreach (var item in output.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.Object) continue;
+            if (!item.TryGetProperty("type", out var typeEl) || typeEl.ValueKind != JsonValueKind.String) continue;
+            if (!string.Equals(typeEl.GetString(), "function_call", StringComparison.OrdinalIgnoreCase)) continue;
+
+            var name = item.TryGetProperty("name", out var nEl) && nEl.ValueKind == JsonValueKind.String
+                ? nEl.GetString()
+                : null;
+            if (string.IsNullOrWhiteSpace(name)) continue;
+
+            string? callId = null;
+            if (item.TryGetProperty("call_id", out var cEl) && cEl.ValueKind == JsonValueKind.String)
+                callId = cEl.GetString();
+            else if (item.TryGetProperty("id", out var idEl) && idEl.ValueKind == JsonValueKind.String)
+                callId = idEl.GetString();
+            callId ??= Guid.NewGuid().ToString();
+
+            calls.Add(new ToolCall(name!, ParseArguments(item), callId));
+        }
+
+        return calls;
+    }
+
+    /// <summary>function_call.arguments alanı JSON-string'tir; onu JsonElement'e ayrıştırır.</summary>
+    private static JsonElement ParseArguments(JsonElement functionCallItem)
+    {
+        if (functionCallItem.TryGetProperty("arguments", out var argEl))
+        {
+            if (argEl.ValueKind == JsonValueKind.String)
+            {
+                var raw = argEl.GetString();
+                if (!string.IsNullOrWhiteSpace(raw))
+                {
+                    try
+                    {
+                        using var d = JsonDocument.Parse(raw);
+                        return d.RootElement.Clone();
+                    }
+                    catch (JsonException) { /* model bozuk JSON üretti → boş args */ }
+                }
+            }
+            else if (argEl.ValueKind == JsonValueKind.Object)
+            {
+                return argEl.Clone();
+            }
+        }
+
+        using var empty = JsonDocument.Parse("{}");
+        return empty.RootElement.Clone();
+    }
+
     private Dictionary<string, object?> BuildPayload(object input, object[]? tools, bool includeTemperature)
     {
         var payload = new Dictionary<string, object?>

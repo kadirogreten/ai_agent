@@ -53,6 +53,7 @@ public static class AgentBehaviorMerge
             TriggersContrarian     = overlay.TriggersContrarian     ?? core.TriggersContrarian,
             AcceptsRubric          = overlay.AcceptsRubric          ?? core.AcceptsRubric,
             PrefersDomainAllowlist = overlay.PrefersDomainAllowlist ?? core.PrefersDomainAllowlist,
+            CanUseTools            = overlay.CanUseTools            ?? core.CanUseTools,
         };
 
     public static string TighterRiskCeiling(string a, string b)

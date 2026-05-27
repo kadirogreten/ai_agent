@@ -190,7 +190,8 @@ public static class Runner
                 playbook.Id, runId,
                 agentOverrides, images,
                 factsIndex,
-                personaProfile
+                personaProfile,
+                ToolExecutor.CreateDefault()
             );
 
             var contract = BuildContract(exec, playbook);

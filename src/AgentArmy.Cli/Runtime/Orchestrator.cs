@@ -19,6 +19,7 @@ public sealed class Orchestrator
     private readonly OpenAiImageClient? _images;
     private readonly FactsIndex? _factsIndex;
     private readonly PersonaProfile _personaProfile;
+    private readonly IToolExecutor? _toolExecutor;
 
     // Context budget — sliding window. ~16K char ≈ ~4K token (mixed TR/EN).
     private const int MaxContextChars = 16000;
@@ -38,7 +39,8 @@ public sealed class Orchestrator
         IReadOnlyDictionary<string, Agent>? agentOverrides,
         OpenAiImageClient? images,
         FactsIndex? factsIndex = null,
-        PersonaProfile? personaProfile = null
+        PersonaProfile? personaProfile = null,
+        IToolExecutor? toolExecutor = null
     )
     {
         _llm              = llm;
@@ -54,6 +56,7 @@ public sealed class Orchestrator
         _images               = images;
         _factsIndex           = factsIndex;
         _personaProfile       = personaProfile ?? PersonaProfile.FromMarkdownOnly("default", string.Empty);
+        _toolExecutor         = toolExecutor;
 
         var merged = new Dictionary<string, Agent>(AgentsCatalog.All, StringComparer.OrdinalIgnoreCase);
         if (agentOverrides is not null)
@@ -126,12 +129,12 @@ public sealed class Orchestrator
                 agent    = agent.Id
             }, ct);
 
-            var result = await llm.CompleteAsync(system, user, ct);
-            var output = result.Text;
+            var (output, stepTokensIn, stepTokensOut, stepModel) =
+                await RunStepCompletionAsync(llm, system, user, agent, ctx, ct);
 
-            totalTokensIn  += result.TokensIn;
-            totalTokensOut += result.TokensOut;
-            lastModel = result.Model;
+            totalTokensIn  += stepTokensIn;
+            totalTokensOut += stepTokensOut;
+            lastModel = stepModel;
 
             await ctx.AppendLogAsync(new
             {
@@ -141,9 +144,9 @@ public sealed class Orchestrator
                 playbook   = ctx.Playbook.Id,
                 step       = step.Id,
                 agent      = agent.Id,
-                tokens_in  = result.TokensIn,
-                tokens_out = result.TokensOut,
-                model      = result.Model
+                tokens_in  = stepTokensIn,
+                tokens_out = stepTokensOut,
+                model      = stepModel
             }, ct);
 
             // Adım çıktısını DB'ye yaz
@@ -231,6 +234,53 @@ public sealed class Orchestrator
     }
 
     // ── Yardımcılar ──────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Bir adımın LLM tamamlamasını üretir. Ajan araç kullanabiliyorsa (<c>CanUseTools</c>) ve
+    /// görev sözleşmesinde izinli araç varsa, araç-çağrı döngüsünü çalıştırır
+    /// (çağrı → yürüt → sonucu geri besle); aksi halde düz tek-atış <c>CompleteAsync</c>.
+    /// Token ve model toplamlarını da döndürür. Faz A — Tool Invocation (PR4).
+    /// </summary>
+    private async Task<(string Text, int TokensIn, int TokensOut, string Model)> RunStepCompletionAsync(
+        ILlmClient llm, string system, string user, Agent agent, RunContext ctx, CancellationToken ct)
+    {
+        var toolset = (_toolExecutor is not null && agent.Behaviors.CanUseTools)
+            ? _toolExecutor.AvailableFor(agent, ctx.Contract)
+            : (IReadOnlyList<ToolDescriptor>)Array.Empty<ToolDescriptor>();
+
+        // Araç yoksa mevcut davranış birebir korunur (geriye uyumlu).
+        if (toolset.Count == 0)
+        {
+            var r = await llm.CompleteAsync(system, user, ct);
+            return (r.Text, r.TokensIn, r.TokensOut, r.Model);
+        }
+
+        var maxCalls  = ToolPermissions.Parse(ctx.Contract.ToolPermissions).MaxCalls;
+        var exchanges = new List<ToolExchange>();
+        int tin = 0, tout = 0;
+        var model = string.Empty;
+
+        for (var round = 0; round < maxCalls; round++)
+        {
+            var turn = await llm.CompleteWithToolsAsync(system, user, toolset, exchanges, ct);
+            tin += turn.TokensIn; tout += turn.TokensOut; model = turn.Model;
+
+            if (!turn.HasToolCalls)
+                return (turn.Text ?? string.Empty, tin, tout, model);
+
+            // Araçları yürüt (executor: izin + RiskGate + audit) ve sonucu döngüye geri besle.
+            foreach (var call in turn.ToolCalls)
+            {
+                var res = await _toolExecutor!.ExecuteAsync(call.Slug, call.Args, agent, ctx, ct);
+                exchanges.Add(new ToolExchange(call, res));
+            }
+        }
+
+        // Çağrı bütçesi (max_calls) doldu → araçsız son tur ile modeli nihai metne zorla.
+        var final = await llm.CompleteWithToolsAsync(system, user, Array.Empty<ToolDescriptor>(), exchanges, ct);
+        tin += final.TokensIn; tout += final.TokensOut; model = final.Model;
+        return (final.Text ?? string.Empty, tin, tout, model);
+    }
 
     private static async Task WriteOutputAsync(
         RunContext ctx,

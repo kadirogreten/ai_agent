@@ -78,6 +78,7 @@ public static class AgentsCatalog
         ) {
             RiskCeiling = "R3",
             CostClass   = "high",
+            Behaviors   = new AgentBehaviors { CanUseTools = true },
         },
 
         ["Contrarian"] = new Agent(

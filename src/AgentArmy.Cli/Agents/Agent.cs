@@ -19,6 +19,8 @@ public sealed record AgentBehaviors
     public bool AcceptsRubric         { get; init; }
     /// Domain allowlist'i (allowed-domains.txt) ekstra policy olarak alır.
     public bool PrefersDomainAllowlist { get; init; }
+    /// Faz A — Tool Invocation: ajan araç çağırabilir mi? (Yalnız Operator vb. için true.)
+    public bool CanUseTools           { get; init; }
 }
 
 /// <summary>
@@ -37,12 +39,14 @@ public sealed record AgentBehaviorsOverlay
     public bool? TriggersContrarian     { get; init; }
     public bool? AcceptsRubric          { get; init; }
     public bool? PrefersDomainAllowlist { get; init; }
+    public bool? CanUseTools            { get; init; }
 
     public bool HasAnyFlag() =>
         RequiresWebSearch.HasValue || RequiresFullContext.HasValue ||
         WritesToFacts.HasValue || WritesToDecisions.HasValue ||
         CapturesVerifierReport.HasValue || TriggersContrarian.HasValue ||
-        AcceptsRubric.HasValue || PrefersDomainAllowlist.HasValue;
+        AcceptsRubric.HasValue || PrefersDomainAllowlist.HasValue ||
+        CanUseTools.HasValue;
 }
 
 public sealed record Agent(string Id, string DisplayName, string SystemPrompt)
