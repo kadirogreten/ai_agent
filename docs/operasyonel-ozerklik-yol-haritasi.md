@@ -119,6 +119,44 @@ flowchart LR
 
 ---
 
+## 3.1. Güncel durum (2026-05-28)
+
+Bu doküman ilk yazıldığında **OA0 — üretici** seviyesindeydik. O zamandan beri Faz A tasarımındaki PR1–PR7'nin tamamı kodlandı ve repoya girdi; lokalde derlendi/test edildi (kullanıcı doğruladı).
+
+| PR | İçerik | Durum |
+|---|---|---|
+| PR1 | `0027_tool_invocation.sql` + `ToolDescriptor`/`ToolResult`/`ToolSideEffect` modelleri | ✅ |
+| PR2 | `ITool`/`IToolExecutor`/`ToolExecutor` pipeline + `ToolPermissions` parser + `WebScrapeTool` (read) | ✅ |
+| PR3 | `LlmTurn`/`ToolCall`/`ToolExchange` + `ILlmClient.CompleteWithToolsAsync` (default) + `OpenAiResponsesClient` function-calling + `FakeLlmClient` deterministik | ✅ |
+| PR4 | `AgentBehaviors.CanUseTools` + `Operator` aktif + `Orchestrator.RunStepCompletionAsync` tool-call döngüsü + `Runner` enjeksiyonu | ✅ |
+| PR5 | `RiskGate.GateForToolAsync` + `SupabaseWriter.CallRpcAsync` + executor'ın `append_audit_log` RPC çağrısı | ✅ |
+| PR6 | `FileStoreTool` (write, reversible, R1, `compensation=delete_object`) | ✅ |
+| PR7 | `ToolsPage`'de sözleşme rozetleri (side_effect/reversible/min_risk) + son araç çağrıları görünümü | ✅ |
+
+**Yan iyileştirmeler (aynı dönemde):** portal navigasyonu yeniden gruplandı + Türkçeleşti; "Buradan başla" onboarding kartı; login'deki sessiz Local Import kaldırıldı; CLI yardımı görev-bazlı yeniden düzen + `sync-to-db` dokümante edildi; AppShell yedek dosyaları temizlendi. CEO Review'a kullanıcının kendi sorularını/notlarını ekleyebilmesi geldi (migration 0028 + `source` kolonu + UI).
+
+**OA seviyesinde nereye geldik?** Bölüm 1.1'deki merdivene göre:
+
+| OA | Tanım | Bu oturumdan sonra |
+|---|---|---|
+| OA0 | Üretici (taslak/rapor) | ✅ Önceden vardı |
+| **OA1** | Aksiyon önerici (eylemi hazır eder) | ✅ Şimdi var — operatör araç önerebiliyor, RiskGate'ten geçiyor |
+| **OA2** | Eyleme geçen (gözetimli) — R0/R1 oto, R2/R3 onay | ✅ **Altyapı yerinde** (`FileStoreTool` R1 reversible write canlı yürüyor, R2/R3 `approval_queue`'ya düşüyor) — ama **gerçek operasyonda dogfood'la kanıtlanmadı** |
+| OA3 | Kapalı döngü operatör | ❌ Yok — Faz C |
+| OA4 | Operasyon sahibi | ❌ Hedef |
+
+Yani **OA1 net olarak alındı**, **OA2 mühendislik olarak yerinde** ama "gerçek operasyonda çalışıyor" iddiası için bir dar dogfood (Faz E) gerekiyor.
+
+**Hâlâ açık (öncelik sırasıyla):**
+- **Faz E (Dogfood):** bir gerçek dar operasyonu uçtan uca yeşile al (ör. haftalık market-intel brief'i otonom üretip yayınla). OA2'yi resmen iddia etmek için ön koşul.
+- **Faz B (Sertleştirme):** otomatik rollback (`compensation_token` kaydediliyor ama tetiklenmiyor); `RiskGate`'in *her* path'te zorunlu olduğunun kanıtlanması; pack lifecycle audit (`G2`).
+- **Faz C (Kapalı döngü):** `request → run → output` modelinden "izle-ve-devam et" döngüsüne geçiş. Bugünkü en büyük yapısal boşluk.
+- **Faz D (Bellek):** Facts/Decisions/Work'ü tüm domain pack'lere yay (şu an market-intel ağırlıklı).
+
+**Tek cümlelik şu anki tavsiye:** Sıradaki adım daha çok kod değil, **dogfood** (Faz E). Bir gerçek operasyonu uçtan uca KPI'larla ölçülebilir şekilde çalıştırmak, Faz A yatırımının değerini ölçer ve OA2'yi gerçekten iddia ettirir.
+
+---
+
 # Bölüm 2 — 4. Basamağa (AGI) Çıkmak: Ne Gerekir, Ne Gerekmez
 
 > Uyarı: "AGI" tanımı sektörde tartışmalıdır; aşağıdaki çerçeve senin piramit modelindeki 4. basamak tanımına (genel amaçlı karar ve eylem) dayanır, kesin bir tahmin değil.

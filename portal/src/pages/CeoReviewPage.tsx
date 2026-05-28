@@ -15,6 +15,7 @@ type ReviewItem = {
   user_answer: string | null
   status: 'suggested' | 'edited' | 'approved'
   confidence: number | null
+  source: 'ceo' | 'user'
 }
 
 type ReviewResponse = {
@@ -119,6 +120,24 @@ export default function CeoReviewPage() {
     setItems((current) => current.map((item) => (item.position === position ? updater(item) : item)))
   }
 
+  function addUserQuestion() {
+    setItems((current) => {
+      const nextPos = current.reduce((m, it) => Math.max(m, it.position), 0) + 1
+      return [
+        ...current,
+        {
+          position: nextPos,
+          question: '',
+          suggested_answer: null,
+          user_answer: '',
+          status: 'edited',
+          confidence: null,
+          source: 'user',
+        },
+      ]
+    })
+  }
+
   async function generateSuggestions() {
     if (!jobId || !authHeaders) return
     setGenerating(true)
@@ -158,6 +177,7 @@ export default function CeoReviewPage() {
         position: item.position,
         user_answer: item.user_answer ?? '',
         status: buildStatus(item.user_answer ?? '', item.suggested_answer),
+        ...(item.source === 'user' ? { source: 'user' as const, question: item.question } : {}),
       }))
       const res = await fetch(`/api/ceo/jobs/${jobId}/review`, {
         method: 'POST',
@@ -193,6 +213,7 @@ export default function CeoReviewPage() {
         position: item.position,
         user_answer: item.user_answer ?? '',
         status: buildStatus(item.user_answer ?? '', item.suggested_answer),
+        ...(item.source === 'user' ? { source: 'user' as const, question: item.question } : {}),
       }))
 
       const saveRes = await fetch(`/api/ceo/jobs/${jobId}/review`, {
@@ -314,19 +335,34 @@ export default function CeoReviewPage() {
       ) : (
         <div className="space-y-4">
           {items.map((item) => (
-            <Card key={item.position} className="overflow-hidden">
+            <Card key={`${item.source}-${item.position}`} className="overflow-hidden">
               {/* Question header */}
               <div className="flex items-start justify-between gap-3 border-b border-white/[0.06] px-4 py-3">
-                <div className="flex items-start gap-3">
+                <div className="flex min-w-0 flex-1 items-start gap-3">
                   <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-500/15 border border-blue-500/20 text-xs font-bold text-blue-300">
                     {item.position}
                   </div>
-                  <div>
-                    <div className="text-[10px] uppercase tracking-wider text-white/35 mb-0.5">Soru</div>
-                    <div className="text-sm font-medium text-white leading-snug">{item.question}</div>
+                  <div className="min-w-0 flex-1">
+                    <div className="mb-0.5 text-[10px] uppercase tracking-wider text-white/35">
+                      {item.source === 'user' ? 'Senin sorun / notun' : 'Soru'}
+                    </div>
+                    {item.source === 'user' ? (
+                      <textarea
+                        value={item.question}
+                        onChange={(e) =>
+                          updateItem(item.position, (cur) => ({ ...cur, question: e.target.value }))
+                        }
+                        rows={2}
+                        placeholder="Sorunu ya da bağlam notunu yaz…"
+                        className="w-full resize-none rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-sm text-white outline-none focus:border-blue-500/50"
+                      />
+                    ) : (
+                      <div className="text-sm font-medium leading-snug text-white">{item.question}</div>
+                    )}
                   </div>
                 </div>
                 <div className="flex shrink-0 flex-col items-end gap-1.5">
+                  {item.source === 'user' && <Badge tone="blue">Senin</Badge>}
                   <Badge tone={statusTone(item.status)}>{item.status}</Badge>
                   {item.confidence != null && <ConfidenceBar value={item.confidence} />}
                 </div>
@@ -386,6 +422,13 @@ export default function CeoReviewPage() {
               </div>
             </Card>
           ))}
+          <button
+            type="button"
+            onClick={addUserQuestion}
+            className="w-full rounded-xl border border-dashed border-white/15 px-4 py-3 text-sm text-white/50 transition-all hover:border-blue-400/40 hover:bg-white/[0.03] hover:text-white/70"
+          >
+            + Kendi sorunu/notunu ekle
+          </button>
         </div>
       )}
     </div>

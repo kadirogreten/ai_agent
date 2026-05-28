@@ -31,6 +31,7 @@ type ReviewRow = {
   user_answer: string | null
   status: 'suggested' | 'edited' | 'approved'
   confidence: number | null
+  source: 'ceo' | 'user'
   updated_at: string
 }
 
@@ -61,7 +62,7 @@ type SavedAnswers = Record<string, string>
 
 type ReviewSeed = Pick<
   ReviewRow,
-  'position' | 'question' | 'suggested_answer' | 'user_answer' | 'status' | 'confidence'
+  'position' | 'question' | 'suggested_answer' | 'user_answer' | 'status' | 'confidence' | 'source'
 >
 
 function getBearerToken(req: Request) {
@@ -289,7 +290,7 @@ function readSavedAnswers(value: unknown): SavedAnswers {
 }
 
 function buildFallbackReviews(questions: string[], savedAnswers: SavedAnswers, existing: ReviewSeed[] = []) {
-  return questions.map((question, index) => {
+  const ceoReviews = questions.map((question, index) => {
     const row = existing.find((item) => item.position === index + 1)
     const userAnswer = row?.user_answer ?? savedAnswers[question] ?? null
     return {
@@ -299,8 +300,24 @@ function buildFallbackReviews(questions: string[], savedAnswers: SavedAnswers, e
       user_answer: userAnswer,
       status: row?.status ?? (userAnswer ? 'edited' : 'suggested'),
       confidence: row?.confidence ?? null,
+      source: 'ceo' as const,
     }
   })
+
+  // Kullanıcının manuel eklediği sorular: source='user' veya position > CEO soru sayısı.
+  const userExtras = existing
+    .filter((row) => row.source === 'user' || row.position > questions.length)
+    .map((row) => ({
+      position: row.position,
+      question: row.question,
+      suggested_answer: row.suggested_answer ?? null,
+      user_answer: row.user_answer ?? null,
+      status: row.status ?? 'suggested',
+      confidence: row.confidence ?? null,
+      source: 'user' as const,
+    }))
+
+  return [...ceoReviews, ...userExtras]
 }
 
 async function tryLoadReviews(
@@ -389,7 +406,7 @@ async function readQuestionsFromJob(
 async function loadReviews(supabase: ReturnType<typeof getSupabaseAdmin>, ownerUserId: string, jobId: string) {
   const res = await supabase
     .from('ceo_question_reviews')
-    .select('id,job_id,position,question,suggested_answer,user_answer,status,confidence,updated_at')
+    .select('id,job_id,position,question,suggested_answer,user_answer,status,confidence,source,updated_at')
     .eq('owner_user_id', ownerUserId)
     .eq('job_id', jobId)
     .order('position', { ascending: true })
@@ -552,7 +569,7 @@ router.post('/jobs/:jobId/review/generate', async (req: Request, res: Response) 
     const upserted = await supabase
       .from('ceo_question_reviews')
       .upsert(payload, { onConflict: 'job_id,position' })
-      .select('id,job_id,position,question,suggested_answer,user_answer,status,confidence,updated_at')
+      .select('id,job_id,position,question,suggested_answer,user_answer,status,confidence,source,updated_at')
       .order('position', { ascending: true })
 
     if (upserted.error) throw upserted.error
@@ -594,10 +611,36 @@ router.post('/jobs/:jobId/review', async (req: Request, res: Response) => {
         user_answer: userAnswer,
         status,
         confidence: current?.confidence ?? null,
+        source: 'ceo' as const,
       }
     })
 
-    const answers = payload.reduce<SavedAnswers>((acc, row) => {
+    // Kullanıcının manuel eklediği sorular: client source='user' + question + position > CEO sayısı.
+    const userExtras = (items as Array<{
+      source?: string; position?: number; question?: string; user_answer?: string; status?: string
+    }>)
+      .filter((item) =>
+        !!item
+        && item.source === 'user'
+        && typeof item.position === 'number' && item.position > questions.length
+        && typeof item.question === 'string' && item.question.trim().length > 0)
+      .map((item) => ({
+        owner_user_id: user.id,
+        job_id: job.id,
+        position: item.position!,
+        question: (item.question as string).trim(),
+        suggested_answer: null,
+        user_answer: typeof item.user_answer === 'string' ? item.user_answer : null,
+        status: (item.status === 'approved' || item.status === 'edited' || item.status === 'suggested'
+          ? item.status
+          : 'edited') as ReviewRow['status'],
+        confidence: null,
+        source: 'user' as const,
+      }))
+
+    const allPayload = [...payload, ...userExtras]
+
+    const answers = allPayload.reduce<SavedAnswers>((acc, row) => {
       if (typeof row.user_answer === 'string' && row.user_answer.trim()) {
         acc[row.question] = row.user_answer
       }
@@ -606,16 +649,16 @@ router.post('/jobs/:jobId/review', async (req: Request, res: Response) => {
 
     await saveAnswersJson(supabase, job.id, answers)
 
-    if (tableAvailable && payload.length > 0) {
+    if (tableAvailable && allPayload.length > 0) {
       const upserted = await supabase
         .from('ceo_question_reviews')
-        .upsert(payload, { onConflict: 'job_id,position' })
+        .upsert(allPayload, { onConflict: 'job_id,position' })
 
       if (upserted.error) throw upserted.error
     }
 
     if (!tableAvailable) {
-      res.status(200).json({ success: true, reviews: buildFallbackReviews(questions, answers, payload) })
+      res.status(200).json({ success: true, reviews: buildFallbackReviews(questions, answers, allPayload) })
       return
     }
 
