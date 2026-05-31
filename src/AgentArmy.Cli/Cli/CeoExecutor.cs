@@ -196,12 +196,23 @@ public sealed class CeoExecutor
 
         if (planned.Mode.Equals("bundle", StringComparison.OrdinalIgnoreCase))
         {
-            var bundle = await BundleLoader.LoadAsync(_rootDir, targetPack, planned.Id, _supabase, ct);
-            var bundleResult = await Runner.RunBundleAsync(_rootDir, runExec, bundle, planned.Topic, _supabase, ct);
-            return (bundleResult.BundleRunId, bundleResult.PlaybookRunIds);
+            try
+            {
+                var bundle = await BundleLoader.LoadAsync(_rootDir, targetPack, planned.Id, _supabase, ct);
+                var bundleResult = await Runner.RunBundleAsync(_rootDir, runExec, bundle, planned.Topic, _supabase, ct);
+                return (bundleResult.BundleRunId, bundleResult.PlaybookRunIds);
+            }
+            catch (FileNotFoundException)
+            {
+                // CeoPlanner bazen mode'u yanlış işaretliyor — aynı slug genelde playbook olarak da
+                // var (ör. root 'market-research' bir playbook ama LLM bundle diye etiketliyor).
+                // Sessizce playbook'a düş; başaramazsa orijinal playbook yükleme hatası bubble eder.
+                Console.Error.WriteLine($"[CeoExecutor] '{planned.Id}' bundle bulunamadı; playbook olarak deneniyor.");
+            }
         }
-        else
+
         {
+            // Playbook (planner mode='playbook' veya bundle-not-found fallback).
             var playbook = await PlaybookLoader.LoadAsync(_rootDir, targetPack, planned.Id, _supabase, ct);
             var suffix   = attempt > 1 ? $"_retry{attempt - 1}" : string.Empty;
             var runId    = DateTimeOffset.UtcNow.ToString("yyyyMMdd_HHmmss") + "_" + playbook.Id + suffix;
