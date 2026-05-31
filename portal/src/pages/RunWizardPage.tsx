@@ -115,6 +115,7 @@ export default function RunWizardPage() {
   const [model,      setModel]      = useState('gpt-4.1')
   const [web,        setWeb]        = useState(true)
   const [contrarian, setContrarian] = useState(false)
+  const [tools,      setTools]      = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [err,        setErr]        = useState<string | null>(null)
 
@@ -160,6 +161,7 @@ export default function RunWizardPage() {
       risk: selectedPlaybook.default_risk,
       allow_high_risk: ['R2','R3'].includes(selectedPlaybook.default_risk),
       web, contrarian,
+      tools: tools.trim() || undefined,
     })
     setSubmitting(false)
     if (res.error || !res.id) { setErr(res.error ?? 'Yaratılamadı.'); return }
@@ -174,6 +176,7 @@ export default function RunWizardPage() {
       mode: 'ceo', domain_pack: packId, request_text: topic.trim(),
       answers_json: { topic: topic.trim() },
       model: model.trim() || undefined, risk: 'R1', web, contrarian,
+      tools: tools.trim() || undefined,
     })
     setSubmitting(false)
     if (res.error || !res.id) { setErr(res.error ?? 'Yaratılamadı.'); return }
@@ -405,6 +408,12 @@ export default function RunWizardPage() {
                     <Toggle checked={contrarian} onChange={setContrarian} label="Contrarian" />
                   </div>
                 </div>
+                <Input
+                  label="Araç izinleri (opsiyonel)"
+                  value={tools}
+                  onChange={(e) => setTools(e.target.value)}
+                  placeholder="tools: web_scrape; max_calls: 3"
+                />
                 <div className="flex justify-end pt-1">
                   <Button size="lg" onClick={onSubmit} disabled={submitting || !topic.trim()} className="gap-2">
                     <Play size={16} />

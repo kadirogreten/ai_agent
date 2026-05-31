@@ -17,6 +17,7 @@ type RunRequest = {
   contrarian: boolean
   risk: 'R0' | 'R1' | 'R2' | 'R3'
   allow_high_risk: boolean
+  tools: string | null
   created_at: string
   attempt_count: number
 }
@@ -342,6 +343,7 @@ function buildDotnetArgs(job: RunRequest) {
       '--allowHighRisk', allowHighRisk,
       '--web',        web,
       '--contrarian', contrarian,
+      ...(job.tools && job.tools.trim() ? ['--tools', job.tools.trim()] : []),
     ])
   }
 
@@ -356,6 +358,7 @@ function buildDotnetArgs(job: RunRequest) {
       '--allowHighRisk', allowHighRisk,
       '--web',        web,
       '--contrarian', contrarian,
+      ...(job.tools && job.tools.trim() ? ['--tools', job.tools.trim()] : []),
     ])
   }
 
@@ -378,6 +381,7 @@ function buildDotnetArgs(job: RunRequest) {
       '--allowHighRisk', allowHighRisk,
       '--web',        web,
       '--contrarian', contrarian,
+      ...(job.tools && job.tools.trim() ? ['--tools', job.tools.trim()] : []),
     ])
   }
 
@@ -402,6 +406,7 @@ function buildDotnetArgs(job: RunRequest) {
   // Persona seçimi opsiyonel; verilirse CLI --persona arg'ı geçilir, böylece
   // Orchestrator persona profile'ı doğru slug'la yükleyip behaviors overlay'i uygular.
   if (persona) args.push('--persona', persona)
+  if (job.tools && job.tools.trim()) args.push('--tools', job.tools.trim())
 
   return base.concat(args)
 }

@@ -10,6 +10,8 @@ export type CreateRunRequestInput = {
   allow_high_risk?: boolean
   web?: boolean
   contrarian?: boolean
+  /** PR2 ToolPermissions grameri; örn. "tools: web_scrape; max_calls: 3". Boş/null = araç yok. */
+  tools?: string
 }
 
 /**
@@ -35,6 +37,7 @@ export async function createRunRequest(input: CreateRunRequestInput) {
       allow_high_risk: input.allow_high_risk ?? false,
       web:             input.web ?? true,
       contrarian:      input.contrarian ?? false,
+      tools:           input.tools?.trim() ? input.tools.trim() : null,
       status:          'pending',
     })
     .select('id')
