@@ -29,6 +29,7 @@ public sealed class ToolExecutor : IToolExecutor
     {
         new WebScrapeTool(),
         new FileStoreTool(),
+        new LinkCheckTool(),
     });
 
     public IReadOnlyList<ToolDescriptor> AvailableFor(Agent agent, TaskContract contract)

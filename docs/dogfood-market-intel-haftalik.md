@@ -168,3 +168,51 @@ Her run'dan sonra **5 dakikada** doldur. Bu kayıt, KPI panosunun ham verisi.
 - Yol haritasındaki "Faz B/C/D'de gerçekten ne eksik?" sorusunu **somut deneyimden** cevapla — varsayım değil, yaşadığın gerçek boşluk.
 
 O noktada **PR8 değil, bilinçli stratejik adım** atılır: kapalı döngüyü mü kurarız, rollback'i mi otomatikleştiririz, yoksa ikinci operasyona mı geçeriz — karar, ölçümün üstüne oturur.
+
+---
+
+## 9. Run logları
+
+### W1 — 2026-05-31
+
+**Run id:** `[dogfood:mi-W1] AI agent platforms — son hafta gelişmeler` · portal Standart mod
+**Komut:** market-intel · pazar-arastirmaci · mi-weekly-brief · `tools: web_scrape; max_calls: 3` · web=true · contrarian=false
+**Mod:** Tek playbook, 8 adım: research → analysis → write → verify → contrarian → write (revised) → edit → report.
+
+#### KPI ölçümleri
+
+- Doğruluk:        **~0.10 / 1.00**  (research dürüst — 2 gerçek bulgu; final brief 10 maddenin neredeyse hepsi uydurma URL'lerle)
+- Kaynak:          **0.00 / 1.00**   ("kaynaklı" görünüyor ama URL'ler fabrike — gerçek değer sıfır)
+- İnsan düzeltme:  **~%100**         (yayınlanabilir hale getirmek = sıfırdan yazmak)
+- Süre:            *(cost ledger / job detayından oku)*
+- Maliyet:         *(aynı)*
+- **Gerçeklik testi:** **HAYIR** — biri yollasa okumam, gönderene de uyarırdım
+
+#### Gözlemler
+
+- **Mekanik baştan sona çalıştı.** 8 adımlı pipeline sorunsuz koştu. Bu sabahki tüm bug fix'ler (CeoExecutor comma split, bundle→playbook fallback, persona pack_id NULL filtresi, sync dedup) gerçek koşuda kanıtlandı. **Pipeline sağlam — sorun mekaniğin değil, içeriğin.**
+- **Research adımı disiplinli ve dürüsttü.** İki gerçek bulgu (`Agyn` @ arxiv, `MIT AI Agent Index`) + açık not: *"Ticari platformlarda son 7 gün içinde yeni duyuru bulunamamıştır."* Beklenen profesyonel davranış.
+- **Verifier "yetersiz kaynak" uyarısı verdi.** Rubric en az 10 URL ve domain çeşitliliği istedi. Madde yanlış değil ama bağlamı kaçırdı: research'ün dürüstçe rapor ettiği kıtlığı görmedi.
+- **Writer "10 madde" eleştirisine uyarak fabrike etti.** Asana–Stack AI satın alımı, Notion AI summary, Gemini lansman vb. 10 madde; URL'ler 2024 tarihli (run May 2026'da koşulan run için anakronistik); büyük ihtimalle 404 dönüyor. **Klasik hallüsinasyon kaskadı.**
+- **Edit adımı bu fabrikasyonu temizlemedi**, sadece tertipli sundu. Verifier'ın "kaynak çeşitliliği" metriği **lafzen karşılandı** — ama oyunlanarak.
+
+#### Faz B/C/D boşluğu
+
+- **B (yönetişim) — KRİTİK / yeni öncelik 1:** Verifier rubric'i **form**'u kontrol ediyor (URL sayısı, domain çeşitliliği) ama **öz**'ü kontrol etmiyor (URL gerçek mi, içerik canlı mı, tarih tutarlı mı). Sistem metric-gaming'e davet ediyor.
+- **B — orta:** "Dürüst kıtlık" akışı yok. Research az şey bulduğunda Writer'a "az şey yaz, kıtlığı belirt" yönergesi yok → hallüsinasyon kaskadı doğal sonuç.
+- **C (kapalı döngü):** Etkilenmedi henüz — ama bu kalite tabanı sağlanmadan kapalı döngü kurmak = otomatik yanlış-bilgi-üretimi. Faz C beklemeli.
+- **D (bellek):** Etkilenmedi.
+
+#### Aksiyon
+
+- ✅ **Yapıldı: "Substance Verifier" PR** (Faz B'yi başlatıyor):
+  1. Yeni `link_check` aracı (URL HEAD check, side_effect=read, R0, geri-alınabilir).
+  2. Verifier ajanı `CanUseTools=true` + system prompt'a "kritik iddialar için link_check kullan; dead/anakronistik URL'leri FAIL işaretle" yönergesi.
+  3. `mi-weekly-brief` Write ve Verify adımlarına "dürüst kıtlık" + "link_check kullan" yönergesi.
+  4. `market-intel/rubrics/verifier.md` substance kontrolleri (URL liveness, tarih tutarlılık, kıtlık dürüstlüğü).
+  5. Migration 0031: `link_check` tools tablosuna seed.
+- **W2 (aynı topic, kontrol turu):** substance verifier devreye girince hallüsinasyon kayboldu mu kontrolü. **Araç izinlerine `link_check` ekle:** `tools: web_scrape, link_check; max_calls: 5`.
+
+#### Karar değişikliği
+
+Bu doküman §3 önceliği "Faz E → C → B → D" idi. **W1 verisi sonrası yeni sıra: Faz B (substance verifier) → Faz E (W2 kontrol) → C → D.** Substance verifier işe yaramazsa daha derin Faz B yatırımı gerekir.
