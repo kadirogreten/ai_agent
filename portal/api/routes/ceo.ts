@@ -555,6 +555,7 @@ router.post('/jobs/:jobId/review/generate', async (req: Request, res: Response) 
         user_answer: current?.user_answer ?? savedAnswers[question] ?? null,
         status: current?.status ?? 'suggested',
         confidence: match?.confidence ?? null,
+        source: 'ceo' as const,
       }
     })
 
