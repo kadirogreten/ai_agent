@@ -216,3 +216,54 @@ O noktada **PR8 değil, bilinçli stratejik adım** atılır: kapalı döngüyü
 #### Karar değişikliği
 
 Bu doküman §3 önceliği "Faz E → C → B → D" idi. **W1 verisi sonrası yeni sıra: Faz B (substance verifier) → Faz E (W2 kontrol) → C → D.** Substance verifier işe yaramazsa daha derin Faz B yatırımı gerekir.
+
+---
+
+### W2 (kontrol) — 2026-05-31 (aynı gün, fix sonrası kontrol)
+
+**Run id:** `[dogfood:mi-W2-control] AI agent platforms — son hafta gelişmeler` · portal Standart mod
+**Komut:** market-intel · pazar-arastirmaci · mi-weekly-brief · **`tools: web_scrape, link_check; max_calls: 5`** · web=true · contrarian=false
+**Mod:** Substance verifier devrede (Verifier `CanUseTools=true`, link_check kayıtlı, playbook v2 + rubric §2/§3).
+
+#### KPI ölçümleri
+
+- Doğruluk:        **~0.40 / 1.00**  (research+write dürüsttü; edit adımı hallüsinasyona yeniden düştü)
+- Kaynak:          **~0.30 / 1.00**  (verifier'ın gördüğü 2 URL geçti; edit'in eklediği 6 URL doğrulanmadı)
+- İnsan düzeltme:  **~%75**          (research+write çıktısı kullanılabilir; edit çıktısı atılır)
+- Süre:            *(cost ledger'dan)*
+- Maliyet:         *(aynı)*
+- **Gerçeklik testi:** **BELKİ** — research+write düzeyi yararlı; edit-final düzeyi yine yayınlanamaz
+
+#### Gözlemler — substance verifier işe yaradı, ama upstream'de yeni bir bug bulduk
+
+- ✅ **Research dürüst kaldı** (2 gerçek bulgu: IBM watsonx Orchestrate, Agyn arxiv) + kıtlık beyanı.
+- ✅ **Write (ilk) dürüst kaldı** — 2 madde, kıtlık notu, uydurma yok. Playbook v2 değişikliği işe yaradı.
+- ✅ **Verifier link_check'i kullandı** — `tool_invocations` tablosunda görünmeli; 2 URL'i HEAD ile kontrol etti, ikisi de 200, tarih tutarlı. Verdikt: PASS. Tool döngüsü uçtan uca çalıştı.
+- ❌ **Yeni bug — `Orchestrator.IsFail` substring false positive:** Verifier raporu açıkça PASS dedi ama içinde "PASS/FAIL", "FAIL ver:" gibi açıklayıcı ifadeler geçtiği için `Contains("FAIL")` true döndü → **write.revised tetiklendi**.
+- ❌ **Write.revised kafa karıştı** — verifier raporunu input olarak aldı, "düzeltilecek sorun yok"u görünce verifier raporunu re-yazdı (saçma çıktı).
+- ❌ **Edit hallüsinasyona kapı açtı** — verbose model yazıyı "geliştirmek" için 6 sahte madde ekledi (Asana–Stack AI, Gemini 3.5 Flash, Notion Developer Platform vb. — hepsi `?utm_source=openai` parametreli, model OpenAI search aracı çıktısı sandığı URL'leri kopyalıyor olabilir).
+- ⚠️ **SummaryAgent ironik biçimde sadık kaldı** — 2-maddelik özet üretti; demek ki içerikte gerçek 2 vardı, edit hayali ekledi.
+
+#### Faz B/C/D boşluğu
+
+- **B (yönetişim) — yeni bug:** `Orchestrator.IsFail` naive substring kontrolü → false positive cascade. Pipeline tekrar üretme döngüsüne giriyor, model "kıtlık var, daha çok ekle" diye yorumluyor, hallüsinasyon zinciri başlıyor. **Tek bir kötü check, tüm substance verifier yatırımını boşa çıkardı.**
+- **B (yönetişim) — Editor disiplini:** mi-weekly-brief.json edit step'ine "URL EKLEME" yazmıştık ama Editor agent system prompt'unda da koruma yok. Playbook talimatı şu an Goal alanında, Agent system prompt'una baskın değil. İleride Editor için de "asla yeni iddia ekleme" sıkı kuralı gerekecek.
+- **C / D:** Etkilenmedi.
+
+#### Aksiyon
+
+- ✅ **Yapıldı: IsFail bug fix:**
+  1. `Orchestrator.IsFail` artık explicit `VERDICT: PASS/FAIL` marker'a bakar (substring değil).
+  2. Verifier system prompt'u zorunlu son-satır `VERDICT: PASS` / `VERDICT: FAIL` formatı koşar.
+  3. `verifier.md` §5 bu kuralı dokümante eder.
+- **W3 kontrol turu:** aynı topic ile tekrar koş. Beklenen: verifier PASS verdikten sonra write.revised TETİKLENMEZ, edit yalnız formatlayıp 2-maddelik dürüst brief'i geçirir.
+
+#### Karar — Faz B yatırımı 2. tur
+
+W2'de gördük ki "substance verifier" tek katmanda yetmiyor — orkestrasyon mantığı içinde de "küçük naive kontroller" iş çıkıyor. Sonraki Faz B yatırımları aday listesi:
+1. (✅ yapıldı) IsFail verdikt-bazlı.
+2. Editor agent system prompt'unda "asla yeni iddia/URL ekleme" sıkı kuralı.
+3. Verifier'ı edit SONRASI bir kez daha çalıştır (substance check edit'in eklediklerini de yakalasın).
+4. Tool-call'da `web_search`'ün hangi adımda kullanıldığını ve hangi URL'leri ürettiğini event log'a aç — sahte URL'lerin kaynağını izle.
+
+W3 sonucuna göre 2/3/4'ten hangisinin daha kritik olduğu netleşecek.

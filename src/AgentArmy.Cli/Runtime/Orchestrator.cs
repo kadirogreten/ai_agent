@@ -508,7 +508,19 @@ public sealed class Orchestrator
     }
 
     private static bool IsFail(string verifierReport)
-        => verifierReport.Contains("FAIL", StringComparison.OrdinalIgnoreCase);
+    {
+        // W2 dogfood bug fix: önceki naive 'Contains("FAIL")' her zaman true dönüyordu
+        // çünkü rubric/prompt'ta "PASS/FAIL", "FAIL ver:" gibi açıklamalar geçiyor.
+        // Yeni kontrat: Verifier çıktısının son satırı 'VERDICT: PASS' veya 'VERDICT: FAIL'
+        // olmalı. Burası o etikete bakar; marker yoksa güvenli varsayım PASS'tir (kötü
+        // içeriği bir kez kaçırmak, false-positive cascade ile hallüsinasyona davet
+        // çıkarmaktan daha az zarar).
+        if (string.IsNullOrEmpty(verifierReport)) return false;
+        var idxFail = verifierReport.LastIndexOf("VERDICT: FAIL", StringComparison.OrdinalIgnoreCase);
+        var idxPass = verifierReport.LastIndexOf("VERDICT: PASS", StringComparison.OrdinalIgnoreCase);
+        if (idxFail < 0 && idxPass < 0) return false; // marker yok → güvenli PASS
+        return idxFail > idxPass;
+    }
 
     private static string BuildFixPrompt(RunContext ctx, PlaybookStep writeStep, string verifierReport)
     {

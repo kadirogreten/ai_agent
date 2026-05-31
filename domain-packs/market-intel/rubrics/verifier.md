@@ -46,4 +46,18 @@ Verifier her zaman şu yapıda rapor üretir:
 1. **Kontrol tablosu** — kriter | sonuç | sayım/not (URL'ler için: url | status | tarih tutarlı mı | iddia ile uyumlu mu).
 2. **Sorunlar listesi** — kategoriye göre (Dead URL / Anakronistik tarih / Sahte şüphesi / Form eksik / Hallüsinasyon).
 3. **Düzeltme önerileri** — Editor'ün ne yapacağını net söyle (ör. "iddia 3'ü ve URL'sini sil").
-4. **PASS/FAIL** — herhangi bir FAIL kriteri tetiklenmişse FAIL.
+4. **Verdikt** — herhangi bir FAIL kriteri tetiklenmişse FAIL, hiçbiri tetiklenmediyse PASS.
+
+**ZORUNLU son satır kuralı:** Raporun en son satırı tam olarak şu olmalı — başka hiçbir şey içermesin:
+
+```
+VERDICT: PASS
+```
+
+veya
+
+```
+VERDICT: FAIL
+```
+
+Orkestrasyon mantığı bu satırı parse ederek revize ihtiyacını belirler. "PASS/FAIL", "Sonuç: PASS", "FAIL ver" gibi açıklayıcı ifadeler bu satırın yerini tutmaz; substring araması yapılmaz.

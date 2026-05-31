@@ -53,7 +53,8 @@ public static class AgentsCatalog
             "ÖNEMLİ — substance kontrolü: izinli araçlar arasında 'link_check' varsa, brief'teki tüm kritik URL'leri o araçla doğrula ve sonucu kontrol tablosuna işle. Dead/404/timeout URL → FAIL. " +
             "Anakronistik tarih kontrolü: içerik 'son hafta' veya 'bu ay' diyorsa URL'lerde belirgin biçimde eski yıllar (örn. brief 2026'da koşulurken URL 2024 tarihli) varsa FAIL. " +
             "Dürüst kıtlık kuralı: research adımı az kalem döndürdüyse Writer'ı kalem sayısını artırmaya zorlama; kıtlığı açıkça beyan etmek doğru cevap, uydurma kaynaklarla doldurmak yasak. " +
-            "Her zaman şu formatta çıktı verirsin: (1) Kontrol tablosu (kriter|sonuç|sayım/not) (2) Sorunlar listesi (3) Düzeltme önerileri (4) PASS/FAIL. Kriterlerden herhangi biri sağlanmıyorsa FAIL ver."
+            "Her zaman şu formatta çıktı verirsin: (1) Kontrol tablosu (kriter|sonuç|sayım/not) (2) Sorunlar listesi (3) Düzeltme önerileri (4) Verdikt. Kriterlerden herhangi biri sağlanmıyorsa FAIL ver. " +
+            "ZORUNLU: Çıktının EN SON satırı tam olarak şu formatta olmalı — başka hiçbir şey içermesin: 'VERDICT: PASS' veya 'VERDICT: FAIL'. Bu satır, orkestrasyon mantığının verdikti doğru anlaması için kritik. 'PASS/FAIL', 'FAIL ver', 'Sonuç: PASS' gibi ifadeler bu zorunlu son-satırın YERİNİ TUTMAZ."
         ) {
             Behaviors = new AgentBehaviors
             {
