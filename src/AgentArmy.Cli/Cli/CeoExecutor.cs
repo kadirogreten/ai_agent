@@ -55,9 +55,24 @@ public sealed class CeoExecutor
         Dictionary<string, string> baseArgs,
         CancellationToken ct)
     {
+        // Normalize: planner LLM bazen birden fazla id'yi virgülle birleştirip TEK satır olarak
+        // çıkarıyor (örn. "market-research,prd-draft,tech-design"). Ayrı PlannedRun'lara böl;
+        // her birinin Mode/Topic/Risk/Web/Contrarian/Pack alanlarını aynen miras al.
+        var normalizedRuns = plan.Runs
+            .SelectMany(r =>
+            {
+                if (string.IsNullOrEmpty(r.Id) || !r.Id.Contains(','))
+                    return new[] { r };
+                return r.Id
+                    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .Select(id => r with { Id = id })
+                    .ToArray();
+            })
+            .ToList();
+
         var sem = new SemaphoreSlim(_maxParallel, _maxParallel);
 
-        var tasks = plan.Runs
+        var tasks = normalizedRuns
             .Select(r => ExecuteOneWithRetryAsync(r, baseArgs, sem, ct))
             .ToArray();
 
