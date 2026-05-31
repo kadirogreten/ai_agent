@@ -62,7 +62,12 @@ export async function listPersonas(params: { q: string; packId?: string; limit?:
     .order('updated_at', { ascending: false })
     .limit(limit)
 
-  if (params.packId) query = query.eq('pack_id', params.packId)
+  if (params.packId) {
+    // Pack'a özel personalar + cross-domain (pack_id NULL) root personaları dahil et.
+    // sync-to-db root personas/*.md dosyalarını pack_id NULL ile yazar; salt eq filtresi
+    // bunları dışarda bırakıyordu, dropdown boş kalıyordu.
+    query = query.or(`pack_id.eq.${params.packId},pack_id.is.null`)
+  }
   if (params.q.trim()) {
     const term = `%${params.q.trim()}%`
     query = query.or(`name.ilike.${term},slug.ilike.${term}`)
