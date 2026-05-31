@@ -143,6 +143,38 @@ public sealed class SupabaseWriter : IDisposable
     }
 
     /// <summary>
+    /// PostgREST DELETE: <c>DELETE /rest/v1/{table}?{query}</c>. <paramref name="query"/>
+    /// filtreyi taşır (örn. <c>"slug=eq.x&amp;pack_id=eq.y&amp;tenant_id=is.null"</c>).
+    /// Fire-and-forget; hata olursa stderr'e yazar, exception fırlatmaz.
+    /// </summary>
+    public async Task DeleteAsync(string table, string query, CancellationToken ct)
+    {
+        try
+        {
+            var url = $"{_base}/rest/v1/{table}?{query}";
+
+            using var resp = await HttpRetry.SendAsync(_http, () =>
+            {
+                var req = new HttpRequestMessage(HttpMethod.Delete, url);
+                req.Headers.Add("apikey",        _key);
+                req.Headers.Add("Authorization", $"Bearer {_key}");
+                req.Headers.Add("Prefer",        "return=minimal");
+                return req;
+            }, ct);
+
+            if (!resp.IsSuccessStatusCode)
+            {
+                var body = await resp.Content.ReadAsStringAsync(ct);
+                Console.Error.WriteLine($"[SupabaseWriter] {table} DELETE {(int)resp.StatusCode}: {body[..Math.Min(200, body.Length)]}");
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Console.Error.WriteLine($"[SupabaseWriter] {table} DELETE hata: {ex.Message}");
+        }
+    }
+
+    /// <summary>
     /// Paylaşılan HttpClient kullandığı için burada dispose yok — IDisposable
     /// yalnızca eski `using var` çağrılarıyla uyumluluk için duruyor.
     /// </summary>

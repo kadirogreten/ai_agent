@@ -138,6 +138,12 @@ public static partial class CommandDispatcher
             var slug = Path.GetFileNameWithoutExtension(jsonPath);
             var contentJson = JsonSerializer.Deserialize<JsonElement>(raw);
 
+            // Idempotent: aynı (slug, pack_id, tenant_id NULL) varsa önce sil, sonra ekle.
+            // 0030 migration partial unique index ile bunu DB seviyesinde de zorlar.
+            await db.DeleteAsync("playbooks",
+                $"slug=eq.{Uri.EscapeDataString(slug)}&pack_id=eq.{Uri.EscapeDataString(packId)}&tenant_id=is.null",
+                ct);
+
             await db.InsertAsync("playbooks", new
             {
                 slug,
@@ -201,6 +207,15 @@ public static partial class CommandDispatcher
             // İlk satırdaki "# Persona: X" başlığını name olarak kullan
             var firstHeader = content.Split('\n').FirstOrDefault(l => l.StartsWith("#"))?.TrimStart('#', ' ');
             var name        = string.IsNullOrWhiteSpace(firstHeader) ? slug : firstHeader.Trim();
+
+            // Idempotent: aynı (slug, pack_id, tenant_id NULL) varsa önce sil, sonra ekle.
+            // pack_id NULL olabilir (cross-domain personas) — filtreyi koşullu kur.
+            var packFilter = string.IsNullOrEmpty(packId)
+                ? "pack_id=is.null"
+                : $"pack_id=eq.{Uri.EscapeDataString(packId)}";
+            await db.DeleteAsync("personas",
+                $"slug=eq.{Uri.EscapeDataString(slug)}&{packFilter}&tenant_id=is.null",
+                ct);
 
             await db.InsertAsync("personas", new
             {
