@@ -12,7 +12,7 @@ public static class Program
 
         // Sürüm damgası — worker logunda hangi binary'nin koştuğunu gözle doğrulamak için.
         // Yeni kod deploy olduysa bu satırı görmeli; görmüyorsan eski binary çalışıyordur.
-        Console.Error.WriteLine("[AgentArmy] build-marker: tedarik-tools v11 (product_search → Serper.dev shopping/web + Tavily)");
+        Console.Error.WriteLine("[AgentArmy] build-marker: tedarik-tools v12 (direct-link çözümü + link_check 403-toleransı)");
 
         var rootDir = RepoRootFinder.Find(AppContext.BaseDirectory);
 

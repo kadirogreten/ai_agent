@@ -46,9 +46,10 @@ public sealed class LinkCheckTool : ITool
         "summary": {
           "type": "object",
           "properties": {
-            "total": { "type": "integer" },
-            "ok":    { "type": "integer" },
-            "dead":  { "type": "integer" }
+            "total":   { "type": "integer" },
+            "alive":   { "type": "integer" },
+            "blocked": { "type": "integer" },
+            "dead":    { "type": "integer" }
           }
         },
         "results": {
@@ -56,10 +57,10 @@ public sealed class LinkCheckTool : ITool
           "items": {
             "type": "object",
             "properties": {
-              "url":    { "type": "string" },
-              "ok":     { "type": "boolean" },
-              "status": { "type": "integer" },
-              "error":  { "type": "string" }
+              "url":     { "type": "string" },
+              "verdict": { "type": "string", "description": "alive | blocked | dead" },
+              "status":  { "type": "integer" },
+              "note":    { "type": "string" }
             }
           }
         }
@@ -71,7 +72,7 @@ public sealed class LinkCheckTool : ITool
     {
         Slug         = Slug,
         Name         = "Link Doğrulama",
-        Description  = "Verilen URL listesini HEAD ile kontrol eder; her URL için 200/404/error döner. Substance verifier zincirinin temel parçası — uydurma kaynakları tespit eder.",
+        Description  = "Verilen URL listesini kontrol eder; her URL için verdict döner: alive (200/3xx), blocked (403/429/timeout — anti-bot, link MUHTEMELEN geçerli, ÖLÜ DEĞİL), dead (404/410/DNS). Yalnız 'dead' uydurma/geçersiz sayılmalıdır; 'blocked' bot korumasıdır, FAIL gerekçesi değildir.",
         Category     = "utility",
         SideEffect   = ToolSideEffect.Read,
         Reversible   = true,
@@ -113,23 +114,34 @@ public sealed class LinkCheckTool : ITool
         var tasks   = urls.Select(u => CheckOneAsync(u, timeoutSec, sem, ct)).ToArray();
         var results = await Task.WhenAll(tasks);
 
-        var ok   = results.Count(r => r.Ok);
-        var dead = results.Length - ok;
+        var alive   = results.Count(r => r.Verdict == "alive");
+        var blocked = results.Count(r => r.Verdict == "blocked");
+        var dead    = results.Count(r => r.Verdict == "dead");
 
         var output = JsonSerializer.SerializeToElement(new
         {
-            summary = new { total = results.Length, ok, dead },
+            summary = new { total = results.Length, alive, blocked, dead },
             results = results.Select(r => new
             {
-                url    = r.Url,
-                ok     = r.Ok,
-                status = r.Status,
-                error  = r.Error,
+                url     = r.Url,
+                verdict = r.Verdict,
+                status  = r.Status,
+                note    = r.Note,
             }),
         });
 
         return ToolResult.Success(Slug, output);
     }
+
+    // 403/429/timeout = anti-bot bloğu (link muhtemelen geçerli); yalnız 404/410/DNS = dead.
+    private static (string Verdict, string? Note) Classify(int status) => status switch
+    {
+        >= 200 and < 400 => ("alive", null),
+        401 or 403 or 429 => ("blocked", $"HTTP {status} — anti-bot/auth bloğu; link muhtemelen geçerli (ölü değil)"),
+        404 or 410        => ("dead", $"HTTP {status} — sayfa yok"),
+        >= 500            => ("blocked", $"HTTP {status} — sunucu hatası, belirsiz"),
+        _                 => ("blocked", $"HTTP {status} — belirsiz"),
+    };
 
     private static async Task<LinkResult> CheckOneAsync(string url, int timeoutSec, SemaphoreSlim sem, CancellationToken ct)
     {
@@ -139,7 +151,7 @@ public sealed class LinkCheckTool : ITool
             if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)
                 || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
             {
-                return new LinkResult(url, false, 0, "Geçersiz URL (http/https değil).");
+                return new LinkResult(url, "dead", 0, "Geçersiz URL (http/https değil).");
             }
 
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -151,27 +163,33 @@ public sealed class LinkCheckTool : ITool
                 headReq.Headers.TryAddWithoutValidation("User-Agent", "AgentArmy/0.1 (+link_check)");
                 using var headResp = await HttpClientPool.Shared.SendAsync(headReq, cts.Token);
 
+                var status = (int)headResp.StatusCode;
                 // 405 Method Not Allowed (bazı sunucular HEAD desteklemez) → GET ile dene.
-                if ((int)headResp.StatusCode == 405)
+                if (status == 405)
                 {
                     var getReq = new HttpRequestMessage(HttpMethod.Get, uri);
                     getReq.Headers.TryAddWithoutValidation("User-Agent", "AgentArmy/0.1 (+link_check)");
                     getReq.Headers.TryAddWithoutValidation("Range", "bytes=0-1023");
                     using var getResp = await HttpClientPool.Shared.SendAsync(getReq, HttpCompletionOption.ResponseHeadersRead, cts.Token);
-                    var okGet = (int)getResp.StatusCode is >= 200 and < 400;
-                    return new LinkResult(url, okGet, (int)getResp.StatusCode, okGet ? null : getResp.ReasonPhrase);
+                    status = (int)getResp.StatusCode;
                 }
 
-                var ok = (int)headResp.StatusCode is >= 200 and < 400;
-                return new LinkResult(url, ok, (int)headResp.StatusCode, ok ? null : headResp.ReasonPhrase);
+                var (verdict, note) = Classify(status);
+                return new LinkResult(url, verdict, status, note);
             }
             catch (OperationCanceledException) when (!ct.IsCancellationRequested)
             {
-                return new LinkResult(url, false, 0, $"Timeout ({timeoutSec}sn).");
+                // Timeout — ölü değil, belirsiz/bloklu say (siteler botu yavaşlatabilir).
+                return new LinkResult(url, "blocked", 0, $"Timeout ({timeoutSec}sn) — belirsiz, ölü sayma");
+            }
+            catch (HttpRequestException ex)
+            {
+                // DNS/bağlantı hatası — gerçekten ulaşılamıyor.
+                return new LinkResult(url, "dead", 0, $"Bağlantı hatası: {ex.Message}");
             }
             catch (Exception ex)
             {
-                return new LinkResult(url, false, 0, ex.Message);
+                return new LinkResult(url, "blocked", 0, $"Belirsiz: {ex.Message}");
             }
         }
         finally
@@ -180,7 +198,7 @@ public sealed class LinkCheckTool : ITool
         }
     }
 
-    private sealed record LinkResult(string Url, bool Ok, int Status, string? Error);
+    private sealed record LinkResult(string Url, string Verdict, int Status, string? Note);
 
     private static JsonElement Schema(string json)
     {

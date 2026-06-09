@@ -148,31 +148,88 @@ public sealed class ProductSearchTool : ITool
 
     // ── Serper.dev Shopping (fiyatlı) ─────────────────────────────────────────
 
+    private const int MaxResolve = 4;  // ilk N ürün için doğrudan mağaza linki çöz (kota/latency sınırı)
+
     private static async Task<List<object>> SerperShoppingAsync(
         string key, string query, int n, string gl, string hl, CancellationToken ct)
     {
         var body = await SerperPostAsync("https://google.serper.dev/shopping", key, query, n, gl, hl, ct);
 
-        var list = new List<object>();
-        using var doc = JsonDocument.Parse(body);
-        if (doc.RootElement.TryGetProperty("shopping", out var shopping) && shopping.ValueKind == JsonValueKind.Array)
+        // 1) Ham shopping sonuçlarını topla (link = Google Shopping yönlendirmesi).
+        var raw = new List<(string? title, string? price, string? source, string shopLink)>();
+        using (var doc = JsonDocument.Parse(body))
         {
-            foreach (var r in shopping.EnumerateArray())
+            if (doc.RootElement.TryGetProperty("shopping", out var shopping) && shopping.ValueKind == JsonValueKind.Array)
             {
-                if (list.Count >= n) break;
-                var link = Str(r, "link");
-                if (link is null) continue;
-                list.Add(new
+                foreach (var r in shopping.EnumerateArray())
                 {
-                    title       = Str(r, "title"),
-                    price       = Str(r, "price"),
-                    price_value = (double?)null,
-                    source      = Str(r, "source"),
-                    link,
-                });
+                    if (raw.Count >= n) break;
+                    var link = Str(r, "link");
+                    if (link is null) continue;
+                    raw.Add((Str(r, "title"), Str(r, "price"), Str(r, "source"), link));
+                }
             }
         }
+
+        // 2) İlk MaxResolve ürün için GERÇEK mağaza linkini web aramasıyla çöz.
+        var list = new List<object>();
+        for (var i = 0; i < raw.Count; i++)
+        {
+            var item = raw[i];
+            var link = item.shopLink;
+            var directResolved = false;
+            if (i < MaxResolve && item.title is not null)
+            {
+                var direct = await TryResolveDirectAsync(key, item.title!, item.source, gl, hl, ct);
+                if (direct is not null) { link = direct; directResolved = true; }
+            }
+            list.Add(new
+            {
+                title         = item.title,
+                price         = item.price,
+                price_value   = (double?)null,
+                source        = item.source,
+                link,                              // doğrudan mağaza linki (çözülebildiyse), yoksa shopping linki
+                shopping_link = item.shopLink,     // referans: Google Shopping linki
+                direct        = directResolved,
+            });
+        }
         return list;
+    }
+
+    /// <summary>Ürün başlığıyla web araması yapıp ilk GERÇEK mağaza ürün-sayfası linkini döner.</summary>
+    private static async Task<string?> TryResolveDirectAsync(
+        string key, string title, string? source, string gl, string hl, CancellationToken ct)
+    {
+        try
+        {
+            var q = string.IsNullOrWhiteSpace(source) ? title : $"{title} {source}";
+            var body = await SerperPostAsync("https://google.serper.dev/search", key, q, 6, gl, hl, ct);
+            using var doc = JsonDocument.Parse(body);
+            if (doc.RootElement.TryGetProperty("organic", out var organic) && organic.ValueKind == JsonValueKind.Array)
+            {
+                string? firstAny = null;
+                foreach (var r in organic.EnumerateArray())
+                {
+                    var link = Str(r, "link");
+                    if (link is null) continue;
+                    firstAny ??= link;
+                    if (IsMerchant(link)) return link;   // bilinen mağaza → en güveniliri
+                }
+                return firstAny;
+            }
+        }
+        catch { /* çözülemezse shopping linki kullanılır */ }
+        return null;
+    }
+
+    private static bool IsMerchant(string url)
+    {
+        var host = (DomainOf(url) ?? string.Empty).ToLowerInvariant();
+        foreach (var m in new[] { "hepsiburada", "trendyol", "vatanbilgisayar", "amazon.", "incehesap",
+                                  "n11", "teknosa", "mediamarkt", "itopya", "pazarama", "ciceksepeti" })
+            if (host.Contains(m)) return true;
+        return false;
     }
 
     // ── Serper.dev Web (gerçek URL, fiyatsız) ─────────────────────────────────

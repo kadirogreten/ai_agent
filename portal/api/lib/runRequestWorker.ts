@@ -205,12 +205,14 @@ async function writeDraftFromRunOutputs(
     .eq('step_id', 'scaffold')
     .order('created_at', { ascending: true })
     .limit(1)
-    .single()
+    .maybeSingle()
 
-  if (error || !data?.content_md) {
-    log('DomainPackDraft: run_outputs scaffold adımı bulunamadı', { runId, error: error?.message })
+  if (error) {
+    log('DomainPackDraft: scaffold sorgu hatası', { runId, error: error.message })
     return
   }
+  // scaffold adımı yoksa bu bir sektör-keşif run'ı değildir (örn. tedarik) — sessizce çık.
+  if (!data?.content_md) return
 
   const draftJson = extractJsonFromText(data.content_md)
   if (!draftJson) {
