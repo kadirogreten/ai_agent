@@ -248,6 +248,12 @@ public sealed class Orchestrator
             ? _toolExecutor.AvailableFor(agent, ctx.Contract)
             : (IReadOnlyList<ToolDescriptor>)Array.Empty<ToolDescriptor>();
 
+        // Teşhis: bu adımda kaç araç sunuldu? (ajan + CanUseTools + görev izni kesişimi)
+        Console.Error.WriteLine(
+            $"[Orchestrator] step agent={agent.Id} canUseTools={agent.Behaviors.CanUseTools} " +
+            $"toolExecutor={(_toolExecutor is not null)} offeredTools={toolset.Count}" +
+            (toolset.Count > 0 ? $" [{string.Join(",", toolset.Select(t => t.Slug))}]" : ""));
+
         // Araç yoksa mevcut davranış birebir korunur (geriye uyumlu).
         if (toolset.Count == 0)
         {

@@ -10,6 +10,10 @@ public static class Program
             return 1;
         }
 
+        // Sürüm damgası — worker logunda hangi binary'nin koştuğunu gözle doğrulamak için.
+        // Yeni kod deploy olduysa bu satırı görmeli; görmüyorsan eski binary çalışıyordur.
+        Console.Error.WriteLine("[AgentArmy] build-marker: tedarik-tools v3 (operator-exec + tool_choice=required)");
+
         var rootDir = RepoRootFinder.Find(AppContext.BaseDirectory);
 
         try
