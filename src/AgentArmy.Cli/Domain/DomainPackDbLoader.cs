@@ -453,6 +453,7 @@ public static class DomainPackDbLoader
                 TriggersContrarian     = Flag(e, "triggers_contrarian",      "triggersContrarian"),
                 AcceptsRubric          = Flag(e, "accepts_rubric",           "acceptsRubric"),
                 PrefersDomainAllowlist = Flag(e, "prefers_domain_allowlist", "prefersDomainAllowlist"),
+                CanUseTools            = Flag(e, "can_use_tools",            "canUseTools"),
             };
         }
 

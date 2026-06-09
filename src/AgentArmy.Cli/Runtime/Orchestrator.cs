@@ -60,7 +60,22 @@ public sealed class Orchestrator
 
         var merged = new Dictionary<string, Agent>(AgentsCatalog.All, StringComparer.OrdinalIgnoreCase);
         if (agentOverrides is not null)
-            foreach (var kv in agentOverrides) merged[kv.Key] = kv.Value;
+        {
+            foreach (var kv in agentOverrides)
+            {
+                var ov = kv.Value;
+                // DB override'ı, kataloğun KOD-tanımlı araç yeteneğini (CanUseTools) sessizce
+                // kaybetmesin. Katalogda bu ajan CanUseTools=true ise (örn. Operator/Verifier)
+                // override'da da koru — aksi halde araçlar hiç sunulmaz.
+                if (merged.TryGetValue(kv.Key, out var core)
+                    && core.Behaviors.CanUseTools
+                    && !ov.Behaviors.CanUseTools)
+                {
+                    ov = ov with { Behaviors = ov.Behaviors with { CanUseTools = true } };
+                }
+                merged[kv.Key] = ov;
+            }
+        }
         _agents = merged;
     }
 
