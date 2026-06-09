@@ -37,8 +37,8 @@ const DOMAIN_PACK = process.env.STOCK_DOMAIN_PACK ?? 'e-ticaret'
 const PLAYBOOK = process.env.STOCK_PLAYBOOK ?? 'e-ticaret-tedarik-tam-akis'
 const PERSONA = process.env.STOCK_PERSONA ?? 'satin-alma-uzmani'
 const MODEL = process.env.STOCK_MODEL ?? 'gpt-4.1'
-// Birleşik akış 4 aracı da kullanır: stok → araştırma → onaylı satın alma → kargo.
-const TOOLS = process.env.STOCK_TOOLS ?? 'tools: stock_check, web_scrape, purchase_order, cargo_track; max_calls: 10'
+// Birleşik akış araçları: stok → araştırma → link doğrulama → onaylı satın alma → kargo.
+const TOOLS = process.env.STOCK_TOOLS ?? 'tools: stock_check, web_scrape, link_check, purchase_order, cargo_track; max_calls: 12'
 
 const ACTIVE_STATUSES = ['pending', 'running', 'waiting_approval']
 

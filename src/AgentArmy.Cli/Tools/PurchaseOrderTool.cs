@@ -20,12 +20,17 @@ public sealed class PurchaseOrderTool : ITool
       "type": "object",
       "required": ["product", "quantity"],
       "properties": {
-        "product":    { "type": "string",  "description": "Satın alınacak ürün adı" },
-        "quantity":   { "type": "integer", "minimum": 1, "description": "Sipariş adedi" },
-        "supplier":   { "type": "string",  "description": "Seçilen tedarikçi adı (araştırma adımından)" },
-        "unit_price": { "type": "number",  "description": "Birim fiyat (TL). Verilmezse demo fiyatı kullanılır." },
-        "currency":   { "type": "string",  "default": "TRY" },
-        "note":       { "type": "string",  "description": "Opsiyonel sipariş notu" }
+        "product":      { "type": "string",  "description": "Satın alınacak ürün adı" },
+        "quantity":     { "type": "integer", "minimum": 1, "description": "Sipariş adedi" },
+        "supplier":     { "type": "string",  "description": "Seçilen tedarikçi adı (araştırma adımından)" },
+        "unit_price":   { "type": "number",  "description": "Birim fiyat (TL). Verilmezse demo fiyatı kullanılır." },
+        "currency":     { "type": "string",  "default": "TRY" },
+        "brand":        { "type": "string",  "description": "Ürün markası (örn. Asus, Faber-Castell)" },
+        "model":        { "type": "string",  "description": "Tam model adı (örn. Asus VG249Q 24 inç 165Hz)" },
+        "product_code": { "type": "string",  "description": "Üretici/tedarikçi ürün kodu veya SKU" },
+        "product_url":  { "type": "string",  "description": "Ürünün gerçek satış sayfası URL'si (araştırmada web_search'ten gelen, uydurma değil)" },
+        "specs":        { "type": "string",  "description": "Önemli teknik özellikler (örn. 24 inç, IPS, 165Hz, 1ms)" },
+        "note":         { "type": "string",  "description": "Opsiyonel sipariş notu" }
       }
     }
     """);
@@ -37,6 +42,11 @@ public sealed class PurchaseOrderTool : ITool
         "order_id":           { "type": "string" },
         "status":             { "type": "string" },
         "product":            { "type": "string" },
+        "brand":              { "type": "string" },
+        "model":              { "type": "string" },
+        "product_code":       { "type": "string" },
+        "product_url":        { "type": "string" },
+        "specs":              { "type": "string" },
         "quantity":           { "type": "integer" },
         "supplier":           { "type": "string" },
         "unit_price":         { "type": "number" },
@@ -87,6 +97,16 @@ public sealed class PurchaseOrderTool : ITool
         var currency = args.TryGetProperty("currency", out var cEl) && cEl.ValueKind == JsonValueKind.String
             ? cEl.GetString()!.Trim() : "TRY";
 
+        // Ürün detayları (araştırma adımından): marka/model/kod/link/özellik — varsa taşı.
+        string? OptStr(string name) =>
+            args.TryGetProperty(name, out var el) && el.ValueKind == JsonValueKind.String && el.GetString()!.Trim().Length > 0
+                ? el.GetString()!.Trim() : null;
+        var brand       = OptStr("brand");
+        var model       = OptStr("model");
+        var productCode = OptStr("product_code");
+        var productUrl  = OptStr("product_url");
+        var specs       = OptStr("specs");
+
         var unitPrice = args.TryGetProperty("unit_price", out var upEl) && upEl.ValueKind == JsonValueKind.Number
             ? upEl.GetDouble()
             : DemoUnitPrice(product);
@@ -128,6 +148,11 @@ public sealed class PurchaseOrderTool : ITool
             order_id           = orderId,
             status             = "confirmed",
             product,
+            brand,
+            model,
+            product_code       = productCode,
+            product_url        = productUrl,
+            specs,
             quantity,
             supplier,
             unit_price         = unitPrice,

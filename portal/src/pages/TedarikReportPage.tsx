@@ -175,6 +175,30 @@ export default function TedarikReportPage() {
                         {unit != null && <span className="text-white/50">{unit} {cur}/adet</span>}
                         {total != null && <span className="font-semibold text-emerald-300">Toplam {total.toLocaleString('tr-TR')} {cur}</span>}
                       </div>
+
+                      {/* Ürün detayı: marka/model/kod/özellik + gerçek link */}
+                      {(typeof a.brand === 'string' || typeof a.model === 'string' || typeof a.product_code === 'string' || typeof a.specs === 'string') && (
+                        <div className="mt-1 space-y-0.5 text-xs text-white/55">
+                          {(typeof a.brand === 'string' || typeof a.model === 'string') && (
+                            <div>
+                              <span className="text-white/35">Model: </span>
+                              {[typeof a.brand === 'string' ? a.brand : '', typeof a.model === 'string' ? a.model : ''].filter(Boolean).join(' ')}
+                            </div>
+                          )}
+                          {typeof a.product_code === 'string' && a.product_code && (
+                            <div><span className="text-white/35">Ürün kodu: </span><span className="font-mono">{a.product_code}</span></div>
+                          )}
+                          {typeof a.specs === 'string' && a.specs && (
+                            <div><span className="text-white/35">Özellikler: </span>{a.specs}</div>
+                          )}
+                        </div>
+                      )}
+                      {typeof a.product_url === 'string' && a.product_url && (
+                        <a href={a.product_url} target="_blank" rel="noreferrer"
+                          className="mt-1 inline-block text-xs text-blue-300 underline decoration-dotted hover:text-blue-200">
+                          Ürün sayfası ↗
+                        </a>
+                      )}
                       {typeof a.note === 'string' && a.note && (
                         <div className="mt-0.5 text-xs text-white/40">{a.note}</div>
                       )}
