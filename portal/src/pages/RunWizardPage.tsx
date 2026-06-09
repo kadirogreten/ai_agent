@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/Button'
 import { Select } from '@/components/ui/Select'
 import { Toggle } from '@/components/ui/Toggle'
 import { useAuthStore } from '@/stores/authStore'
+import { supabase } from '@/lib/supabaseClient'
 import { listPersonas, type PersonaRow } from '@/lib/personas'
 import { listDomainPacks, listPlaybooksForPersona, type PlaybookRow } from '@/lib/playbooks'
 import { createRunRequest } from '@/lib/runs'
@@ -115,13 +116,27 @@ export default function RunWizardPage() {
   const [model,      setModel]      = useState('gpt-4.1')
   const [web,        setWeb]        = useState(true)
   const [contrarian, setContrarian] = useState(false)
-  const [tools,      setTools]      = useState('')
+  const [availableTools, setAvailableTools] = useState<{ slug: string; name: string }[]>([])
+  const [selectedTools,  setSelectedTools]  = useState<string[]>([])
+  const [maxCalls,   setMaxCalls]   = useState(6)
   const [submitting, setSubmitting] = useState(false)
   const [err,        setErr]        = useState<string | null>(null)
+
+  // Araç izinleri serbest metin yerine seçilebilir liste: tools tablosundan (kod aynası) gelir.
+  function buildToolsString(): string | undefined {
+    if (selectedTools.length === 0) return undefined
+    return `tools: ${selectedTools.join(', ')}; max_calls: ${maxCalls}`
+  }
 
   useEffect(() => {
     if (!canRun) return
     listDomainPacks().then((res) => setPacks(res.data))
+    supabase
+      .from('tools')
+      .select('slug,name')
+      .eq('enabled', true)
+      .order('name')
+      .then((res) => setAvailableTools((res.data ?? []) as { slug: string; name: string }[]))
   }, [canRun])
 
   useEffect(() => {
@@ -161,7 +176,7 @@ export default function RunWizardPage() {
       risk: selectedPlaybook.default_risk,
       allow_high_risk: ['R2','R3'].includes(selectedPlaybook.default_risk),
       web, contrarian,
-      tools: tools.trim() || undefined,
+      tools: buildToolsString(),
     })
     setSubmitting(false)
     if (res.error || !res.id) { setErr(res.error ?? 'Yaratılamadı.'); return }
@@ -176,7 +191,7 @@ export default function RunWizardPage() {
       mode: 'ceo', domain_pack: packId, request_text: topic.trim(),
       answers_json: { topic: topic.trim() },
       model: model.trim() || undefined, risk: 'R1', web, contrarian,
-      tools: tools.trim() || undefined,
+      tools: buildToolsString(),
     })
     setSubmitting(false)
     if (res.error || !res.id) { setErr(res.error ?? 'Yaratılamadı.'); return }
@@ -408,12 +423,49 @@ export default function RunWizardPage() {
                     <Toggle checked={contrarian} onChange={setContrarian} label="Contrarian" />
                   </div>
                 </div>
-                <Input
-                  label="Araç izinleri (opsiyonel)"
-                  value={tools}
-                  onChange={(e) => setTools(e.target.value)}
-                  placeholder="tools: web_scrape; max_calls: 3"
-                />
+                <div>
+                  <div className="mb-1.5 text-xs font-medium text-white/50">Araçlar (opsiyonel)</div>
+                  <div className="flex flex-wrap gap-2">
+                    {availableTools.length === 0 && (
+                      <span className="text-xs text-white/30">Araç bulunamadı (Araçlar sayfasına bakın).</span>
+                    )}
+                    {availableTools.map((t) => {
+                      const on = selectedTools.includes(t.slug)
+                      return (
+                        <button
+                          key={t.slug}
+                          type="button"
+                          onClick={() =>
+                            setSelectedTools((prev) =>
+                              on ? prev.filter((s) => s !== t.slug) : [...prev, t.slug],
+                            )
+                          }
+                          className={`rounded-full border px-3 py-1 text-xs transition-colors ${
+                            on
+                              ? 'border-blue-500/60 bg-blue-500/15 text-blue-200'
+                              : 'border-white/10 bg-white/[0.04] text-white/60 hover:border-white/20'
+                          }`}
+                          title={t.slug}
+                        >
+                          {t.name}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  {selectedTools.length > 0 && (
+                    <div className="mt-2 flex items-center gap-2">
+                      <span className="text-xs text-white/40">Maks. çağrı</span>
+                      <input
+                        type="number"
+                        min={1}
+                        value={maxCalls}
+                        onChange={(e) => setMaxCalls(Number(e.target.value) || 1)}
+                        className="w-20 rounded-lg border border-white/[0.08] bg-white/[0.04] px-2 py-1 text-sm text-white outline-none focus:border-blue-500/60"
+                      />
+                      <span className="font-mono text-xs text-white/25">{buildToolsString()}</span>
+                    </div>
+                  )}
+                </div>
                 <div className="flex justify-end pt-1">
                   <Button size="lg" onClick={onSubmit} disabled={submitting || !topic.trim()} className="gap-2">
                     <Play size={16} />
