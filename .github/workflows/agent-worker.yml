@@ -44,7 +44,8 @@ jobs:
         uses: actions/cache@v4
         with:
           path: src/AgentArmy.Cli/obj
-          key: dotnet-obj-${{ runner.os }}-${{ hashFiles('src/**/*.csproj') }}
+          # Kaynak (.cs) değişince anahtar değişsin ki eski obj restore edilip derlemeyi gölgelemesin.
+          key: dotnet-obj-${{ runner.os }}-${{ hashFiles('src/**/*.cs', 'src/**/*.csproj') }}
           restore-keys: dotnet-obj-${{ runner.os }}-
 
       # dotnet build output cache
@@ -66,7 +67,9 @@ jobs:
           DOTNET_NOLOGO: "1"
 
       - name: Build .NET CLI
-        run: dotnet build src/AgentArmy.Cli --configuration Release --no-restore
+        # --no-incremental: cache'ten gelen eski obj/bin'in derlemeyi gölgelemesini engeller,
+        # her zaman güncel kaynaktan derler (kod değişiklikleri kesinlikle binary'ye yansır).
+        run: dotnet build src/AgentArmy.Cli --configuration Release --no-restore --no-incremental
         env:
           DOTNET_CLI_TELEMETRY_OPTOUT: "1"
           DOTNET_NOLOGO: "1"
