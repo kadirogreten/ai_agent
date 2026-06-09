@@ -52,6 +52,39 @@ export type PendingApproval = {
 
 export type ApprovalStep = { agent: string; content: string }
 
+export type ProductHit = { title: string | null; price: string | null; source: string | null; link: string }
+
+/** Bu run'da product_search aracının döndürdüğü GERÇEK sonuçlar (modelin metni değil, ham araç çıktısı). */
+export async function fetchProductSearchResults(runId: string): Promise<ProductHit[]> {
+  const res = await supabase
+    .from('tool_invocations')
+    .select('output, created_at')
+    .eq('run_id', runId)
+    .eq('tool_slug', 'product_search')
+    .order('created_at', { ascending: false })
+  if (res.error) return []
+
+  const hits: ProductHit[] = []
+  const seen = new Set<string>()
+  for (const row of res.data ?? []) {
+    const out = (row.output ?? {}) as { results?: unknown }
+    const results = Array.isArray(out.results) ? out.results : []
+    for (const r0 of results) {
+      const r = (r0 ?? {}) as Record<string, unknown>
+      const link = typeof r.link === 'string' ? r.link : null
+      if (!link || seen.has(link)) continue
+      seen.add(link)
+      hits.push({
+        title: typeof r.title === 'string' ? r.title : null,
+        price: typeof r.price === 'string' ? r.price : null,
+        source: typeof r.source === 'string' ? r.source : null,
+        link,
+      })
+    }
+  }
+  return hits
+}
+
 /** Onayın arkasındaki run'ın adım çıktılarını (stok/araştırma/karşılaştırma/öneri) getirir. */
 export async function fetchApprovalSteps(runId: string): Promise<ApprovalStep[]> {
   const res = await supabase

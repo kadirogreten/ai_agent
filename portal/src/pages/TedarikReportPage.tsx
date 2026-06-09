@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/Badge'
 import { PageHeader } from '@/components/PageHeader'
 import { motion } from 'framer-motion'
 import { PackageSearch } from 'lucide-react'
-import { fetchTedarikReport, decideApproval, fetchApprovalSteps, type TedarikReport, type ApprovalStep } from '@/lib/tedarikReport'
+import { fetchTedarikReport, decideApproval, fetchApprovalSteps, fetchProductSearchResults, type TedarikReport, type ApprovalStep, type ProductHit } from '@/lib/tedarikReport'
 
 type Tone = 'green' | 'yellow' | 'red' | 'blue' | 'gray'
 
@@ -44,13 +44,18 @@ export default function TedarikReportPage() {
   const [autoRefresh, setAutoRefresh] = useState(true)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [stepsCache, setStepsCache] = useState<Record<string, ApprovalStep[]>>({})
+  const [hitsCache, setHitsCache]   = useState<Record<string, ProductHit[]>>({})
 
   async function toggleSteps(approvalId: string, runId: string | null) {
     if (expandedId === approvalId) { setExpandedId(null); return }
     setExpandedId(approvalId)
     if (runId && !stepsCache[approvalId]) {
-      const steps = await fetchApprovalSteps(runId)
+      const [steps, hits] = await Promise.all([
+        fetchApprovalSteps(runId),
+        fetchProductSearchResults(runId),
+      ])
       setStepsCache((prev) => ({ ...prev, [approvalId]: steps }))
+      setHitsCache((prev) => ({ ...prev, [approvalId]: hits }))
     }
   }
 
@@ -213,6 +218,31 @@ export default function TedarikReportPage() {
                       </button>
                       {expandedId === p.id && (
                         <div className="mt-2 space-y-2 rounded-lg border border-white/[0.06] bg-black/20 p-3">
+                          {/* GERÇEK arama sonuçları — modelin metni değil, product_search ham çıktısı */}
+                          {(hitsCache[p.id]?.length ?? 0) > 0 && (
+                            <div className="mb-2">
+                              <div className="mb-1 text-[10px] font-semibold uppercase tracking-widest text-emerald-400/70">
+                                Gerçek arama sonuçları (product_search)
+                              </div>
+                              <div className="divide-y divide-white/[0.05]">
+                                {hitsCache[p.id].map((h, i) => (
+                                  <div key={i} className="flex items-start justify-between gap-3 py-1.5 text-xs">
+                                    <div className="min-w-0">
+                                      <a href={h.link} target="_blank" rel="noreferrer"
+                                        className="text-blue-300 underline decoration-dotted hover:text-blue-200">
+                                        {h.title ?? h.link}
+                                      </a>
+                                      {h.source && <span className="ml-2 text-white/35">{h.source}</span>}
+                                    </div>
+                                    {h.price && <span className="shrink-0 font-semibold text-emerald-300">{h.price}</span>}
+                                  </div>
+                                ))}
+                              </div>
+                              <div className="mt-1 text-[10px] text-white/25">
+                                Bu linkler aramadan birebir gelir (uydurma değil). Mağaza sayfaları çerez/bot duvarı gösterebilir; tarayıcıdan açılır.
+                              </div>
+                            </div>
+                          )}
                           {!p.run_id ? (
                             <div className="text-xs text-white/30">Bu onaya bağlı run bulunamadı.</div>
                           ) : steps === undefined ? (
