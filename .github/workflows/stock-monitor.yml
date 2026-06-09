@@ -1,0 +1,39 @@
+name: Stock Monitor Tick
+
+# Stok izleyici: stock_levels'ı tarar, eşik altına düşen ürünler için tedarik
+# araştırma+satın alma işini (e-ticaret-tedarik-tam-akis) kuyruğa atar.
+# Asıl çalıştırmayı agent-worker.yml yapar; bu yalnız tetikleme katmanıdır.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/15 * * * *"
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Cache npm deps
+        uses: actions/cache@v4
+        with:
+          path: portal/node_modules
+          key: npm-${{ runner.os }}-${{ hashFiles('portal/package-lock.json') }}
+          restore-keys: npm-${{ runner.os }}-
+
+      - name: Install portal deps
+        run: npm ci --prefix portal
+
+      - name: Run stock monitor tick
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: npx tsx portal/api/lib/stockMonitorTick.ts

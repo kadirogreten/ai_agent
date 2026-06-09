@@ -66,18 +66,18 @@ public sealed class PurchaseOrderTool : ITool
 
     private static readonly string[] Carriers = { "Yurtiçi Kargo", "Aras Kargo", "MNG Kargo", "PTT Kargo" };
 
-    public Task<ToolResult> InvokeAsync(JsonElement args, RunContext ctx, CancellationToken ct)
+    public async Task<ToolResult> InvokeAsync(JsonElement args, RunContext ctx, CancellationToken ct)
     {
         if (args.ValueKind != JsonValueKind.Object ||
             !args.TryGetProperty("product", out var pEl) || pEl.ValueKind != JsonValueKind.String ||
             string.IsNullOrWhiteSpace(pEl.GetString()))
         {
-            return Task.FromResult(ToolResult.Failure(Slug, "Zorunlu 'product' argümanı (string) eksik."));
+            return ToolResult.Failure(Slug, "Zorunlu 'product' argümanı (string) eksik.");
         }
         if (!args.TryGetProperty("quantity", out var qEl) || qEl.ValueKind != JsonValueKind.Number ||
             !qEl.TryGetInt32(out var quantity) || quantity < 1)
         {
-            return Task.FromResult(ToolResult.Failure(Slug, "Zorunlu 'quantity' argümanı (>=1 tamsayı) eksik/geçersiz."));
+            return ToolResult.Failure(Slug, "Zorunlu 'quantity' argümanı (>=1 tamsayı) eksik/geçersiz.");
         }
 
         var product  = pEl.GetString()!.Trim();
@@ -100,6 +100,29 @@ public sealed class PurchaseOrderTool : ITool
         var carrier  = Carriers[Math.Abs(supplier.GetHashCode()) % Carriers.Length];
         var eta      = now.AddDays(2 + Math.Abs(product.GetHashCode()) % 4); // 2–5 gün
 
+        // Onaylı sipariş sonrası stoğu yenile: stock_levels.current_stock += quantity.
+        // (Bu metot RiskGate'ten SONRA çalışır; yani yalnız İNSAN ONAYI alınmış siparişte tetiklenir.)
+        // Gerçekte stok teslimde artar; demoda sipariş anında yeniliyoruz ki döngü kapansın
+        // (stok eşik üstüne çıkar, izleyici aynı ürünü tekrar tetiklemez).
+        var stockReplenished = false;
+        if (ctx.Db is not null && !string.IsNullOrWhiteSpace(ctx.OwnerId))
+        {
+            try
+            {
+                await ctx.Db.CallRpcAsync("adjust_stock", new
+                {
+                    p_owner   = ctx.OwnerId,
+                    p_product = product,
+                    p_delta   = quantity,
+                }, ct);
+                stockReplenished = true;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[purchase_order] stok güncellenemedi: {ex.Message}");
+            }
+        }
+
         var output = JsonSerializer.SerializeToElement(new
         {
             order_id           = orderId,
@@ -114,10 +137,11 @@ public sealed class PurchaseOrderTool : ITool
             carrier,
             estimated_delivery = eta.ToString("yyyy-MM-dd"),
             placed_at          = now.ToString("o"),
+            stock_replenished  = stockReplenished,
         });
 
         // Geri-alma anahtarı: gerçek entegrasyonda cancel_order için kullanılır.
-        return Task.FromResult(ToolResult.Success(Slug, output, compensationToken: orderId));
+        return ToolResult.Success(Slug, output, compensationToken: orderId);
     }
 
     // ── Yardımcılar ──────────────────────────────────────────────────────────
