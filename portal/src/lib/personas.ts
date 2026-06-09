@@ -94,9 +94,15 @@ export async function getPersona(personaId: string) {
 }
 
 export async function createPersona(input: UpsertPersonaInput) {
+  // RLS: personas_insert WITH CHECK (tenant_id = auth.uid()). Built-in (tenant NULL) içerik
+  // yalnız service_role ile yazılır; portaldan oluşturulan içerik kullanıcının tenant'ına aittir.
+  // Worker (service_role) RLS'siz okuduğu için bu satırları yine bulur.
+  const { data: userData } = await supabase.auth.getUser()
+  if (!userData.user) return { id: null, error: 'Oturum bulunamadı' }
+
   const res = await supabase
     .from('personas')
-    .insert(input)
+    .insert({ ...input, tenant_id: userData.user.id })
     .select('id')
     .single()
 

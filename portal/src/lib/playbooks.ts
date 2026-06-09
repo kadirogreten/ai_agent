@@ -73,7 +73,16 @@ export async function getPlaybook(playbookId: string) {
 }
 
 export async function createPlaybook(input: UpsertPlaybookInput) {
-  const res = await supabase.from('playbooks').insert(input).select('id').single()
+  // RLS: playbooks_insert WITH CHECK (tenant_id = auth.uid()). Portaldan oluşturulan playbook
+  // kullanıcının tenant'ına aittir; worker (service_role) RLS'siz okuduğu için yine bulunur.
+  const { data: userData } = await supabase.auth.getUser()
+  if (!userData.user) return { id: null, error: 'Oturum bulunamadı' }
+
+  const res = await supabase
+    .from('playbooks')
+    .insert({ ...input, tenant_id: userData.user.id })
+    .select('id')
+    .single()
   return {
     id: (res.data?.id as string | undefined) ?? null,
     error: res.error?.message ?? null,

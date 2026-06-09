@@ -59,7 +59,16 @@ export async function getPlaybookBundle(bundleId: string) {
 }
 
 export async function createPlaybookBundle(input: UpsertBundleInput) {
-  const res = await supabase.from('playbook_bundles').insert(input).select('id').single()
+  // RLS: playbook_bundles_insert WITH CHECK (tenant_id = auth.uid()). Portaldan oluşturulan
+  // bundle kullanıcının tenant'ına aittir; worker (service_role) RLS'siz okur.
+  const { data: userData } = await supabase.auth.getUser()
+  if (!userData.user) return { id: null, error: 'Oturum bulunamadı' }
+
+  const res = await supabase
+    .from('playbook_bundles')
+    .insert({ ...input, tenant_id: userData.user.id })
+    .select('id')
+    .single()
   return {
     id: (res.data?.id as string | undefined) ?? null,
     error: res.error?.message ?? null,
