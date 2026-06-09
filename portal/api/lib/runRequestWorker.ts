@@ -492,6 +492,8 @@ async function processOne(supabase: ReturnType<typeof getSupabaseAdmin>, job: Ru
       OPENAI_API_KEY:              process.env.OPENAI_API_KEY,
       SUPABASE_URL:                process.env.SUPABASE_URL,
       SUPABASE_SERVICE_ROLE_KEY:   process.env.SUPABASE_SERVICE_ROLE_KEY,
+      SERPAPI_KEY:                 process.env.SERPAPI_KEY,   // product_search birincil backend
+      TAVILY_KEY:                  process.env.TAVILY_KEY,    // product_search yedek backend
       RUN_OWNER_USER_ID:           job.owner_user_id,
       // Sector Discovery hook için: Runner draft yazarken run_request_id bilsin.
       RUN_REQUEST_ID:              job.id,
