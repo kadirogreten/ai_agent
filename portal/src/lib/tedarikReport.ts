@@ -107,23 +107,32 @@ export async function fetchTedarikReport(): Promise<TedarikReport> {
     .order('created_at', { ascending: false })
     .limit(100)
   if (po.error) errors.push(po.error.message)
-  const orders: OrderRow[] = (po.data ?? []).map((iv) => {
-    const o = (iv.output ?? {}) as Json
-    return {
-      id: iv.id as string,
-      order_id: str(o.order_id),
-      product: str(o.product),
-      supplier: str(o.supplier),
-      quantity: num(o.quantity),
-      total: num(o.total),
-      currency: str(o.currency),
-      tracking_number: str(o.tracking_number),
-      carrier: str(o.carrier),
-      estimated_delivery: str(o.estimated_delivery),
-      status: (iv.status as string) ?? 'pending',
-      created_at: iv.created_at as string,
-    }
-  })
+  const seenOrder = new Set<string>()
+  const orders: OrderRow[] = (po.data ?? [])
+    .map((iv) => {
+      const o = (iv.output ?? {}) as Json
+      return {
+        id: iv.id as string,
+        order_id: str(o.order_id),
+        product: str(o.product),
+        supplier: str(o.supplier),
+        quantity: num(o.quantity),
+        total: num(o.total),
+        currency: str(o.currency),
+        tracking_number: str(o.tracking_number),
+        carrier: str(o.carrier),
+        estimated_delivery: str(o.estimated_delivery),
+        status: (iv.status as string) ?? 'pending',
+        created_at: iv.created_at as string,
+      }
+    })
+    // Aynı sipariş no'yu tekilleştir (en günceli kalır — created_at desc sıralı geldi).
+    .filter((o) => {
+      if (!o.order_id) return true
+      if (seenOrder.has(o.order_id)) return false
+      seenOrder.add(o.order_id)
+      return true
+    })
 
   // 3) Kargo takibi (cargo_track çağrıları)
   const ct = await supabase
@@ -133,17 +142,26 @@ export async function fetchTedarikReport(): Promise<TedarikReport> {
     .order('created_at', { ascending: false })
     .limit(100)
   if (ct.error) errors.push(ct.error.message)
-  const cargo: CargoRow[] = (ct.data ?? []).map((iv) => {
-    const o = (iv.output ?? {}) as Json
-    return {
-      id: iv.id as string,
-      tracking_number: str(o.tracking_number),
-      carrier: str(o.carrier),
-      status: str(o.status),
-      estimated_delivery: str(o.estimated_delivery),
-      created_at: iv.created_at as string,
-    }
-  })
+  const seenTrack = new Set<string>()
+  const cargo: CargoRow[] = (ct.data ?? [])
+    .map((iv) => {
+      const o = (iv.output ?? {}) as Json
+      return {
+        id: iv.id as string,
+        tracking_number: str(o.tracking_number),
+        carrier: str(o.carrier),
+        status: str(o.status),
+        estimated_delivery: str(o.estimated_delivery),
+        created_at: iv.created_at as string,
+      }
+    })
+    // Aynı takip no'yu tekilleştir (en güncel durum kalır).
+    .filter((c) => {
+      if (!c.tracking_number) return true
+      if (seenTrack.has(c.tracking_number)) return false
+      seenTrack.add(c.tracking_number)
+      return true
+    })
 
   // 4) Bekleyen satın alma onayları
   const aq = await supabase
