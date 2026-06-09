@@ -4,6 +4,7 @@ import { Card } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
 import { useAuthStore } from '@/stores/authStore'
+import { supabase } from '@/lib/supabaseClient'
 import {
   createPlaybook,
   deletePlaybook,
@@ -37,11 +38,12 @@ export default function PlaybookUpsertPage({ mode }: { mode: Mode }) {
   const [goal, setGoal] = useState('')
   const [defaultRisk, setDefaultRisk] = useState<'R0' | 'R1' | 'R2' | 'R3'>('R1')
   const [tags, setTags] = useState('')
-  const [requiredTools, setRequiredTools] = useState('')
+  const [requiredTools, setRequiredTools] = useState<string[]>([])
   const [version, setVersion] = useState(1)
   const [steps, setSteps] = useState<PlaybookStep[]>([emptyStep()])
 
   const [packs, setPacks] = useState<{ id: string; name: string }[]>([])
+  const [availableTools, setAvailableTools] = useState<{ slug: string; name: string }[]>([])
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [err, setErr] = useState<string | null>(null)
@@ -49,6 +51,12 @@ export default function PlaybookUpsertPage({ mode }: { mode: Mode }) {
   useEffect(() => {
     if (!canEdit) return
     listDomainPacks().then((res) => setPacks(res.data))
+    supabase
+      .from('tools')
+      .select('slug,name')
+      .eq('enabled', true)
+      .order('name')
+      .then((res) => setAvailableTools((res.data ?? []) as { slug: string; name: string }[]))
   }, [canEdit])
 
   useEffect(() => {
@@ -66,7 +74,7 @@ export default function PlaybookUpsertPage({ mode }: { mode: Mode }) {
       setGoal(p.goal ?? '')
       setDefaultRisk(p.default_risk)
       setTags((p.tags ?? []).join(', '))
-      setRequiredTools((p.required_tools ?? []).join(', '))
+      setRequiredTools(p.required_tools ?? [])
       setVersion(p.version)
       setSteps(p.steps?.length ? p.steps : [emptyStep()])
     })
@@ -106,7 +114,7 @@ export default function PlaybookUpsertPage({ mode }: { mode: Mode }) {
       goal: goal.trim() || null,
       steps,
       default_risk: defaultRisk,
-      required_tools: requiredTools.split(',').map((s) => s.trim()).filter(Boolean),
+      required_tools: requiredTools,
       tags: tags.split(',').map((s) => s.trim()).filter(Boolean),
       version,
     }
@@ -171,8 +179,34 @@ export default function PlaybookUpsertPage({ mode }: { mode: Mode }) {
             <Input value={tags} onChange={(e) => setTags(e.target.value)} placeholder="ecommerce, content" />
           </div>
           <div>
-            <div className="mb-1 text-xs text-white/60">Bağımlı Tool'lar (virgülle)</div>
-            <Input value={requiredTools} onChange={(e) => setRequiredTools(e.target.value)} placeholder="shopify_api, web_search" />
+            <div className="mb-1 text-xs text-white/60">Bağımlı Tool'lar</div>
+            <div className="flex flex-wrap gap-2">
+              {availableTools.length === 0 && (
+                <span className="text-xs text-white/30">Araç bulunamadı (Araçlar sayfası).</span>
+              )}
+              {availableTools.map((t) => {
+                const on = requiredTools.includes(t.slug)
+                return (
+                  <button
+                    key={t.slug}
+                    type="button"
+                    onClick={() =>
+                      setRequiredTools((prev) =>
+                        on ? prev.filter((s) => s !== t.slug) : [...prev, t.slug],
+                      )
+                    }
+                    className={`rounded-full border px-3 py-1 text-xs transition-colors ${
+                      on
+                        ? 'border-blue-500/60 bg-blue-500/15 text-blue-200'
+                        : 'border-white/10 bg-white/[0.04] text-white/60 hover:border-white/20'
+                    }`}
+                    title={t.slug}
+                  >
+                    {t.name}
+                  </button>
+                )
+              })}
+            </div>
           </div>
           <div>
             <div className="mb-1 text-xs text-white/60">Versiyon</div>
