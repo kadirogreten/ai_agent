@@ -114,7 +114,15 @@ public sealed class OpenAiResponsesClient : ILlmClient
         }
 
         var toolDefs = BuildFunctionTools(tools);
-        var payload  = BuildPayload(input.ToArray(), tools: toolDefs, includeTemperature: true);
+
+        // Deterministik araç çağrısı: araç-yetkili adımın İLK turunda (henüz çağrı yapılmamışken)
+        // ve gerçek bir fonksiyon aracı varsa, modeli bir araç çağırmaya ZORLA ("required").
+        // Böylece Operator metinle "anlatıp" geçemez. Araç çalıştıktan sonra (priorExchanges dolu)
+        // serbest bırakılır ki sonucu yorumlayıp adımı bitirebilsin.
+        var hasFunctionTool = tools is { Count: > 0 };
+        var toolChoice = hasFunctionTool && priorExchanges.Count == 0 ? "required" : null;
+
+        var payload  = BuildPayload(input.ToArray(), tools: toolDefs, includeTemperature: true, toolChoice: toolChoice);
         var respText = await PostWithFallbackAsync(payload, cancellationToken);
         return ExtractTurn(respText);
     }
@@ -239,7 +247,7 @@ public sealed class OpenAiResponsesClient : ILlmClient
         return empty.RootElement.Clone();
     }
 
-    private Dictionary<string, object?> BuildPayload(object input, object[]? tools, bool includeTemperature)
+    private Dictionary<string, object?> BuildPayload(object input, object[]? tools, bool includeTemperature, string? toolChoice = null)
     {
         var payload = new Dictionary<string, object?>
         {
@@ -250,6 +258,11 @@ public sealed class OpenAiResponsesClient : ILlmClient
         if (tools is not null)
         {
             payload["tools"] = tools;
+        }
+
+        if (toolChoice is not null)
+        {
+            payload["tool_choice"] = toolChoice;
         }
 
         if (includeTemperature)
