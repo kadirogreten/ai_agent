@@ -84,13 +84,18 @@ export async function fetchTedarikReport(): Promise<TedarikReport> {
   const triggers: StockTrigger[] = (rr.data ?? [])
     .filter((r) => {
       const a = (r.answers_json ?? {}) as Json
-      return typeof a.stock_trigger_product === 'string'
+      const pb = typeof a.playbookId === 'string' ? a.playbookId : ''
+      // Stok-tetikli işler + manuel tedarik playbook çalıştırmaları.
+      return typeof a.stock_trigger_product === 'string' || pb.includes('tedarik')
     })
     .map((r) => {
       const a = (r.answers_json ?? {}) as Json
+      const product = typeof a.stock_trigger_product === 'string'
+        ? (a.stock_trigger_product as string)
+        : ((r.request_text as string) ?? '—')
       return {
         id: r.id as string,
-        product: (a.stock_trigger_product as string) ?? '—',
+        product,
         current_stock: num(a.current_stock),
         threshold: num(a.threshold),
         reorder_quantity: num(a.reorder_quantity),

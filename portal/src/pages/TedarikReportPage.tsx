@@ -163,8 +163,12 @@ export default function TedarikReportPage() {
                   <div key={t.id} className="flex items-center justify-between gap-4 px-4 py-3">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-sm font-medium text-white/90">{t.product}</span>
-                        <Badge tone="red">stok {t.current_stock ?? '—'} / eşik {t.threshold ?? '—'}</Badge>
+                        <span className="max-w-[28rem] truncate text-sm font-medium text-white/90">{t.product}</span>
+                        {t.current_stock != null ? (
+                          <Badge tone="red">stok {t.current_stock} / eşik {t.threshold ?? '—'}</Badge>
+                        ) : (
+                          <Badge tone="gray">manuel araştırma</Badge>
+                        )}
                         {t.reorder_quantity != null && <span className="text-xs text-white/40">öneri {t.reorder_quantity} adet</span>}
                       </div>
                       <div className="mt-0.5 text-xs text-white/30">{fmtDate(t.created_at)}</div>
