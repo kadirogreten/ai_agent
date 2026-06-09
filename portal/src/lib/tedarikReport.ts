@@ -42,9 +42,27 @@ export type CargoRow = {
 
 export type PendingApproval = {
   id: string
+  run_id: string | null          // RiskGate step_name = runId; öneri/adımlar buradan çekilir
   action_summary: string
+  tool: string | null
+  args: Record<string, unknown> | null   // purchase_order parametreleri (ürün, adet, tedarikçi, fiyat)
   risk_level: string | null
   created_at: string
+}
+
+export type ApprovalStep = { agent: string; content: string }
+
+/** Onayın arkasındaki run'ın adım çıktılarını (stok/araştırma/karşılaştırma/öneri) getirir. */
+export async function fetchApprovalSteps(runId: string): Promise<ApprovalStep[]> {
+  const res = await supabase
+    .from('run_outputs')
+    .select('step_id, agent_id, output_type, content_md, created_at')
+    .eq('run_id', runId)
+    .order('created_at', { ascending: true })
+  if (res.error) return []
+  return (res.data ?? [])
+    .filter((r) => r.output_type === 'step' && typeof r.content_md === 'string' && r.content_md.trim())
+    .map((r) => ({ agent: (r.agent_id as string) ?? '—', content: r.content_md as string }))
 }
 
 export type TedarikReport = {
@@ -171,19 +189,26 @@ export async function fetchTedarikReport(): Promise<TedarikReport> {
   // 4) Bekleyen satın alma onayları
   const aq = await supabase
     .from('approval_queue')
-    .select('id, action_summary, status, risk_level, created_at')
+    .select('id, action_summary, status, risk_level, step_name, action_detail, created_at')
     .eq('status', 'pending')
     .order('created_at', { ascending: false })
     .limit(50)
   if (aq.error) errors.push(aq.error.message)
   const pendingApprovals: PendingApproval[] = (aq.data ?? [])
     .filter((a) => ((a.action_summary as string) ?? '').includes('purchase_order'))
-    .map((a) => ({
-      id: a.id as string,
-      action_summary: (a.action_summary as string) ?? 'tool:purchase_order',
-      risk_level: str(a.risk_level),
-      created_at: a.created_at as string,
-    }))
+    .map((a) => {
+      const ad = (a.action_detail ?? {}) as Json
+      const args = (ad.args && typeof ad.args === 'object') ? (ad.args as Record<string, unknown>) : null
+      return {
+        id: a.id as string,
+        run_id: str(a.step_name),
+        action_summary: (a.action_summary as string) ?? 'tool:purchase_order',
+        tool: str(ad.tool),
+        args,
+        risk_level: str(a.risk_level),
+        created_at: a.created_at as string,
+      }
+    })
 
   return { triggers, orders, cargo, pendingApprovals, error: errors[0] ?? null }
 }

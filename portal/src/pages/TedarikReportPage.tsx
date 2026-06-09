@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/Badge'
 import { PageHeader } from '@/components/PageHeader'
 import { motion } from 'framer-motion'
 import { PackageSearch } from 'lucide-react'
-import { fetchTedarikReport, decideApproval, type TedarikReport } from '@/lib/tedarikReport'
+import { fetchTedarikReport, decideApproval, fetchApprovalSteps, type TedarikReport, type ApprovalStep } from '@/lib/tedarikReport'
 
 type Tone = 'green' | 'yellow' | 'red' | 'blue' | 'gray'
 
@@ -42,6 +42,17 @@ export default function TedarikReportPage() {
   const [loading, setLoading] = useState(false)
   const [acting,  setActing]  = useState<string | null>(null)
   const [autoRefresh, setAutoRefresh] = useState(true)
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [stepsCache, setStepsCache] = useState<Record<string, ApprovalStep[]>>({})
+
+  async function toggleSteps(approvalId: string, runId: string | null) {
+    if (expandedId === approvalId) { setExpandedId(null); return }
+    setExpandedId(approvalId)
+    if (runId && !stepsCache[approvalId]) {
+      const steps = await fetchApprovalSteps(runId)
+      setStepsCache((prev) => ({ ...prev, [approvalId]: steps }))
+    }
+  }
 
   useEffect(() => { init() }, [init])
 
@@ -131,23 +142,72 @@ export default function TedarikReportPage() {
             <Card className="overflow-hidden border border-amber-500/20">
               <SectionHead>Bekleyen satın alma onayları</SectionHead>
               <div className="divide-y divide-white/[0.06]">
-                {pending.map((p) => (
-                  <div key={p.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 text-sm">
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono text-xs text-white/70">{p.action_summary}</span>
-                      {p.risk_level && <Badge tone="red">{p.risk_level}</Badge>}
-                      <span className="text-xs text-white/30">{fmtDate(p.created_at)}</span>
+                {pending.map((p) => {
+                  const a = p.args ?? {}
+                  const qty = typeof a.quantity === 'number' ? a.quantity : null
+                  const unit = typeof a.unit_price === 'number' ? a.unit_price : null
+                  const total = qty != null && unit != null ? qty * unit : null
+                  const cur = typeof a.currency === 'string' ? a.currency : 'TRY'
+                  const steps = stepsCache[p.id]
+                  return (
+                    <div key={p.id} className="px-4 py-3 text-sm">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-mono text-xs text-white/50">tool:purchase_order</span>
+                          {p.risk_level && <Badge tone="red">{p.risk_level}</Badge>}
+                          <span className="text-xs text-white/30">{fmtDate(p.created_at)}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Button size="sm" onClick={() => decide(p.id, 'approved')} disabled={acting === p.id}>
+                            {acting === p.id ? '…' : 'Onayla'}
+                          </Button>
+                          <Button variant="outline" size="sm" onClick={() => decide(p.id, 'rejected')} disabled={acting === p.id}>
+                            Reddet
+                          </Button>
+                        </div>
+                      </div>
+
+                      {/* Sipariş özeti — onaylanacak somut karar */}
+                      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-white/80">
+                        <span className="font-medium">{typeof a.product === 'string' ? a.product : '—'}</span>
+                        {qty != null && <span>{qty.toLocaleString('tr-TR')} adet</span>}
+                        {typeof a.supplier === 'string' && <span>· {a.supplier}</span>}
+                        {unit != null && <span className="text-white/50">{unit} {cur}/adet</span>}
+                        {total != null && <span className="font-semibold text-emerald-300">Toplam {total.toLocaleString('tr-TR')} {cur}</span>}
+                      </div>
+                      {typeof a.note === 'string' && a.note && (
+                        <div className="mt-0.5 text-xs text-white/40">{a.note}</div>
+                      )}
+
+                      {/* Gerekçe: araştırma + tedarikçi karşılaştırması (run adım çıktıları) */}
+                      <button
+                        type="button"
+                        onClick={() => toggleSteps(p.id, p.run_id)}
+                        className="mt-2 text-xs text-blue-300 hover:text-blue-200"
+                      >
+                        {expandedId === p.id ? '▾ Gerekçeyi gizle' : '▸ Gerekçe & tedarikçi karşılaştırması'}
+                      </button>
+                      {expandedId === p.id && (
+                        <div className="mt-2 space-y-2 rounded-lg border border-white/[0.06] bg-black/20 p-3">
+                          {!p.run_id ? (
+                            <div className="text-xs text-white/30">Bu onaya bağlı run bulunamadı.</div>
+                          ) : steps === undefined ? (
+                            <div className="text-xs text-white/30">Yükleniyor…</div>
+                          ) : steps.length === 0 ? (
+                            <div className="text-xs text-white/30">Adım çıktısı bulunamadı.</div>
+                          ) : (
+                            steps.map((s, i) => (
+                              <div key={i}>
+                                <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-widest text-white/30">{s.agent}</div>
+                                <pre className="whitespace-pre-wrap break-words text-xs text-white/70">{s.content}</pre>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      )}
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Button size="sm" onClick={() => decide(p.id, 'approved')} disabled={acting === p.id}>
-                        {acting === p.id ? '…' : 'Onayla'}
-                      </Button>
-                      <Button variant="outline" size="sm" onClick={() => decide(p.id, 'rejected')} disabled={acting === p.id}>
-                        Reddet
-                      </Button>
-                    </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             </Card>
           )}
