@@ -67,11 +67,13 @@ public sealed class ProductSearchTool : ITool
             return ToolResult.Failure(Slug, "Zorunlu 'query' argümanı (string) eksik.");
         }
 
-        var serpKey   = Environment.GetEnvironmentVariable("SERPAPI_KEY");
+        // Serper.dev anahtarı; geriye uyumluluk için SERPAPI_KEY env'i de okunur (aynı secret).
+        var serperKey = Environment.GetEnvironmentVariable("SERPER_KEY")
+                     ?? Environment.GetEnvironmentVariable("SERPAPI_KEY");
         var tavilyKey = Environment.GetEnvironmentVariable("TAVILY_KEY");
-        if (string.IsNullOrWhiteSpace(serpKey) && string.IsNullOrWhiteSpace(tavilyKey))
+        if (string.IsNullOrWhiteSpace(serperKey) && string.IsNullOrWhiteSpace(tavilyKey))
             return ToolResult.Failure(Slug,
-                "SERPAPI_KEY/TAVILY_KEY yapılandırılmamış — gerçek ürün araması yapılamıyor. (Fiyat/link uydurma.)");
+                "SERPER_KEY/TAVILY_KEY yapılandırılmamış — gerçek ürün araması yapılamıyor. (Fiyat/link uydurma.)");
 
         var query = qEl.GetString()!.Trim();
 
@@ -88,27 +90,27 @@ public sealed class ProductSearchTool : ITool
         List<object>? results = null;
         var sourceApi = "";
 
-        // 1) SerpAPI Google Shopping (fiyatlı sonuç)
-        if (!string.IsNullOrWhiteSpace(serpKey))
+        // 1) Serper.dev Shopping (fiyatlı sonuç)
+        if (!string.IsNullOrWhiteSpace(serperKey))
         {
             try
             {
-                results = await SerpApiShoppingAsync(serpKey!, query, n, gl, hl, ct);
-                if (results.Count > 0) sourceApi = "serpapi-shopping";
-                else errors.Add("serpapi-shopping: 0 sonuç (TR Google Shopping kapsamı / genel sorgu)");
+                results = await SerperShoppingAsync(serperKey!, query, n, gl, hl, ct);
+                if (results.Count > 0) sourceApi = "serper-shopping";
+                else errors.Add("serper-shopping: 0 sonuç (genel sorgu olabilir)");
             }
-            catch (Exception ex) { errors.Add($"serpapi-shopping: {ex.Message}"); }
+            catch (Exception ex) { errors.Add($"serper-shopping: {ex.Message}"); }
         }
 
-        // 2) SerpAPI Google organic (gerçek URL, fiyatsız) — shopping boşsa
-        if ((results is null || results.Count == 0) && !string.IsNullOrWhiteSpace(serpKey))
+        // 2) Serper.dev Web (gerçek URL, fiyatsız) — shopping boşsa
+        if ((results is null || results.Count == 0) && !string.IsNullOrWhiteSpace(serperKey))
         {
             try
             {
-                results = await SerpApiOrganicAsync(serpKey!, query, n, gl, hl, ct);
-                if (results.Count > 0) sourceApi = "serpapi-organic";
+                results = await SerperWebAsync(serperKey!, query, n, gl, hl, ct);
+                if (results.Count > 0) sourceApi = "serper-web";
             }
-            catch (Exception ex) { errors.Add($"serpapi-organic: {ex.Message}"); }
+            catch (Exception ex) { errors.Add($"serper-web: {ex.Message}"); }
         }
 
         // 3) Tavily (her ikisi de yok/boş/başarısızsa)
@@ -144,31 +146,27 @@ public sealed class ProductSearchTool : ITool
         return ToolResult.Success(Slug, output);
     }
 
-    // ── SerpAPI / Google Shopping (fiyatlı) ───────────────────────────────────
+    // ── Serper.dev Shopping (fiyatlı) ─────────────────────────────────────────
 
-    private static async Task<List<object>> SerpApiShoppingAsync(
+    private static async Task<List<object>> SerperShoppingAsync(
         string key, string query, int n, string gl, string hl, CancellationToken ct)
     {
-        var body = await SerpApiGetAsync("google_shopping", key, query, n, gl, hl, ct);
+        var body = await SerperPostAsync("https://google.serper.dev/shopping", key, query, n, gl, hl, ct);
 
         var list = new List<object>();
         using var doc = JsonDocument.Parse(body);
-        var root = doc.RootElement;
-        if (root.TryGetProperty("error", out var errEl) && errEl.ValueKind == JsonValueKind.String)
-            throw new InvalidOperationException(errEl.GetString()!);
-
-        if (root.TryGetProperty("shopping_results", out var shopping) && shopping.ValueKind == JsonValueKind.Array)
+        if (doc.RootElement.TryGetProperty("shopping", out var shopping) && shopping.ValueKind == JsonValueKind.Array)
         {
             foreach (var r in shopping.EnumerateArray())
             {
                 if (list.Count >= n) break;
-                var link = Str(r, "product_link") ?? Str(r, "link");
+                var link = Str(r, "link");
                 if (link is null) continue;
                 list.Add(new
                 {
                     title       = Str(r, "title"),
                     price       = Str(r, "price"),
-                    price_value = NumOrNull(r, "extracted_price"),
+                    price_value = (double?)null,
                     source      = Str(r, "source"),
                     link,
                 });
@@ -177,20 +175,16 @@ public sealed class ProductSearchTool : ITool
         return list;
     }
 
-    // ── SerpAPI / Google organic (gerçek URL, fiyatsız) ───────────────────────
+    // ── Serper.dev Web (gerçek URL, fiyatsız) ─────────────────────────────────
 
-    private static async Task<List<object>> SerpApiOrganicAsync(
+    private static async Task<List<object>> SerperWebAsync(
         string key, string query, int n, string gl, string hl, CancellationToken ct)
     {
-        var body = await SerpApiGetAsync("google", key, query, n, gl, hl, ct);
+        var body = await SerperPostAsync("https://google.serper.dev/search", key, query, n, gl, hl, ct);
 
         var list = new List<object>();
         using var doc = JsonDocument.Parse(body);
-        var root = doc.RootElement;
-        if (root.TryGetProperty("error", out var errEl) && errEl.ValueKind == JsonValueKind.String)
-            throw new InvalidOperationException(errEl.GetString()!);
-
-        if (root.TryGetProperty("organic_results", out var organic) && organic.ValueKind == JsonValueKind.Array)
+        if (doc.RootElement.TryGetProperty("organic", out var organic) && organic.ValueKind == JsonValueKind.Array)
         {
             foreach (var r in organic.EnumerateArray())
             {
@@ -210,21 +204,23 @@ public sealed class ProductSearchTool : ITool
         return list;
     }
 
-    private static async Task<string> SerpApiGetAsync(
-        string engine, string key, string query, int n, string gl, string hl, CancellationToken ct)
+    private static async Task<string> SerperPostAsync(
+        string endpoint, string key, string query, int n, string gl, string hl, CancellationToken ct)
     {
-        var url = "https://serpapi.com/search.json"
-                + $"?engine={engine}"
-                + $"&q={Uri.EscapeDataString(query)}"
-                + $"&gl={Uri.EscapeDataString(gl)}"
-                + $"&hl={Uri.EscapeDataString(hl)}"
-                + $"&num={n}"
-                + $"&api_key={Uri.EscapeDataString(key)}";
+        var payload = JsonSerializer.Serialize(new { q = query, gl, hl, num = n });
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(TimeSpan.FromSeconds(25));
-        var resp = await HttpRetry.SendAsync(HttpClientPool.Shared,
-            () => new HttpRequestMessage(HttpMethod.Get, url), cts.Token);
+        var resp = await HttpRetry.SendAsync(HttpClientPool.Shared, () =>
+        {
+            var req = new HttpRequestMessage(HttpMethod.Post, endpoint)
+            {
+                Content = new StringContent(payload, Encoding.UTF8, "application/json")
+            };
+            req.Headers.TryAddWithoutValidation("X-API-KEY", key);
+            return req;
+        }, cts.Token);
+
         var body = await resp.Content.ReadAsStringAsync(cts.Token);
         if (!resp.IsSuccessStatusCode)
             throw new InvalidOperationException($"HTTP {(int)resp.StatusCode}: {Trunc(body, 160)}");
@@ -289,9 +285,6 @@ public sealed class ProductSearchTool : ITool
 
     private static string? Str(JsonElement obj, string name)
         => obj.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
-
-    private static double? NumOrNull(JsonElement obj, string name)
-        => obj.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetDouble(out var d) ? d : null;
 
     private static string Trunc(string s, int max) => s.Length <= max ? s : s[..max];
 
