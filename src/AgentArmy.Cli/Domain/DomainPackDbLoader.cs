@@ -89,11 +89,19 @@ public static class DomainPackDbLoader
     {
         using var http = BuildClient(supabase);
 
+        // Playbook'u önce aktif pack'te, bulunamazsa cross-domain "default" pack'te ara.
+        // Kök (repo kökü) playbook'lar sync-to-db ile pack_id='default' altında saklanır;
+        // bu yüzden her pack'ten erişilebilmeleri için fallback gerekir. (Persona yükleyici
+        // ile aynı desen.)
+        var packFilter = string.Equals(packId, "default", StringComparison.OrdinalIgnoreCase)
+            ? $"pack_id=eq.{Uri.EscapeDataString(packId)}"
+            : $"pack_id=in.({Uri.EscapeDataString(packId)},default)";
+
         var url = $"{supabase.EffectiveUrl}/rest/v1/playbooks" +
                   $"?slug=eq.{Uri.EscapeDataString(slug)}" +
-                  $"&pack_id=eq.{Uri.EscapeDataString(packId)}" +
-                  $"&select=slug,name,description,goal,steps,default_risk,required_tools,tags,content_json,version" +
-                  $"&limit=1";
+                  $"&{packFilter}" +
+                  $"&select=slug,pack_id,name,description,goal,steps,default_risk,required_tools,tags,content_json,version" +
+                  $"&limit=10";
 
         var response = await http.GetAsync(url, ct);
         var body = await response.Content.ReadAsStringAsync(ct);
@@ -108,7 +116,11 @@ public static class DomainPackDbLoader
 
         if (rows is null || rows.Count == 0) return null;
 
-        return rows[0].ToPlaybook();
+        // Pack'e özel satır varsa onu tercih et; yoksa (cross-domain) ilk satıra düş.
+        var primary = rows.Find(r =>
+            string.Equals(r.PackId, packId, StringComparison.OrdinalIgnoreCase)) ?? rows[0];
+
+        return primary.ToPlaybook();
     }
 
     /// <summary>
@@ -257,6 +269,7 @@ public static class DomainPackDbLoader
     public sealed class DbPlaybookRow
     {
         [JsonPropertyName("slug")]          public string Slug { get; set; } = "";
+        [JsonPropertyName("pack_id")]       public string? PackId { get; set; }
         [JsonPropertyName("name")]          public string Name { get; set; } = "";
         [JsonPropertyName("description")]   public string? Description { get; set; }
         [JsonPropertyName("goal")]          public string? Goal { get; set; }
