@@ -1,75 +1,20 @@
-using System.Text.Json;
-
 namespace AgentArmy.Cli;
 
+/// <summary>
+/// Playbook yükleyici — DB-first, dosya yok.
+/// İçerik tek kaynak olarak Supabase'te yaşar; repo'da playbook JSON dosyası tutulmaz.
+/// </summary>
 public static class PlaybookLoader
 {
-    // ── Liste ─────────────────────────────────────────────────
-
+    /// <summary>
+    /// Listeleme artık DB tarafında yapılır (DomainPackDbLoader / CeoPlanner DB sorgusu).
+    /// Dosya taraması kaldırıldı; geriye uyumluluk için boş döner.
+    /// </summary>
     public static IEnumerable<string> ListPlaybooks(string rootDir, DomainPack? domainPack)
-    {
-        var ids = new List<string>();
-
-        var defaultDir = Path.Combine(rootDir, "playbooks");
-        if (Directory.Exists(defaultDir))
-        {
-            ids.AddRange(
-                Directory.GetFiles(defaultDir, "*.json")
-                    .Select(path => Path.GetFileNameWithoutExtension(path) ?? string.Empty)
-                    .Where(id => !string.IsNullOrWhiteSpace(id))
-            );
-        }
-
-        if (domainPack is not null && !domainPack.LoadedFromDb
-            && Directory.Exists(domainPack.PlaybooksDir))
-        {
-            ids.AddRange(
-                Directory.GetFiles(domainPack.PlaybooksDir, "*.json")
-                    .Select(path => Path.GetFileNameWithoutExtension(path) ?? string.Empty)
-                    .Where(id => !string.IsNullOrWhiteSpace(id))
-            );
-        }
-
-        return ids
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(id => id);
-    }
-
-    // ── Yükleme (senkron, dosya) ──────────────────────────────
-
-    public static Playbook Load(string rootDir, DomainPack? domainPack, string playbookId)
-    {
-        var path = Path.Combine(rootDir, "playbooks", playbookId + ".json");
-        if (domainPack is not null && !domainPack.LoadedFromDb)
-        {
-            var packPath = Path.Combine(domainPack.PlaybooksDir, playbookId + ".json");
-            if (File.Exists(packPath)) path = packPath;
-        }
-        if (!File.Exists(path))
-        {
-            throw new FileNotFoundException($"Playbook not found: {playbookId}", path);
-        }
-
-        var json = File.ReadAllText(path);
-        var playbook = JsonSerializer.Deserialize<Playbook>(json, new JsonSerializerOptions
-        {
-            PropertyNameCaseInsensitive = true
-        });
-
-        if (playbook is null)
-        {
-            throw new InvalidOperationException($"Invalid playbook json: {path}");
-        }
-
-        return playbook;
-    }
-
-    // ── Yükleme (async, DB-first) ─────────────────────────────
+        => Array.Empty<string>();
 
     /// <summary>
-    /// DB-first playbook yükleyici.
-    /// <paramref name="supabase"/> yapılandırılmışsa önce DB'yi dener,
-    /// aksi hâlde <see cref="Load"/> senkron fallback'e düşer.
+    /// DB-first playbook yükleyici. Supabase yapılandırılmış olmalıdır; dosya fallback yoktur.
     /// </summary>
     public static async Task<Playbook> LoadAsync(
         string rootDir,
@@ -78,16 +23,15 @@ public static class PlaybookLoader
         LocalConfig.SupabaseConfigSection? supabase = null,
         CancellationToken ct = default)
     {
-        // DB-first: supabase config varsa DB'den yükle, dosyaya fallback yok
-        if (supabase?.IsConfigured == true && domainPack is not null)
-        {
-            var pb = await DomainPackDbLoader.TryLoadPlaybookAsync(
-                supabase, domainPack.Id, playbookId, ct);
-            if (pb is not null) return pb;
-            throw new InvalidOperationException($"Playbook not found: {playbookId}");
-        }
+        if (supabase?.IsConfigured != true || domainPack is null)
+            throw new InvalidOperationException(
+                $"DB-first: '{playbookId}' yüklenemiyor — Supabase yapılandırılmamış veya domain pack yok. " +
+                "İçerik DB'de (playbooks tablosu) tutulur; repo'da JSON yoktur.");
 
-        // Supabase yapılandırılmamışsa dosya sistemine bak (yerel geliştirme)
-        return Load(rootDir, domainPack, playbookId);
+        var pb = await DomainPackDbLoader.TryLoadPlaybookAsync(supabase, domainPack.Id, playbookId, ct);
+        if (pb is not null) return pb;
+
+        throw new InvalidOperationException(
+            $"Playbook not found: {playbookId} (pack={domainPack.Id}). Portaldan oluşturun.");
     }
 }

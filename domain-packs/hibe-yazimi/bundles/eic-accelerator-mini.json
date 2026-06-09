@@ -1,9 +1,0 @@
-{
-  "version": 1,
-  "id": "eic-accelerator-mini",
-  "title": "EU EIC — ön pitch mini paket (yenilik + pitch)",
-  "playbooks": [
-    "yenilik-iddiasi-uret",
-    "ab-eic-pre-pitch"
-  ]
-}

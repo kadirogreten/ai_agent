@@ -21,6 +21,7 @@ import CostLedgerPage from '@/pages/CostLedgerPage'
 import ApprovalQueuePage from '@/pages/ApprovalQueuePage'
 import AuditLogPage from '@/pages/AuditLogPage'
 import ToolsPage from '@/pages/ToolsPage'
+import StockPage from '@/pages/StockPage'
 import SectorBuilderPage from '@/pages/SectorBuilderPage'
 import PackDraftReviewPage from '@/pages/PackDraftReviewPage'
 import PersonasPage from '@/pages/PersonasPage'
@@ -81,6 +82,7 @@ export default function App() {
           <Route path="agents/new" element={<AgentUpsertPage mode="new" />} />
           <Route path="agents/:agentId/edit" element={<AgentUpsertPage mode="edit" />} />
           <Route path="tools" element={<ToolsPage />} />
+          <Route path="stock" element={<StockPage />} />
           <Route path="cost-ledger" element={<CostLedgerPage />} />
           <Route path="approval-queue" element={<ApprovalQueuePage />} />
           <Route path="audit-log" element={<AuditLogPage />} />

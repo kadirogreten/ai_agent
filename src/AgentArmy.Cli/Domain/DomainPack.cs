@@ -52,47 +52,9 @@ public static class DomainPackLoader
     }
 
     /// <summary>
-    /// Geriye dönük uyumluluk: senkron, sadece dosya sistemi.
+    /// Senkron yardımcı. DB-first geçişte dosya yüklemesi kaldırıldı; her zaman null döner.
+    /// Pack yüklemesi için <see cref="TryLoadAsync"/> (DB) kullanılır.
     /// </summary>
-    public static DomainPack? TryLoad(string repoRoot, string? id)
-    {
-        if (string.IsNullOrWhiteSpace(id)) return null;
-        return TryLoadFromFiles(repoRoot, id);
-    }
-
-    private static DomainPack? TryLoadFromFiles(string repoRoot, string id)
-    {
-        var packRoot = Path.Combine(repoRoot, "domain-packs", id);
-        if (!Directory.Exists(packRoot)) return null;
-
-        var allowedDomainsPath = Path.Combine(packRoot, "allowed-domains.txt");
-        var allowedDomains = File.Exists(allowedDomainsPath)
-            ? File.ReadAllLines(allowedDomainsPath)
-                .Select(l => l.Trim())
-                .Where(l => !string.IsNullOrWhiteSpace(l) && !l.StartsWith("#", StringComparison.Ordinal))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToArray()
-            : Array.Empty<string>();
-
-        var verifierRubricPath = Path.Combine(packRoot, "rubrics", "verifier.md");
-        var rubric = File.Exists(verifierRubricPath) ? File.ReadAllText(verifierRubricPath) : null;
-
-        var glossaryPath = Path.Combine(packRoot, "glossary.md");
-        var glossary = File.Exists(glossaryPath) ? File.ReadAllText(glossaryPath) : null;
-
-        var regPath = Path.Combine(packRoot, "regulatory_notes.md");
-        var regNotes = File.Exists(regPath) ? File.ReadAllText(regPath) : null;
-
-        return new DomainPack
-        {
-            Id            = id,
-            RootDir       = repoRoot,
-            AllowedDomains = allowedDomains,
-            VerifierRubric = rubric,
-            GlossaryMd    = glossary,
-            RegulatoryNotesMd = regNotes,
-            LoadedFromDb  = false
-        };
-    }
+    public static DomainPack? TryLoad(string repoRoot, string? id) => null;
 }
 

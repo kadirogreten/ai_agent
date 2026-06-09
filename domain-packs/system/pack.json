@@ -1,8 +1,0 @@
-{
-  "version": 1,
-  "id": "system",
-  "name": "System",
-  "description": "AgentArmy sistem playbook'ları ve meta-akışlar.",
-  "playbooksDirectory": "playbooks",
-  "bundlesDirectory": "bundles"
-}

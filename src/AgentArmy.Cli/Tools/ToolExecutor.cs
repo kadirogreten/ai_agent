@@ -30,6 +30,10 @@ public sealed class ToolExecutor : IToolExecutor
         new WebScrapeTool(),
         new FileStoreTool(),
         new LinkCheckTool(),
+        // Tedarik otomasyonu araçları (demo): stok → satın alma (R3 onay) → kargo takip.
+        new StockCheckTool(),
+        new PurchaseOrderTool(),
+        new CargoTrackTool(),
     });
 
     public IReadOnlyList<ToolDescriptor> AvailableFor(Agent agent, TaskContract contract)

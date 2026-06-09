@@ -29,9 +29,6 @@ public static class HelpText
         sb.AppendLine("  ceo --domainPack <id> --request <text> Hedeften otomatik plan + çalıştır");
         sb.AppendLine("  ceo-iterate ... --answers <json>       CEO sorularına cevap verip yeniden planla");
         sb.AppendLine();
-        sb.AppendLine("Bakım:");
-        sb.AppendLine("  sync-to-db                   Repo içeriğini (domain-packs/personas/playbooks) Supabase'e senkronla");
-        sb.AppendLine();
         sb.AppendLine("Ortak seçenekler (run/bundle):");
         sb.AppendLine("  --topic <text>  --persona <id>  --risk R0|R1|R2|R3  --allowHighRisk true|false");
         sb.AppendLine("  --dryRun true|false  --web true|false  --model <name>  --facts true|false");

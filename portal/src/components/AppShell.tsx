@@ -29,6 +29,7 @@ const navGroups: NavGroup[] = [
     items: [
       { to: '/app/jobs', label: 'İşler (kuyruk)', icon: <Briefcase size={15} /> },
       { to: '/app/runs', label: 'Çalıştırmalar', icon: <List size={15} /> },
+      { to: '/app/stock', label: 'Stok', icon: <Boxes size={15} /> },
       { to: '/app/schedules', label: 'Zamanlananlar', icon: <Clock size={15} /> },
       { to: '/app/approval-queue', label: 'Onay bekleyenler', icon: <CheckSquare size={15} /> },
     ],

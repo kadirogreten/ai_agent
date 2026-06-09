@@ -18,6 +18,7 @@ public static class PersonaLoader
         if (string.IsNullOrWhiteSpace(personaSlug))
             return PersonaProfile.FromMarkdownOnly("default", string.Empty);
 
+        // DB-first: persona içeriği yalnız DB'den (personas tablosu) gelir; dosya yok.
         if (supabase?.IsConfigured == true && domainPack is not null)
         {
             try
@@ -30,17 +31,13 @@ public static class PersonaLoader
             catch (Exception ex)
             {
                 Console.Error.WriteLine(
-                    $"[PersonaLoader] DB'den yükleme başarısız ({personaSlug}), dosyaya fallback: {ex.Message}");
+                    $"[PersonaLoader] DB'den yükleme başarısız ({personaSlug}): {ex.Message}");
             }
         }
 
-        var path = Path.Combine(rootDir, "personas", personaSlug + ".md");
-        if (File.Exists(path))
-            return PersonaProfile.FromMarkdownOnly(personaSlug, File.ReadAllText(path));
-
         return PersonaProfile.FromMarkdownOnly(
             personaSlug,
-            $"Persona içeriği bulunamadı: {personaSlug}");
+            $"Persona içeriği bulunamadı: {personaSlug} (DB'de yok — portaldan oluşturun).");
     }
 
     /// <summary>Geriye dönük: yalnızca markdown bağlamı.</summary>

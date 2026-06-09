@@ -24,7 +24,6 @@ public static partial class CommandDispatcher
             "ceo-iterate" => await CeoIterateAsync(rootDir, tail, ct),
             "setup"       => Setup(rootDir, tail),
             "setup-env"   => SetupFromEnv(rootDir, tail),
-            "sync-to-db"  => await SyncToDbAsync(rootDir, ct),
             _             => Unknown()
         };
     }
