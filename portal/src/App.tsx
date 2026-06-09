@@ -22,6 +22,7 @@ import ApprovalQueuePage from '@/pages/ApprovalQueuePage'
 import AuditLogPage from '@/pages/AuditLogPage'
 import ToolsPage from '@/pages/ToolsPage'
 import StockPage from '@/pages/StockPage'
+import TedarikReportPage from '@/pages/TedarikReportPage'
 import SectorBuilderPage from '@/pages/SectorBuilderPage'
 import PackDraftReviewPage from '@/pages/PackDraftReviewPage'
 import PersonasPage from '@/pages/PersonasPage'
@@ -83,6 +84,7 @@ export default function App() {
           <Route path="agents/:agentId/edit" element={<AgentUpsertPage mode="edit" />} />
           <Route path="tools" element={<ToolsPage />} />
           <Route path="stock" element={<StockPage />} />
+          <Route path="tedarik-raporu" element={<TedarikReportPage />} />
           <Route path="cost-ledger" element={<CostLedgerPage />} />
           <Route path="approval-queue" element={<ApprovalQueuePage />} />
           <Route path="audit-log" element={<AuditLogPage />} />

@@ -74,10 +74,11 @@ export default function ApprovalQueuePage() {
   async function decide(id: string, decision: 'approved' | 'rejected') {
     setActing(id)
     setErr(null)
-    const rpc = decision === 'approved' ? 'approve_run_request' : 'reject_run_request'
-    const { error } = await supabase.rpc(rpc, {
+    // decide_approval: hem job-seviye hem tool-seviye (run_request_id NULL, ör. purchase_order) gate'leri onaylar.
+    const { error } = await supabase.rpc('decide_approval', {
       p_approval_id:   id,
       p_reviewer_id:   user?.id,
+      p_decision:      decision,
       p_reviewer_note: notes[id] ?? null,
     })
     if (error) { setErr(error.message) }
