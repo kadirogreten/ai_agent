@@ -122,6 +122,12 @@ public sealed class ToolExecutor : IToolExecutor
     {
         var statusStr = status.ToDbString();
 
+        // Teşhis — her araç çağrısının sonucu GitHub Actions / worker logunda görünsün.
+        Console.Error.WriteLine(
+            $"[Tool] {slug} agent={agentId} status={statusStr} risk={riskLevel ?? "-"} sideEffect={sideEffect ?? "-"}"
+            + (approvalQueueId is not null ? $" approval={approvalQueueId}" : "")
+            + (result.Error is not null ? $" error=\"{result.Error}\"" : ""));
+
         // Event log — run_events (her zaman; DB yoksa no-op)
         await ctx.AppendLogAsync(new
         {

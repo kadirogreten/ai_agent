@@ -88,18 +88,30 @@ public sealed class ProductSearchTool : ITool
         List<object>? results = null;
         var sourceApi = "";
 
-        // 1) SerpAPI
+        // 1) SerpAPI Google Shopping (fiyatlı sonuç)
         if (!string.IsNullOrWhiteSpace(serpKey))
         {
             try
             {
-                results = await SerpApiAsync(serpKey!, query, n, gl, hl, ct);
-                if (results.Count > 0) sourceApi = "serpapi";
+                results = await SerpApiShoppingAsync(serpKey!, query, n, gl, hl, ct);
+                if (results.Count > 0) sourceApi = "serpapi-shopping";
+                else errors.Add("serpapi-shopping: 0 sonuç (TR Google Shopping kapsamı / genel sorgu)");
             }
-            catch (Exception ex) { errors.Add($"serpapi: {ex.Message}"); }
+            catch (Exception ex) { errors.Add($"serpapi-shopping: {ex.Message}"); }
         }
 
-        // 2) Tavily (SerpAPI yok/boş/başarısızsa)
+        // 2) SerpAPI Google organic (gerçek URL, fiyatsız) — shopping boşsa
+        if ((results is null || results.Count == 0) && !string.IsNullOrWhiteSpace(serpKey))
+        {
+            try
+            {
+                results = await SerpApiOrganicAsync(serpKey!, query, n, gl, hl, ct);
+                if (results.Count > 0) sourceApi = "serpapi-organic";
+            }
+            catch (Exception ex) { errors.Add($"serpapi-organic: {ex.Message}"); }
+        }
+
+        // 3) Tavily (her ikisi de yok/boş/başarısızsa)
         if ((results is null || results.Count == 0) && !string.IsNullOrWhiteSpace(tavilyKey))
         {
             try
@@ -111,8 +123,15 @@ public sealed class ProductSearchTool : ITool
         }
 
         if (results is null || results.Count == 0)
+        {
+            Console.Error.WriteLine($"[product_search] '{query}' → 0 sonuç. {string.Join("; ", errors)}");
             return ToolResult.Failure(Slug,
                 $"'{query}' için sonuç bulunamadı." + (errors.Count > 0 ? " (" + string.Join("; ", errors) + ")" : ""));
+        }
+
+        // Teşhis: hangi backend cevapladı + kaç sonuç (Actions logunda görünür).
+        Console.Error.WriteLine($"[product_search] '{query}' → {results.Count} sonuç (source={sourceApi})"
+            + (errors.Count > 0 ? $" [denenenler: {string.Join("; ", errors)}]" : ""));
 
         var output = JsonSerializer.SerializeToElement(new
         {
@@ -125,30 +144,19 @@ public sealed class ProductSearchTool : ITool
         return ToolResult.Success(Slug, output);
     }
 
-    // ── SerpAPI / Google Shopping ─────────────────────────────────────────────
+    // ── SerpAPI / Google Shopping (fiyatlı) ───────────────────────────────────
 
-    private static async Task<List<object>> SerpApiAsync(
+    private static async Task<List<object>> SerpApiShoppingAsync(
         string key, string query, int n, string gl, string hl, CancellationToken ct)
     {
-        var url = "https://serpapi.com/search.json"
-                + "?engine=google_shopping"
-                + $"&q={Uri.EscapeDataString(query)}"
-                + $"&gl={Uri.EscapeDataString(gl)}"
-                + $"&hl={Uri.EscapeDataString(hl)}"
-                + $"&num={n}"
-                + $"&api_key={Uri.EscapeDataString(key)}";
-
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        cts.CancelAfter(TimeSpan.FromSeconds(25));
-        var resp = await HttpRetry.SendAsync(HttpClientPool.Shared,
-            () => new HttpRequestMessage(HttpMethod.Get, url), cts.Token);
-        var body = await resp.Content.ReadAsStringAsync(cts.Token);
-        if (!resp.IsSuccessStatusCode)
-            throw new InvalidOperationException($"HTTP {(int)resp.StatusCode}: {Trunc(body, 160)}");
+        var body = await SerpApiGetAsync("google_shopping", key, query, n, gl, hl, ct);
 
         var list = new List<object>();
         using var doc = JsonDocument.Parse(body);
         var root = doc.RootElement;
+        if (root.TryGetProperty("error", out var errEl) && errEl.ValueKind == JsonValueKind.String)
+            throw new InvalidOperationException(errEl.GetString()!);
+
         if (root.TryGetProperty("shopping_results", out var shopping) && shopping.ValueKind == JsonValueKind.Array)
         {
             foreach (var r in shopping.EnumerateArray())
@@ -167,6 +175,60 @@ public sealed class ProductSearchTool : ITool
             }
         }
         return list;
+    }
+
+    // ── SerpAPI / Google organic (gerçek URL, fiyatsız) ───────────────────────
+
+    private static async Task<List<object>> SerpApiOrganicAsync(
+        string key, string query, int n, string gl, string hl, CancellationToken ct)
+    {
+        var body = await SerpApiGetAsync("google", key, query, n, gl, hl, ct);
+
+        var list = new List<object>();
+        using var doc = JsonDocument.Parse(body);
+        var root = doc.RootElement;
+        if (root.TryGetProperty("error", out var errEl) && errEl.ValueKind == JsonValueKind.String)
+            throw new InvalidOperationException(errEl.GetString()!);
+
+        if (root.TryGetProperty("organic_results", out var organic) && organic.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var r in organic.EnumerateArray())
+            {
+                if (list.Count >= n) break;
+                var link = Str(r, "link");
+                if (link is null) continue;
+                list.Add(new
+                {
+                    title       = Str(r, "title"),
+                    price       = (string?)null,
+                    price_value = (double?)null,
+                    source      = DomainOf(link),
+                    link,
+                });
+            }
+        }
+        return list;
+    }
+
+    private static async Task<string> SerpApiGetAsync(
+        string engine, string key, string query, int n, string gl, string hl, CancellationToken ct)
+    {
+        var url = "https://serpapi.com/search.json"
+                + $"?engine={engine}"
+                + $"&q={Uri.EscapeDataString(query)}"
+                + $"&gl={Uri.EscapeDataString(gl)}"
+                + $"&hl={Uri.EscapeDataString(hl)}"
+                + $"&num={n}"
+                + $"&api_key={Uri.EscapeDataString(key)}";
+
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(TimeSpan.FromSeconds(25));
+        var resp = await HttpRetry.SendAsync(HttpClientPool.Shared,
+            () => new HttpRequestMessage(HttpMethod.Get, url), cts.Token);
+        var body = await resp.Content.ReadAsStringAsync(cts.Token);
+        if (!resp.IsSuccessStatusCode)
+            throw new InvalidOperationException($"HTTP {(int)resp.StatusCode}: {Trunc(body, 160)}");
+        return body;
     }
 
     // ── Tavily web search (fallback) ──────────────────────────────────────────

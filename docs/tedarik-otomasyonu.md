@@ -1,96 +1,62 @@
-# Tedarik Otomasyonu (Stok → Araştırma → Onaylı Satın Alma → Kargo)
+# Tedarik Otomasyonu — Son Durum
 
-IdeaSoft senaryosu: bir ürünün stoğu eşik altına düşünce sistem otomatik tedarik araştırması
-yapar, en uygun seçeneği önerir; satın alma **insan onayından** sonra yürür ve kargo takip edilir.
+Stok eşiği altına düşen ürünler için: **gerçek veriyle** araştırma → öneri → **insan onaylı** satın alma → kargo → stok yenileme. Uçtan uca, DB-first.
 
-## DB-first ilke
+## İlke: DB-first + gerçek veri
+- **Statik içerik yok.** Migration'lar yalnız şema, C# yalnız kod. Tüm içerik (pack, playbook, persona, bundle, araç kaydı, stok) DB'de; portaldan yönetilir.
+- **Model olgu/link kaynağı değildir.** Ürün/fiyat/link gerçek bir arama servisinden (`product_search`) gelir; agent yalnız yorumlar.
 
-Bu sistemde **statik içerik yoktur**. Migration'lar yalnız **şema**, repodaki C# dosyaları yalnız
-**kod** (tool executor'ları, worker). Tüm **içerik** — pack, playbook, persona, bundle, araç kaydı,
-stok — DB'de dinamik satırdır ve **portaldaki CRUD sayfalarından** yönetilir
-(`/playbooks`, `/personas`, `/bundles`, `/tools`, ileride stok ekranı). `sync-to-db` ve JSON/md
-dosyaları kaldırılmıştır.
+## Akış (8 adımlı tek playbook: `e-ticaret-tedarik-tam-akis`)
+1. `stock_check` (Operator) — stok + eşik altı + önerilen adet
+2. `product_search` (Operator) — **gerçek** ürün/fiyat/link sonuçları
+3. karşılaştırma (Analyst) — en uygun seçenek
+4. öneri (Writer) — marka/model/kod/özellik/gerçek URL ile
+5. `link_check` (Verifier) — linkleri doğrula (PASS/FAIL, bilgilendirici)
+6. `purchase_order` (Operator) — **R3, insan onayı**; onay sonrası sipariş + **stok yenilenir**
+7. `cargo_track` (Operator) — kargo durumu
+8. özet (Writer)
 
-## Akış (iki aşamalı)
+Araç çağıran adımlar (1,2,6,7) **Operator** olmalı (yalnız `CanUseTools` ajanlar araç çağırır). 3/4/8 yorumlama adımlarıdır.
 
-1. **Stok izleyici** (`portal/api/lib/stockMonitorTick.ts`) DB'deki `stock_levels` tablosunu tarar.
-   Eşik altına düşen (`current_stock <= threshold`, `enabled`) her ürün için **araştırma**
-   run_request'i (R1) oluşturur.
-2. **Araştırma playbook'u** (`e-ticaret-tedarik-arastirma`, R1): `stock_check` → tedarikçi/fiyat
-   araştırması (web) → karşılaştırma → **satın alma önerisi** → doğrulama.
-3. **Satın alma playbook'u** (`e-ticaret-tedarik-satinalma`, R3): `purchase_order` çağrısı
-   **approval_queue**'ya düşer; onaylayınca sipariş geçer, ardından `cargo_track` ile kargo izlenir.
+## Bileşenler (kod + şema)
+**Araçlar** (CLI `ToolExecutor.CreateDefault`):
+- `stock_check` — `stock_levels` tablosundan okur (read, R0)
+- `product_search` — **SerpAPI/Google Shopping** birincil, **Tavily** yedek; gerçek başlık/fiyat/satıcı/URL (read, R0). Anahtar yoksa net hata (uydurmaz). Env: `SERPAPI_KEY`, `TAVILY_KEY`
+- `link_check` — URL'leri HEAD ile doğrular (read)
+- `purchase_order` — sipariş; **External, R3 → RiskGate onay kuyruğu**; onay sonrası `adjust_stock` RPC ile stoğu artırır; marka/model/kod/url/specs taşır
+- `cargo_track` — kargo durumu (read, demo)
 
-> `purchase_order` aracı R3 olduğundan, tek bir bundle çalışmasında bile satın alma adımı
-> tool seviyesindeki RiskGate ile otomatik insan onayına düşer.
+**Şema (migration'lar):**
+- `stock_levels` tablosu (RLS: sahibi yönetir, service_role tam)
+- `adjust_stock(p_owner, p_product, p_delta)` RPC — onaylı sipariş sonrası stok += adet
+- `decide_approval(...)` RPC — hem job-seviye hem tool-seviye (purchase_order) onayını işler
+- `tools` registry seed satırları (stock_check, product_search, purchase_order, cargo_track) + `category` CHECK genişletmesi (commerce/logistics)
+- `tools.category` CHECK kısıt revizyonu
 
-## Kod tarafı (repoda; şema + kod)
+**Onay (RiskGate + approval_queue):** R2/R3 araç çağrıları onaya düşer, insan onaylayana kadar bekler. `purchase_order` R3 olduğu için sipariş onaysız geçmez.
 
-- Araçlar (CLI `ToolExecutor.CreateDefault`): `StockCheckTool` (DB'den okur), `PurchaseOrderTool`
-  (R3/onaylı, dummy), `CargoTrackTool` (dummy).
-- Migration `0032_tedarik_tools.sql`: `tools.category` CHECK'ine `commerce`/`logistics` ekler (şema).
-- Migration `0033_stock_levels.sql`: `stock_levels` tablosu (şema).
-- `portal/api/lib/stockMonitorTick.ts`: stok izleyici (DB'den okur).
+**Stok izleyici** (`portal/api/lib/stockMonitorTick.ts` + `stock-monitor.yml` cron, 15 dk):
+`stock_levels`'ı tarar, eşik altı ürünler için işi kuyruğa atar (çift tetik koruması). Varsayılan araçlar: `stock_check, product_search, web_scrape, link_check, purchase_order, cargo_track`.
 
-## Kurulum (içerik DB'de oluşturulur)
+**Portal:**
+- `Stok` ekranı — ürün ekle/düzenle/sil, izleme aç-kapa (`/app/stock`)
+- `Tedarik raporu` (`/app/tedarik-raporu`) — stok tetikleri, **bekleyen onaylar (satır-içi Onayla/Reddet + gerekçe paneli)**, siparişler, kargo; "● Canlı" otomatik yenileme
+- Playbook/persona/bundle/tool CRUD sayfaları (içerik buradan yönetilir)
+- `tools` chip seçici (Yeni İş + Playbook formu) — slug ezberlemeden araç seçimi
 
-### 1) Migration'ları uygula
-```
-supabase db push     # 0032 (kategori) + 0033 (stock_levels)
-```
-
-### 2) Araç kayıtlarını portaldan ekle (`/tools`)
-Portalda **Araçlar** sayfasından şu üç kaydı oluştur (yürütme CLI'da; bu kayıtlar listeleme +
-izin içindir):
-
-| slug | category | side_effect | reversible | min_risk |
-| --- | --- | --- | --- | --- |
-| `stock_check` | data | read | true | R0 |
-| `purchase_order` | commerce | external | true | R3 |
-| `cargo_track` | logistics | read | true | R1 |
-
-### 3) Persona ekle (`/personas`)
-slug: `satin-alma-uzmani` — "Stok ve tedarikten sorumlu satın alma uzmanı. Önce `stock_check` ile
-stoğu doğrula; eşik altındaysa tedarikçi/fiyat araştır, tek net öneri üret. Satın alma R3,
-insan onayı gerekir; onaysız sipariş geçmez."
-
-### 4) Playbook'ları ekle (`/playbooks`, pack = `e-ticaret`)
-
-**`e-ticaret-tedarik-arastirma`** (defaultRisk R1, persona `satin-alma-uzmani`) — adımlar:
-1. `stock` · Operator — `stock_check` ile stok ve eşik altı durumunu belirle, önerilen sipariş adedini hesapla.
-2. `research` · Researcher — en az 3 tedarikçi/pazar yeri: fiyat, min. sipariş, stok, teslim, kaynak URL.
-3. `compare` · Analyst — toplam maliyet/teslim/güvenilirlik karşılaştırması; tek önerilen seçenek + gerekçe.
-4. `recommend` · Writer — satın alma önerisi: ürün/tedarikçi/adet/birim fiyat/toplam/teslim/kaynak.
-5. `verify` · Verifier — kaynak/tarih kontrolü; VERDICT: PASS/FAIL.
-
-**`e-ticaret-tedarik-satinalma`** (defaultRisk R3, persona `satin-alma-uzmani`) — adımlar:
-1. `order` · Operator — `purchase_order` çağır (R3 → onaya düşer); sipariş/takip no kaydet.
-2. `track` · Operator — `cargo_track` ile kargo durumunu al.
-3. `report` · Writer — sipariş + kargo tek sayfalık özet.
-
-### 5) Bundle ekle (`/bundles`, pack = `e-ticaret`)
-slug `tedarik-otomasyonu` → playbooks: `e-ticaret-tedarik-arastirma`, `e-ticaret-tedarik-satinalma`.
-
-### 6) Stok satırı ekle (`stock_levels`)
-Demo için (kendi user id'nle), portaldan veya SQL ile:
-```sql
-insert into public.stock_levels (owner_user_id, product, sku, current_stock, threshold, target_stock, warehouse)
-values ('<senin-user-id>', 'kırmızı kalem', 'KIR-0001', 8, 10, 1000, 'Merkez Depo');
-```
-Yarın IdeaSoft/ERP API'si aynı tabloyu upsert ederek besleyebilir (`source` alanı kaynağı belirtir).
-
-## Çalıştırma
-
-- **Otomatik:** `STOCK_MONITOR_OWNER_ID` gerekmez (tablo owner'a göre okunur); cron ile
-  `npx tsx portal/api/lib/stockMonitorTick.ts` — eşik altı ürünler için araştırma işini açar.
-- **Manuel (Yeni İş):**
-  - Araştırma: pack `e-ticaret`, playbook `e-ticaret-tedarik-arastirma`, risk R1,
-    Tools: `tools: stock_check, web_scrape; max_calls: 6`
-  - Satın alma: playbook `e-ticaret-tedarik-satinalma`, risk R3,
-    Tools: `tools: purchase_order, cargo_track; max_calls: 4` → satın alma **Onay Kuyruğu**'na düşer.
+## Kurulum
+1. **Migration'lar:** `supabase db push` (stock_levels, adjust_stock, decide_approval, tool seed'leri, product_search seed). Versiyon çakışması olursa `supabase migration repair --status reverted <eski no>`.
+2. **GitHub Actions secret'ları:** `SERPAPI_KEY`, `TAVILY_KEY` (CLI worker kullanır — **Vercel'e gerekmez**). Ayrıca mevcut: `OPENAI_API_KEY`, `SUPABASE_*`.
+3. **İçerik (portaldan):** persona `e-ticaret-tedarik-satinalma` (R3, Tam bağlam açık) + 8 adımlı `e-ticaret-tedarik-tam-akis` playbook'u.
+4. **Stok satırı:** `Stok` ekranından ürün ekle (mevcut/eşik/hedef).
+5. **CI build:** `agent-worker.yml` `--no-incremental` ile derler (kod değişiklikleri kesin yansır).
 
 ## Demo → gerçek geçişi
+- `product_search` zaten gerçek (SerpAPI/Tavily). Daha doğru TR ürün-sayfası + canlı fiyat istenirse backend bir TR pazaryeri/fiyat API'sine çevrilir; tool sözleşmesi sabit.
+- `purchase_order` ve `cargo_track` hâlâ demo (gerçekçi sahte sipariş/takip). Gerçek tedarikçi/kargo API'sine geçişte yalnız ilgili `InvokeAsync` gövdesi değişir; risk sınıfı ve onay akışı aynı kalır.
 
-`purchase_order`/`cargo_track` şu an gerçekçi **sahte** çıktı üretir; `stock_check` zaten DB'den
-okur. Gerçeğe geçerken yalnız ilgili `ITool.InvokeAsync` gövdesi (ve stok için API→`stock_levels`
-besleme) değişir; sözleşme, risk sınıfı ve onay akışı aynı kalır.
+## Bilinen sınırlar / sonraki adımlar
+- Verifier FAIL şu an bilgilendirici (satın almayı otomatik durdurmaz) — istenirse "FAIL → satın almayı blokla" eklenebilir.
+- Onayda tek öneri onaylanır; "alternatifler arasından seç" interaktif onay eklenebilir.
+- Stok teslimde değil sipariş anında yenilenir (demo tercihi).
+- Bütçe sınırı / onay eşiği, e-posta/Slack bildirimi, sipariş idempotency'si eklenebilir.
