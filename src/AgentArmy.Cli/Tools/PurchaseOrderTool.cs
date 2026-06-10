@@ -199,6 +199,7 @@ public sealed class PurchaseOrderTool : ITool, ICompensable
             return CompensationResult.Failure("Token'da order_id yok.");
 
         // Stok geri al: sipariş sırasında eklenen miktarı çıkar.
+        string stockNote;
         if (db is not null && !string.IsNullOrWhiteSpace(ownerId) && !string.IsNullOrWhiteSpace(product) && quantity > 0)
         {
             await db.CallRpcAsync("adjust_stock", new
@@ -207,10 +208,17 @@ public sealed class PurchaseOrderTool : ITool, ICompensable
                 p_product = product,
                 p_delta   = -quantity,
             }, ct);
+            stockNote = $"stok geri alındı: {product} -{quantity}";
+        }
+        else
+        {
+            // token'da product/qty eksikse veya DB yoksa stok geri alınamaz.
+            stockNote = "stok geri alınamadı: token'da product/qty eksik veya DB yok";
+            Console.Error.WriteLine($"[purchase_order] cancel_order uyarı: {stockNote} orderId={orderId}");
         }
 
         Console.Error.WriteLine($"[purchase_order] cancel_order orderId={orderId} product={product} qty=-{quantity}");
-        return CompensationResult.Success($"İptal edildi: {orderId}");
+        return CompensationResult.Success($"İptal edildi: {orderId} ({stockNote})");
     }
 
     // ── Yardımcılar ──────────────────────────────────────────────────────────

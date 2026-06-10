@@ -175,6 +175,48 @@ public sealed class SupabaseWriter : IDisposable
     }
 
     /// <summary>
+    /// Bir Postgres fonksiyonunu (RPC) çağırır ve dönen JSON'u okur.
+    /// consume_budget gibi değer döndüren RPC'ler için kullanılır.
+    /// Hata olursa stderr'e yazar, default JsonElement döner.
+    /// </summary>
+    public async Task<JsonElement> CallRpcReturningAsync(string fn, object args, CancellationToken ct)
+    {
+        try
+        {
+            var url  = $"{_base}/rest/v1/rpc/{fn}";
+            var json = JsonSerializer.Serialize(args, _opts);
+
+            using var resp = await HttpRetry.SendAsync(_http, () =>
+            {
+                var req = new HttpRequestMessage(HttpMethod.Post, url)
+                {
+                    Content = new StringContent(json, Encoding.UTF8, "application/json")
+                };
+                req.Headers.Add("apikey",        _key);
+                req.Headers.Add("Authorization", $"Bearer {_key}");
+                // return=representation yerine varsayılan (PostgREST JSON döner)
+                return req;
+            }, ct);
+
+            if (!resp.IsSuccessStatusCode)
+            {
+                var body = await resp.Content.ReadAsStringAsync(ct);
+                Console.Error.WriteLine($"[SupabaseWriter] RPC {fn} {(int)resp.StatusCode}: {body[..Math.Min(200, body.Length)]}");
+                return default;
+            }
+
+            var text = await resp.Content.ReadAsStringAsync(ct);
+            if (string.IsNullOrWhiteSpace(text)) return default;
+            return JsonSerializer.Deserialize<JsonElement>(text);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Console.Error.WriteLine($"[SupabaseWriter] RPC {fn} hata: {ex.Message}");
+            return default;
+        }
+    }
+
+    /// <summary>
     /// PostgREST PATCH: <c>PATCH /rest/v1/{table}?{query}</c>. <paramref name="query"/>
     /// filtreyi taşır (örn. <c>"id=eq.{uuid}"</c>). <paramref name="patch"/> güncellenen alanları içerir.
     /// Fire-and-forget; hata olursa stderr'e yazar, exception fırlatmaz.

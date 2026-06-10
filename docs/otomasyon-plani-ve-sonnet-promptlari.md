@@ -78,7 +78,7 @@ Her PR bağımsız merge edilebilir; her birinin "biten tanımı" var. Sıra ön
 | PR | Başlık | Kapsam | Biten tanımı |
 |---|---|---|---|
 | **PR1** ✅ | Rollback runtime | `compensation_token`'ı çalıştıran `CompensationExecutor`; reddedilen/başarısız R1+ eylemlerde otomatik tetik; `tool.compensated` audit kaydı | Reddedilen bir `file_store` yazımı otomatik siliniyor, audit'te görünüyor |
-| **PR2** | Guard hattı: Verifier-blok + bütçe + bildirim **+ PR1 devirleri** | (a) Playbook adımına `blockOnVerifierFail: true` (Verifier-FAIL'de compensation da buna bağlanır); (b) `operation_budgets` tablosu + `RiskGate`'te harcama/çağrı tavanı kontrolü; (c) onay kuyruğuna düşen her kayıt için e-posta/Slack webhook bildirimi; (d) PR1 devri: invocation id'nin `ToolResult`/`ToolExchange`'e taşınması — in-flight compensation DB'yi de patch'lesin (çift geri-alma riski); (e) CLI compensation'da `status='compensated'` güncellemesi | FAIL'li linkle satın alma bloklanıyor; bütçe aşan PO reddediliyor; onaya düşünce bildirim gidiyor; in-flight compensate edilen kayıt CLI'dan ikinci kez compensate edilemiyor |
+| **PR2** ✅ | Guard hattı: Verifier-blok + bütçe + bildirim **+ PR1 devirleri** | (a) Playbook adımına `blockOnVerifierFail: true` (Verifier-FAIL'de compensation da buna bağlanır); (b) `operation_budgets` tablosu + `RiskGate`'te harcama/çağrı tavanı kontrolü; (c) onay kuyruğuna düşen her kayıt için e-posta/Slack webhook bildirimi; (d) PR1 devri: invocation id'nin `ToolResult`/`ToolExchange`'e taşınması — in-flight compensation DB'yi de patch'lesin (çift geri-alma riski); (e) CLI compensation'da `status='compensated'` güncellemesi | FAIL'li linkle satın alma bloklanıyor; bütçe aşan PO reddediliyor; onaya düşünce bildirim gidiyor; in-flight compensate edilen kayıt CLI'dan ikinci kez compensate edilemiyor |
 | **PR3** | `operations` şeması + OperationLoop tick | `operations`, `operation_events` tabloları; `operationLoopTick.ts` (observe→decide→act); karar LLM'i için dar JSON sözleşmesi (`continue / retry / escalate / done`); max-adım ve cooldown koruması | Bir hedef verilen operasyon, insan tetiği olmadan 2+ run'ı ardışık yürütüyor, takılınca eskale ediyor |
 | **PR4** | Operasyon belleği | `operation_memory` (facts/decisions/work, operasyon kapsamlı); `FactsStore`'un domain-pack bağımsızlaştırılması; tazelik kuralı (en yeni gözlem kazanır); Orchestrator prompt'una operasyon belleği enjeksiyonu | Aynı operasyonun 2. run'ı, 1. run'ın kararlarını prompt'ta görüyor |
 | **PR5** | RiskGate tek-geçit kanıtı + portal Operations UI | Tüm tool-call path'lerinde RiskGate zorunluluğunu doğrulayan entegrasyon testleri; `OperationsPage` (hedef tanımla, durum izle, duraklat/devam, event timeline) | Test yeşil; portaldan operasyon açılıp canlı izlenebiliyor |
@@ -95,6 +95,18 @@ PR2'ye devreden bilinen boşluklar:
 1. **Çift geri-alma riski:** in-memory yol (`CompensateExchangesAsync`) `tool_invocations` satırını güncellemiyor (id `ToolExchange`'de yok) → aynı kayıt sonradan CLI'dan tekrar compensate edilebilir; `adjust_stock(-qty)` ikinci kez çalışırsa stok bozulur. Çözüm PR2 (d).
 2. CLI yolu `status='compensated'` set etmiyor; portalda geri alınmış kayıt "succeeded" görünür. Çözüm PR2 (e).
 3. PO compensation'da token'da product/qty eksikse stok geri alınmadan `Success` dönüyor — mesaja uyarı eklenmeli.
+
+### PR2 — Tamamlandı (2026-06-11)
+
+Teslim edilenler: `blockOnVerifierFail` step bayrağı (JSONB veri migration'ı `20260611110000` + `PlaybookStep` alanı + Orchestrator bloğu, `step.blocked_by_verifier` audit); `operation_budgets` + atomik `consume_budget` RPC (rollover + spent/calls artışı tek transaction, `20260611120000`) + `BudgetChecker` + ToolExecutor'da RiskGate öncesi bütçe kilidi (`budget.exceeded` audit); `notification_channels` (`20260611130000`) + `NotificationDispatcher` (Slack webhook + Resend; target log'a yazılmaz) + RiskGate insert sonrası bildirim + portal `NotificationChannelsPage`; PR1 devirleri kapatıldı (istemci-taraflı `InvocationId` → in-flight DB patch, CLI'da `status='compensated'`, PO uyarı mesajı).
+
+Sonraki PR'lara devreden notlar:
+
+1. In-flight compensation `status='compensated'` set etmiyor (çift geri-alma yine engelli; portalde kozmetik tutarsızlık).
+2. `consume_budget`'ta `FOR UPDATE` yok — PR3 operasyon döngüsü paralellik getirince RPC'ye satır kilidi eklenmeli.
+3. Bütçe niyet anında tüketiliyor (onay/invoke öncesi) — bilinçli muhafazakâr tercih; reddedilen PO da bütçe yer.
+4. `BudgetChecker` RPC hatasında fail-open — ileride `amount > 0` iken fail-closed yapılmalı.
+5. Run-seviyesi R2 onay bildirimleri (worker / `gate_run_for_approval`) kapsam dışı kaldı — PR3'te eklenecek.
 
 ---
 
@@ -202,6 +214,13 @@ hedef: bir hedefi alıp çok adımlı işi insan tetiği olmadan sürdüren dön
    denemesinde zorunlu escalate.
 4. .github/workflows/operation-loop.yml — 5 dakikada bir tick (mevcut scheduler-tick.yml'i şablon al).
 5. Basit başlangıç API'si: POST /api/operations (goal_text + domain_pack) — portal route'larına ekle.
+6. PR2 devirleri:
+   a. consume_budget RPC'sine SELECT ... FOR UPDATE ekle (operasyon döngüsü paralellik getiriyor;
+      check+increment arasındaki yarış kapanmalı).
+   b. Run-seviyesi R2 onayları (worker / gate_run_for_approval) için de NotificationDispatcher
+      eşdeğeri bildirim: runRequestWorker approval'a düşen işte notification_channels'a göre
+      Slack/Resend bildirimi atsın.
+   c. CompensateExchangesAsync'in DB patch'ine status='compensated' da eklensin (CLI yoluyla tutarlılık).
 
 Kurallar: mevcut worker'a dokunma, onun ÜSTÜNE kur. CEO planlayıcısını yeniden yazma;
 decide adımı gerekirse mode=ceo run_request üretebilir. Önce plan, sonra kod.

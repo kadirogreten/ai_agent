@@ -36,6 +36,7 @@ import RunWizardPage from '@/pages/RunWizardPage'
 import SchedulesPage from '@/pages/SchedulesPage'
 import SelfReflectionPage from '@/pages/SelfReflectionPage'
 import EmpiricalCheckPage from '@/pages/EmpiricalCheckPage'
+import NotificationChannelsPage from '@/pages/NotificationChannelsPage'
 import OfficePage from '@/pages/OfficePage'
 
 export default function App() {
@@ -103,6 +104,7 @@ export default function App() {
           <Route path="schedules" element={<SchedulesPage />} />
           <Route path="self-reflection" element={<SelfReflectionPage />} />
           <Route path="empirical-check" element={<EmpiricalCheckPage />} />
+          <Route path="notification-channels" element={<NotificationChannelsPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/app" replace />} />
       </Routes>

@@ -30,6 +30,13 @@ public sealed class PlaybookStep
     [JsonPropertyName("image")] public ImageSpec? Image { get; init; }
 
     [JsonPropertyName("saveAs")] public string? SaveAs { get; init; }
+
+    /// <summary>
+    /// true ise: bu adım başlamadan önce önceki Verifier çıktısı VERDICT: FAIL ise adım
+    /// çalıştırılmaz ve run "blocked_by_verifier" olarak işaretlenir.
+    /// Blok aksiyonu önlediği için bu adıma ait hiçbir compensation tetiklenmez.
+    /// </summary>
+    [JsonPropertyName("blockOnVerifierFail")] public bool BlockOnVerifierFail { get; init; }
 }
 
 public sealed class ImageSpec

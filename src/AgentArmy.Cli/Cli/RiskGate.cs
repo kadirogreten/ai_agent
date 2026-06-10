@@ -85,6 +85,10 @@ public static class RiskGate
             status          = "pending"
         }, ct);
 
+        // Bildirim: approval_queue insert'inden sonra aktif kanalları bilgilendir.
+        // Kapsam: yalnız CLI RiskGate yolu; run-seviyesi onaylar PR3'te eklenecek.
+        await NotificationDispatcher.NotifyApprovalQueueAsync(db, ownerId, queueId, actionSummary, normalized, ct);
+
         var deadline = DateTimeOffset.UtcNow.Add(MaxWait);
         var pollCount = 0;
 

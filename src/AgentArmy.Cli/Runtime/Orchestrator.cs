@@ -126,6 +126,60 @@ public sealed class Orchestrator
 
         foreach (var step in steps)
         {
+            // Güvenlik kilidi 1: blockOnVerifierFail.
+            // Bu adım başlamadan önce önceki Verifier sonucu FAIL ise adımı çalıştırma.
+            // Blok aksiyonu ÖNLER — adım hiç çalışmaz, bu adıma ait yan etkili çağrı üretilmez.
+            // Dolayısıyla önceki adımların tamamlanmış çağrıları için compensation tetiklenmez;
+            // yalnız adım kendisi exception ile yarıda kesilirse mevcut PR1 davranışı geçerlidir.
+            if (step.BlockOnVerifierFail && IsFail(verifierReport))
+            {
+                Console.Error.WriteLine(
+                    $"[Orchestrator] step '{step.Id}' blockOnVerifierFail=true + Verifier=FAIL → bloklandı.");
+
+                await ctx.AppendLogAsync(new
+                {
+                    type     = "step_blocked_by_verifier",
+                    ts       = DateTimeOffset.UtcNow,
+                    runId    = ctx.RunId,
+                    playbook = ctx.Playbook.Id,
+                    step     = step.Id,
+                    agent    = step.Agent,
+                }, ct);
+
+                if (ctx.Db is not null && ctx.OwnerId is not null)
+                {
+                    try
+                    {
+                        await ctx.Db.CallRpcAsync("append_audit_log", new
+                        {
+                            p_owner_user_id = ctx.OwnerId,
+                            p_actor_type    = "system",
+                            p_actor_id      = "orchestrator",
+                            p_action        = "step.blocked_by_verifier",
+                            p_resource_type = "playbook_step",
+                            p_risk_level    = ctx.Contract.Risk,
+                            p_severity      = "warn",
+                            p_detail        = new
+                            {
+                                playbook    = ctx.Playbook.Id,
+                                step        = step.Id,
+                                agent       = step.Agent,
+                                verifier_report_tail = verifierReport.Length > 200
+                                    ? verifierReport[^200..] : verifierReport,
+                            },
+                        }, ct);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.Error.WriteLine($"[Orchestrator] blocked_by_verifier audit yazılamadı: {ex.Message}");
+                    }
+                }
+
+                // Run'ı "blocked_by_verifier" ile işaretliyoruz; döngüden çıkıyoruz.
+                verifierOutcome = "blocked_by_verifier";
+                break;
+            }
+
             var coreAgent   = ResolveAgent(step.Agent);
             var agent       = AgentBehaviorMerge.Apply(coreAgent, _personaProfile);
             var extraPolicy = BuildExtraPolicy(agent);

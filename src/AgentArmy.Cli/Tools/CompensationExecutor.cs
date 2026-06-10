@@ -91,12 +91,13 @@ public sealed class CompensationExecutor
         // Geri-al
         var result = await compensable.CompensateAsync(compToken, db, ownerId, ct);
 
-        // DB: compensated_at + compensation_status tek UPDATE'te (yarım kayıt kalmasın).
+        // DB: compensated_at + compensation_status + status tek UPDATE'te (yarım kayıt kalmasın).
+        // status='compensated' CHECK kısıtında destekleniyor (0027_tool_invocation.sql).
         var compStatus = result.Ok ? "succeeded" : "failed";
         await db.PatchAsync(
             "tool_invocations",
             $"id=eq.{Uri.EscapeDataString(invocationId)}",
-            new { compensated_at = DateTimeOffset.UtcNow, compensation_status = compStatus },
+            new { status = "compensated", compensated_at = DateTimeOffset.UtcNow, compensation_status = compStatus },
             ct);
 
         // Audit log
@@ -163,6 +164,17 @@ public sealed class CompensationExecutor
             var action   = result.Ok ? "tool.compensated" : "tool.compensation_failed";
             var severity = result.Ok ? "info" : "error";
             Console.Error.WriteLine($"[CompensationExecutor] {action} runId={runId} slug={ex.Call.Slug} msg={result.Message}");
+
+            // InvocationId varsa DB satırını güncelle (PR4a: çift compensation'ı önler).
+            if (db is not null && !string.IsNullOrWhiteSpace(ex.Result.InvocationId))
+            {
+                var compStatus = result.Ok ? "succeeded" : "failed";
+                await db.PatchAsync(
+                    "tool_invocations",
+                    $"id=eq.{Uri.EscapeDataString(ex.Result.InvocationId!)}",
+                    new { compensated_at = DateTimeOffset.UtcNow, compensation_status = compStatus },
+                    ct);
+            }
 
             if (db is not null)
             {

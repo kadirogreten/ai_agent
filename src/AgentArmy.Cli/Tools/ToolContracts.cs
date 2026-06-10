@@ -110,14 +110,19 @@ public sealed record ToolResult(
     string Slug,
     JsonElement? Output,
     string? CompensationToken,
-    string? Error
+    string? Error,
+    /// <summary>
+    /// FinishAsync'in istemci-taraflı ürettiği tool_invocations.id (RiskGate'teki queueId deseni).
+    /// CompensateExchangesAsync bu id ile DB satırını patch'ler; null ise patch atlanır.
+    /// </summary>
+    string? InvocationId = null
 )
 {
-    public static ToolResult Success(string slug, JsonElement? output = null, string? compensationToken = null) =>
-        new(true, slug, output, compensationToken, null);
+    public static ToolResult Success(string slug, JsonElement? output = null, string? compensationToken = null, string? invocationId = null) =>
+        new(true, slug, output, compensationToken, null, invocationId);
 
-    public static ToolResult Failure(string slug, string error) =>
-        new(false, slug, null, null, error);
+    public static ToolResult Failure(string slug, string error, string? invocationId = null) =>
+        new(false, slug, null, null, error, invocationId);
 }
 
 /// <summary>

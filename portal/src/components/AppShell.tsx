@@ -8,7 +8,7 @@ import {
   LayoutDashboard, Play, Clock, List, Briefcase, CheckSquare,
   Bot, UserCircle, BookOpen, Wrench,
   Package, Layers, Database, Brain,
-  DollarSign, ScrollText,
+  DollarSign, ScrollText, Bell,
   Compass, FileStack, Boxes,
   Download, LogOut, ChevronDown,
 } from 'lucide-react'
@@ -57,6 +57,7 @@ const navGroups: NavGroup[] = [
     title: 'Denetim',
     items: [
       { to: '/app/audit-log', label: 'Audit log', icon: <ScrollText size={15} /> },
+      { to: '/app/notification-channels', label: 'Bildirimler', icon: <Bell size={15} /> },
       { to: '/app/cost-ledger', label: 'Maliyet', icon: <DollarSign size={15} /> },
     ],
   },
