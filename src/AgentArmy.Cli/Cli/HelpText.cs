@@ -34,6 +34,9 @@ public static class HelpText
         sb.AppendLine("  --dryRun true|false  --web true|false  --model <name>  --facts true|false");
         sb.AppendLine("  --contrarian true|false  --tools \"tools: web_scrape; max_calls: 3\"  --agents A,B,C");
         sb.AppendLine();
+        sb.AppendLine("Compensation:");
+        sb.AppendLine("  compensate --invocationId <uuid>   Tek bir araç çağrısını geri al (delete_object / cancel_order)");
+        sb.AppendLine();
         sb.AppendLine("Örnekler:");
         sb.AppendLine("  dotnet run --project src/AgentArmy.Cli -- setup --model gpt-5");
         sb.AppendLine("  dotnet run --project src/AgentArmy.Cli -- list --domainPack market-intel");

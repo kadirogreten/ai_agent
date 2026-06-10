@@ -15,7 +15,7 @@ public class AgentBehaviorMergeTests
     public void MergeBehaviors_UsesOrForBoolFlags()
     {
         var core    = new AgentBehaviors { PrefersDomainAllowlist = false };
-        var overlay = new AgentBehaviors { PrefersDomainAllowlist = true };
+        var overlay = new AgentBehaviorsOverlay { PrefersDomainAllowlist = true };
         var merged  = AgentBehaviorMerge.MergeBehaviors(core, overlay);
         Assert.True(merged.PrefersDomainAllowlist);
     }
@@ -26,7 +26,7 @@ public class AgentBehaviorMergeTests
         var persona = new PersonaProfile(
             "hukuk-muduru",
             "Hukuk bağlamı",
-            new AgentBehaviors { PrefersDomainAllowlist = true },
+            new AgentBehaviorsOverlay { PrefersDomainAllowlist = true },
             "R2",
             null);
 

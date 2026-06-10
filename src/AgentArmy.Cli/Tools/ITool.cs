@@ -26,6 +26,30 @@ public interface ITool
 /// (tasarım §8 invariant'ı). Pipeline: çözümle → izin → Faz A güvenliği →
 /// (yan etkili ise RiskGate, PR5) → invoke → kaydet.
 /// </summary>
+/// <summary>
+/// Geri-alınabilir araçların opsiyonel arayüzü. <see cref="ToolResult.CompensationToken"/>
+/// kaydedilmiş bir çağrıyı geri almak için <see cref="CompensationExecutor"/> bu arayüzü kullanır.
+/// </summary>
+public interface ICompensable
+{
+    /// <param name="token">Araç tarafından <see cref="ToolResult.CompensationToken"/> olarak üretilen geri-alma anahtarı.</param>
+    /// <param name="db">Yan etkileri geri almak için DB (ör. adjust_stock); null ise DB adımı atlanır.</param>
+    /// <param name="ownerId">Sahip kullanıcı kimliği; DB RPC'lerine geçirilir.</param>
+    Task<CompensationResult> CompensateAsync(string token, SupabaseWriter? db, string? ownerId, CancellationToken ct);
+}
+
+/// <summary>Geri-alma işleminin sonucu.</summary>
+public sealed record CompensationResult(bool Ok, string? Message)
+{
+    public static CompensationResult Success(string? note = null) => new(true, note);
+    public static CompensationResult Failure(string error) => new(false, error);
+}
+
+/// <summary>
+/// Araç çağrılarının TEK giriş noktası. Hiçbir yan etkili eylem bunun dışından geçemez
+/// (tasarım §8 invariant'ı). Pipeline: çözümle → izin → Faz A güvenliği →
+/// (yan etkili ise RiskGate, PR5) → invoke → kaydet.
+/// </summary>
 public interface IToolExecutor
 {
     /// <summary>Bu ajanın ve görev sözleşmesinin bu adımda kullanabileceği araç tanımları

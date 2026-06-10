@@ -11,7 +11,7 @@ namespace AgentArmy.Cli;
 // Gerçek entegrasyon (tedarikçi sipariş API'si) sonraki fazda InvokeAsync gövdesini değiştirir;
 // sözleşme ve risk sınıfı aynı kalır.
 
-public sealed class PurchaseOrderTool : ITool
+public sealed class PurchaseOrderTool : ITool, ICompensable
 {
     public string Slug => "purchase_order";
 
@@ -165,8 +165,52 @@ public sealed class PurchaseOrderTool : ITool
             stock_replenished  = stockReplenished,
         });
 
-        // Geri-alma anahtarı: gerçek entegrasyonda cancel_order için kullanılır.
-        return ToolResult.Success(Slug, output, compensationToken: orderId);
+        // Geri-alma anahtarı: JSON token — order_id + ürün + adet.
+        // cancel_order sırasında adjust_stock(-qty) çağrısı için ürün+adet gerekli.
+        var tokenObj = new { order_id = orderId, product, quantity };
+        var token    = JsonSerializer.Serialize(tokenObj);
+        return ToolResult.Success(Slug, output, compensationToken: token);
+    }
+
+    // ICompensable: token = {"order_id":"...","product":"...","quantity":N}
+    // Stoğu geri alır (adjust_stock ile -qty) ve iptal loglar.
+    public async Task<CompensationResult> CompensateAsync(string token, SupabaseWriter? db, string? ownerId, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(token))
+            return CompensationResult.Failure("Boş compensation_token; iptal edilecek sipariş bilinmiyor.");
+
+        string? orderId  = null;
+        string? product  = null;
+        int     quantity = 0;
+        try
+        {
+            using var doc = JsonDocument.Parse(token);
+            var root = doc.RootElement;
+            orderId  = root.TryGetProperty("order_id",  out var oid) ? oid.GetString() : null;
+            product  = root.TryGetProperty("product",   out var pr)  ? pr.GetString()  : null;
+            quantity = root.TryGetProperty("quantity",  out var q) && q.TryGetInt32(out var qi) ? qi : 0;
+        }
+        catch (Exception ex)
+        {
+            return CompensationResult.Failure($"Token ayrıştırılamadı: {ex.Message}");
+        }
+
+        if (string.IsNullOrWhiteSpace(orderId))
+            return CompensationResult.Failure("Token'da order_id yok.");
+
+        // Stok geri al: sipariş sırasında eklenen miktarı çıkar.
+        if (db is not null && !string.IsNullOrWhiteSpace(ownerId) && !string.IsNullOrWhiteSpace(product) && quantity > 0)
+        {
+            await db.CallRpcAsync("adjust_stock", new
+            {
+                p_owner   = ownerId,
+                p_product = product,
+                p_delta   = -quantity,
+            }, ct);
+        }
+
+        Console.Error.WriteLine($"[purchase_order] cancel_order orderId={orderId} product={product} qty=-{quantity}");
+        return CompensationResult.Success($"İptal edildi: {orderId}");
     }
 
     // ── Yardımcılar ──────────────────────────────────────────────────────────

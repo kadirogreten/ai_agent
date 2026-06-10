@@ -20,6 +20,7 @@ public sealed class Orchestrator
     private readonly FactsIndex? _factsIndex;
     private readonly PersonaProfile _personaProfile;
     private readonly IToolExecutor? _toolExecutor;
+    private readonly CompensationExecutor? _compensator;
 
     // Context budget — sliding window. ~16K char ≈ ~4K token (mixed TR/EN).
     private const int MaxContextChars = 16000;
@@ -40,7 +41,8 @@ public sealed class Orchestrator
         OpenAiImageClient? images,
         FactsIndex? factsIndex = null,
         PersonaProfile? personaProfile = null,
-        IToolExecutor? toolExecutor = null
+        IToolExecutor? toolExecutor = null,
+        CompensationExecutor? compensator = null
     )
     {
         _llm              = llm;
@@ -57,6 +59,7 @@ public sealed class Orchestrator
         _factsIndex           = factsIndex;
         _personaProfile       = personaProfile ?? PersonaProfile.FromMarkdownOnly("default", string.Empty);
         _toolExecutor         = toolExecutor;
+        _compensator          = compensator;
 
         var merged = new Dictionary<string, Agent>(AgentsCatalog.All, StringComparer.OrdinalIgnoreCase);
         if (agentOverrides is not null)
@@ -281,26 +284,44 @@ public sealed class Orchestrator
         int tin = 0, tout = 0;
         var model = string.Empty;
 
-        for (var round = 0; round < maxCalls; round++)
+        try
         {
-            var turn = await llm.CompleteWithToolsAsync(system, user, toolset, exchanges, ct);
-            tin += turn.TokensIn; tout += turn.TokensOut; model = turn.Model;
-
-            if (!turn.HasToolCalls)
-                return (turn.Text ?? string.Empty, tin, tout, model);
-
-            // Araçları yürüt (executor: izin + RiskGate + audit) ve sonucu döngüye geri besle.
-            foreach (var call in turn.ToolCalls)
+            for (var round = 0; round < maxCalls; round++)
             {
-                var res = await _toolExecutor!.ExecuteAsync(call.Slug, call.Args, agent, ctx, ct);
-                exchanges.Add(new ToolExchange(call, res));
-            }
-        }
+                var turn = await llm.CompleteWithToolsAsync(system, user, toolset, exchanges, ct);
+                tin += turn.TokensIn; tout += turn.TokensOut; model = turn.Model;
 
-        // Çağrı bütçesi (max_calls) doldu → araçsız son tur ile modeli nihai metne zorla.
-        var final = await llm.CompleteWithToolsAsync(system, user, Array.Empty<ToolDescriptor>(), exchanges, ct);
-        tin += final.TokensIn; tout += final.TokensOut; model = final.Model;
-        return (final.Text ?? string.Empty, tin, tout, model);
+                if (!turn.HasToolCalls)
+                    return (turn.Text ?? string.Empty, tin, tout, model);
+
+                // Araçları yürüt (executor: izin + RiskGate + audit) ve sonucu döngüye geri besle.
+                foreach (var call in turn.ToolCalls)
+                {
+                    var res = await _toolExecutor!.ExecuteAsync(call.Slug, call.Args, agent, ctx, ct);
+                    exchanges.Add(new ToolExchange(call, res));
+                }
+            }
+
+            // Çağrı bütçesi (max_calls) doldu → araçsız son tur ile modeli nihai metne zorla.
+            var final = await llm.CompleteWithToolsAsync(system, user, Array.Empty<ToolDescriptor>(), exchanges, ct);
+            tin += final.TokensIn; tout += final.TokensOut; model = final.Model;
+            return (final.Text ?? string.Empty, tin, tout, model);
+        }
+        catch (OperationCanceledException)
+        {
+            throw; // Gerçek iptal — yukarı taşı, kompensasyon yok.
+        }
+        catch
+        {
+            // Adım exception/abort: o ana kadar başarılı olan yan etkili çağrıları geri al.
+            // Verifier FAIL'de değil, yalnız exception durumunda tetiklenir (PR2 blockOnVerifierFail bekleniyor).
+            if (_compensator is not null && exchanges.Count > 0)
+            {
+                await _compensator.CompensateExchangesAsync(
+                    exchanges, ctx.Db, ctx.OwnerId, ctx.RunId, agent.Id, ct);
+            }
+            throw;
+        }
     }
 
     private static async Task WriteOutputAsync(

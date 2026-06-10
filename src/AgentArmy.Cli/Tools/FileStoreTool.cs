@@ -9,7 +9,7 @@ namespace AgentArmy.Cli;
 // Min risk R1 → RiskGate'te R0/R1 oto-onaydan geçer (yüksek riskli görevlerde onaya tabi).
 // Not: Faz A'da yerel dosya sistemine yazar; S3/Supabase Storage arka ucu sonraki adım.
 
-public sealed class FileStoreTool : ITool
+public sealed class FileStoreTool : ITool, ICompensable
 {
     public string Slug => "file_store";
 
@@ -73,6 +73,28 @@ public sealed class FileStoreTool : ITool
         var output = JsonSerializer.SerializeToElement(new { path, name = safeName, bytes });
         // Geri-alma anahtarı: silinecek dosya yolu.
         return ToolResult.Success(Slug, output, compensationToken: path);
+    }
+
+    // ICompensable: token = InvokeAsync'ın döndüğü dosya yolu (tam yol).
+    public Task<CompensationResult> CompensateAsync(string token, SupabaseWriter? db, string? ownerId, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(token))
+            return Task.FromResult(CompensationResult.Failure("Boş compensation_token; silinecek yol bilinmiyor."));
+
+        try
+        {
+            if (File.Exists(token))
+            {
+                File.Delete(token);
+                return Task.FromResult(CompensationResult.Success($"Silindi: {token}"));
+            }
+            // Dosya zaten yok — idempotent başarı.
+            return Task.FromResult(CompensationResult.Success($"Dosya zaten yok (idempotent): {token}"));
+        }
+        catch (Exception ex)
+        {
+            return Task.FromResult(CompensationResult.Failure($"Silinemedi: {ex.Message}"));
+        }
     }
 
     private static string SafeName(string input)

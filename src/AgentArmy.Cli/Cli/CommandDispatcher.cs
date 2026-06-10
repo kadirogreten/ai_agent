@@ -24,6 +24,7 @@ public static partial class CommandDispatcher
             "ceo-iterate" => await CeoIterateAsync(rootDir, tail, ct),
             "setup"       => Setup(rootDir, tail),
             "setup-env"   => SetupFromEnv(rootDir, tail),
+            "compensate"  => await CompensateAsync(rootDir, tail, ct),
             _             => Unknown()
         };
     }
@@ -266,6 +267,39 @@ public static partial class CommandDispatcher
         if (string.IsNullOrWhiteSpace(answers)) { Console.Error.WriteLine("Missing --answers (JSON string)"); return 1; }
 
         return await RunCeoFlowAsync(rootDir, request, answers, parsed, pack, ct);
+    }
+
+    // ── Compensate komutu ────────────────────────────────────────────────────
+
+    private static async Task<int> CompensateAsync(string rootDir, string[] args, CancellationToken ct)
+    {
+        var parsed = Args.Parse(args);
+        if (!parsed.TryGetValue("invocationId", out var invocationId) || string.IsNullOrWhiteSpace(invocationId))
+        {
+            Console.Error.WriteLine("Missing --invocationId");
+            return 1;
+        }
+
+        var ownerId  = Environment.GetEnvironmentVariable("RUN_OWNER_USER_ID");
+        var supabase = GetSupabase(rootDir);
+
+        using var db = SupabaseWriter.TryCreate(supabase);
+        if (db is null)
+        {
+            Console.Error.WriteLine("Supabase bağlantısı yapılandırılmamış; compensate çalışamıyor.");
+            return 1;
+        }
+
+        var executor = new CompensationExecutor(ToolExecutor.CreateDefault().GetTools().Values);
+        var result   = await executor.CompensateInvocationAsync(invocationId, db, ownerId, ct);
+
+        if (result.Ok)
+        {
+            Console.WriteLine($"OK: {result.Message}");
+            return 0;
+        }
+        Console.Error.WriteLine($"FAILED: {result.Message}");
+        return 1;
     }
 
     // ── Setup komutları ──────────────────────────────────────────────────────

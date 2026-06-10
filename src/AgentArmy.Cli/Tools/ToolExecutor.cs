@@ -37,6 +37,9 @@ public sealed class ToolExecutor : IToolExecutor
         new CargoTrackTool(),
     });
 
+    /// <summary>Tüm kayıtlı araçları döner (CompensationExecutor için).</summary>
+    public IReadOnlyDictionary<string, ITool> GetTools() => _tools;
+
     public IReadOnlyList<ToolDescriptor> AvailableFor(Agent agent, TaskContract contract)
     {
         var perms = ToolPermissions.Parse(contract.ToolPermissions);
