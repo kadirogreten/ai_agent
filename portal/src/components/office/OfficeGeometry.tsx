@@ -20,9 +20,15 @@ function mat(color: number, rough = 0.6, metal = 0, emit = 0, emitColor?: number
   })
 }
 
-// Fixed 5-desk amphitheater layout
 const DESK_COUNT = 5
 const AMFI_POSITIONS = getAmphibDeskPositions(DESK_COUNT)
+
+// ── Room constants ──────────────────────────────────────────────────────────
+const ROOM_W  = 36   // x: -18..+18
+const ROOM_D  = 28   // z: -14..+14
+const ROOM_H  = 6    // ceiling y
+const BACK_Z  = -14  // back wall z
+const CEIL_Y  = ROOM_H
 
 export default function OfficeGeometry({
   scene,
@@ -32,37 +38,324 @@ export default function OfficeGeometry({
   hasEscalation = false,
 }: OfficeGeometryProps) {
 
-  // ── Static geometry (floor, walls, desks, ops table) ───────────────────────
+  // ── Static geometry ─────────────────────────────────────────────────────────
   useEffect(() => {
-    // Circular platform — amfi r=10 + 6 margin = 16; beyond this the slate-900 bg shows
-    const platform = new THREE.Mesh(
-      new THREE.CylinderGeometry(16, 16, 0.08, 64),
-      mat(0x334155, 0.55, 0.2) // R3: slate-700 — zemin arka plandan ayrışsın
+
+    // ── FLOOR — warm wood parquet ─────────────────────────────────────────
+    const floor = new THREE.Mesh(
+      new THREE.PlaneGeometry(ROOM_W, ROOM_D),
+      mat(0x9a7b5f, 0.7, 0.05)
     )
-    platform.position.set(0, 0, 0)
-    platform.receiveShadow = true
-    scene.add(platform)
+    floor.rotation.x = -Math.PI / 2
+    floor.position.set(0, 0, 0)
+    floor.receiveShadow = true
+    scene.add(floor)
 
-    // Soft grid — only inside platform, very low opacity
-    const gridHelper = new THREE.GridHelper(28, 14, 0x334155, 0x334155)
-    gridHelper.position.y = 0.05
-    const gridMats = Array.isArray(gridHelper.material)
-      ? gridHelper.material
-      : [gridHelper.material]
-    gridMats.forEach((m) => {
-      const lm = m as THREE.LineBasicMaterial
-      lm.transparent = true
-      lm.opacity = 0.06 // R3: daha açık zeminde grid iyice silikleşsin
+    // Center carpet under ops table
+    const carpet = new THREE.Mesh(
+      new THREE.PlaneGeometry(12, 9),
+      mat(0x334155, 0.9, 0)
+    )
+    carpet.rotation.x = -Math.PI / 2
+    carpet.position.set(0, 0.005, 0)
+    carpet.receiveShadow = true
+    scene.add(carpet)
+
+    // ── CEILING — dollhouse: normal faces down, FrontSide → camera above can't see it ──
+    const ceiling = new THREE.Mesh(
+      new THREE.PlaneGeometry(ROOM_W, ROOM_D),
+      mat(0xcbd5e1, 0.8, 0)
+    )
+    ceiling.rotation.x = Math.PI / 2   // normal → -Y (down) — invisible from camera above
+    ceiling.position.set(0, CEIL_Y, 0)
+    scene.add(ceiling)
+
+    // 6 recessed spot discs on ceiling
+    const spotPositions: [number, number][] = [
+      [-9, -4], [0, -4], [9, -4],
+      [-9,  4], [0,  4], [9,  4],
+    ]
+    spotPositions.forEach(([sx, sz]) => {
+      const disc = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.22, 0.22, 0.04, 16),
+        mat(0xfff7ed, 0.2, 0.1, 1.0, 0xfff4e0)
+      )
+      disc.position.set(sx, CEIL_Y - 0.02, sz)
+      scene.add(disc)
+
+      const spot = new THREE.SpotLight(0xfff4e0, 0.6, 8, Math.PI / 4, 0.6)
+      spot.position.set(sx, CEIL_Y - 0.1, sz)
+      spot.target.position.set(sx, 0, sz)
+      scene.add(spot)
+      scene.add(spot.target)
     })
-    scene.add(gridHelper)
 
-    // Ceiling removed — open sky feel, background slate-900 reads above walls
+    // ── WALLS (3 — front open for camera) ────────────────────────────────
+    const wallMat = mat(0x8a94a3, 0.9, 0)
 
-    // R3: Duvarlar/süpürgelikler kaldırıldı — açık platform konsepti.
-    // Karanlıkta görünmeyen duvarların pencere/ışık öğeleri boşlukta yüzen
-    // beyaz barlar olarak görünüyordu; oda kutusu tamamen bırakıldı.
+    // Back wall
+    const backWall = new THREE.Mesh(new THREE.BoxGeometry(ROOM_W, ROOM_H, 0.3), wallMat)
+    backWall.position.set(0, ROOM_H / 2, BACK_Z)
+    backWall.receiveShadow = true
+    scene.add(backWall)
 
-    // ── Amphitheater desks ─────────────────────────────────────────────
+    // Left wall
+    const leftWall = new THREE.Mesh(new THREE.BoxGeometry(0.3, ROOM_H, ROOM_D), wallMat)
+    leftWall.position.set(-ROOM_W / 2, ROOM_H / 2, 0)
+    leftWall.receiveShadow = true
+    scene.add(leftWall)
+
+    // Right wall
+    const rightWall = new THREE.Mesh(new THREE.BoxGeometry(0.3, ROOM_H, ROOM_D), wallMat)
+    rightWall.position.set(ROOM_W / 2, ROOM_H / 2, 0)
+    rightWall.receiveShadow = true
+    scene.add(rightWall)
+
+    // ── FAKE WINDOWS on back wall — glowing planes, no glass/outside plane ──
+    // Mounted flush on inside face of back wall (z = BACK_Z + 0.16)
+    const windowY = 3.5
+    const windowPositions = [-10, 0, 10]
+    windowPositions.forEach((wx) => {
+      // Window frame
+      const frame = new THREE.Mesh(
+        new THREE.BoxGeometry(6.2, 3.7, 0.12),
+        mat(0x475569, 0.6, 0.2)
+      )
+      frame.position.set(wx, windowY, BACK_Z + 0.18)
+      scene.add(frame)
+
+      // "Sky" — emissive plane on inside face; no transparency, no z-fighting
+      const skyPane = new THREE.Mesh(
+        new THREE.PlaneGeometry(5.8, 3.4),
+        mat(0xbfdbfe, 0.1, 0, 0.6, 0x93c5fd)
+      )
+      skyPane.position.set(wx, windowY, BACK_Z + 0.17)
+      scene.add(skyPane)
+
+      // Subtle window sill
+      const sill = new THREE.Mesh(
+        new THREE.BoxGeometry(6.0, 0.1, 0.25),
+        mat(0x64748b, 0.5, 0.2)
+      )
+      sill.position.set(wx, windowY - 1.85, BACK_Z + 0.28)
+      scene.add(sill)
+    })
+
+    // ── PENDANT LAMPS — desk (5) ──────────────────────────────────────────
+    // PointLight count: 5 + 3 (ops) = 8 total ≤ 12
+    const cableLen = 3.2
+    const lampY    = CEIL_Y - cableLen   // ≈ 2.8
+
+    AMFI_POSITIONS.forEach((pos) => {
+      const { x, z } = pos
+
+      // Cable
+      const cable = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.015, 0.015, cableLen, 8),
+        mat(0x1e293b, 0.5, 0.4)
+      )
+      cable.position.set(x, CEIL_Y - cableLen / 2, z)
+      scene.add(cable)
+
+      // Shade (cone, opening downward — inverted)
+      const shade = new THREE.Mesh(
+        new THREE.ConeGeometry(0.32, 0.28, 16, 1, true),
+        mat(0xfff4e0, 0.4, 0.05, 0.8, 0xfff4e0)
+      )
+      shade.position.set(x, lampY - 0.14, z)
+      shade.rotation.x = Math.PI   // open end faces down
+      scene.add(shade)
+
+      // PointLight — warm pool on desk
+      const pl = new THREE.PointLight(0xffedd5, 0.8, 6)
+      pl.position.set(x, lampY - 0.35, z)
+      scene.add(pl)
+    })
+
+    // ── PENDANT LAMPS — ops table (3, arranged 120° apart) ───────────────
+    const opsPendantR = 1.4
+    for (let i = 0; i < 3; i++) {
+      const angle = (i / 3) * Math.PI * 2
+      const px = Math.cos(angle) * opsPendantR
+      const pz = Math.sin(angle) * opsPendantR
+
+      const opsLen = 2.8
+      const opsLampY = CEIL_Y - opsLen
+
+      const cable = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.015, 0.015, opsLen, 8),
+        mat(0x1e293b, 0.5, 0.4)
+      )
+      cable.position.set(px, CEIL_Y - opsLen / 2, pz)
+      scene.add(cable)
+
+      const shade = new THREE.Mesh(
+        new THREE.ConeGeometry(0.38, 0.3, 16, 1, true),
+        mat(0xfff4e0, 0.4, 0.05, 0.8, 0xfff4e0)
+      )
+      shade.position.set(px, opsLampY - 0.15, pz)
+      shade.rotation.x = Math.PI
+      scene.add(shade)
+
+      const pl = new THREE.PointLight(0xffedd5, 0.7, 5)
+      pl.position.set(px, opsLampY - 0.35, pz)
+      scene.add(pl)
+    }
+
+    // ── FLOOR LAMP — front-left corner ────────────────────────────────────
+    const floorLampX = -15, floorLampZ = 10
+    const lampMat = mat(0x475569, 0.3, 0.6)
+
+    const flBase = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.22, 0.1, 16), lampMat)
+    flBase.position.set(floorLampX, 0.05, floorLampZ)
+    scene.add(flBase)
+
+    const flPole = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 3.5, 8), lampMat)
+    flPole.position.set(floorLampX, 1.85, floorLampZ)
+    scene.add(flPole)
+
+    const flShade = new THREE.Mesh(
+      new THREE.ConeGeometry(0.4, 0.35, 16, 1, true),
+      mat(0xfff4e0, 0.4, 0.05, 0.8, 0xfff4e0)
+    )
+    flShade.position.set(floorLampX, 3.4, floorLampZ)
+    flShade.rotation.x = Math.PI
+    scene.add(flShade)
+
+    const flLight = new THREE.PointLight(0xffedd5, 0.7, 7)
+    flLight.position.set(floorLampX, 3.1, floorLampZ)
+    scene.add(flLight)
+
+    // ── BOOKSHELVES — back wall flanks ────────────────────────────────────
+    const shelfWood = mat(0x6b4f3a, 0.7, 0.05)
+    const shelfPositions = [
+      { x: -15, z: BACK_Z + 0.65 },
+      { x:  15, z: BACK_Z + 0.65 },
+    ]
+    const bookColors = [0xef4444, 0x3b82f6, 0x10b981, 0xf59e0b, 0x8b5cf6, 0xec4899]
+
+    shelfPositions.forEach(({ x, z }) => {
+      // Bookshelf body
+      const body = new THREE.Mesh(new THREE.BoxGeometry(2.5, 4.2, 0.38), shelfWood)
+      body.position.set(x, 2.1, z)
+      body.castShadow = true
+      scene.add(body)
+
+      // 4 shelves with books
+      for (let shelf = 0; shelf < 4; shelf++) {
+        const sy = 0.6 + shelf * 1.0
+
+        // Shelf board
+        const board = new THREE.Mesh(new THREE.BoxGeometry(2.3, 0.05, 0.32), shelfWood)
+        board.position.set(x, sy, z)
+        scene.add(board)
+
+        // Books (5-6 per shelf)
+        const bookCount = 5 + (shelf % 2)
+        const bookW = 2.1 / bookCount
+        for (let b = 0; b < bookCount; b++) {
+          const bx = x - 1.05 + bookW * b + bookW / 2
+          const bookH = 0.28 + Math.random() * 0.1
+          const book = new THREE.Mesh(
+            new THREE.BoxGeometry(bookW - 0.02, bookH, 0.26),
+            mat(bookColors[(shelf * bookCount + b) % bookColors.length], 0.8, 0)
+          )
+          book.position.set(bx, sy + bookH / 2 + 0.025, z)
+          scene.add(book)
+        }
+      }
+    })
+
+    // ── COFFEE CORNER — right back ────────────────────────────────────────
+    const ccX = 13.5, ccZ = -11
+    const woodMat = mat(0x6b4f3a, 0.7, 0.05)
+
+    const counter = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.9, 0.7), woodMat)
+    counter.position.set(ccX, 0.45, ccZ)
+    counter.castShadow = true
+    scene.add(counter)
+
+    const counterTop = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.05, 0.7), mat(0x1e293b, 0.2, 0.5))
+    counterTop.position.set(ccX, 0.925, ccZ)
+    scene.add(counterTop)
+
+    // Coffee machine
+    const machine = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.45, 0.3), mat(0x1e293b, 0.3, 0.6))
+    machine.position.set(ccX - 0.7, 1.15, ccZ)
+    machine.castShadow = true
+    scene.add(machine)
+
+    const machineLed = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.04, 0.02), mat(0x4ade80, 0.1, 0, 1.5, 0x4ade80))
+    machineLed.position.set(ccX - 0.7, 1.3, ccZ - 0.16)
+    scene.add(machineLed)
+
+    // 2 cups
+    const cupMat = mat(0xf5e6d3, 0.4, 0.1)
+    ;[0.3, 0.65].forEach((ox) => {
+      const cup = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.08, 0.1, 10), cupMat)
+      cup.position.set(ccX + ox, 0.975, ccZ)
+      scene.add(cup)
+
+      const handle = new THREE.Mesh(new THREE.TorusGeometry(0.05, 0.013, 6, 8), cupMat)
+      handle.position.set(ccX + ox + 0.09, 0.99, ccZ)
+      handle.rotation.z = Math.PI / 2
+      scene.add(handle)
+    })
+
+    // ── LARGE POTTED PLANTS — window sills ───────────────────────────────
+    const potMat  = mat(0xa16207, 0.7, 0)
+    const leafMat = mat(0x4a7c59, 0.6, 0)
+
+    const plantPositions = [
+      { x: -10, z: BACK_Z + 1.2 },
+      { x:   0, z: BACK_Z + 1.2 },
+      { x:  10, z: BACK_Z + 1.2 },
+    ]
+    plantPositions.forEach(({ x, z }) => {
+      const pot = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.28, 0.4, 14), potMat)
+      pot.position.set(x, 0.2, z)
+      scene.add(pot)
+
+      // Foliage — 3 overlapping spheres
+      ;[
+        [0, 0.6, 0, 1.0],
+        [-0.18, 0.7, -0.1, 0.85],
+        [0.15, 0.75, 0.08, 0.8],
+      ].forEach(([ox, oy, oz, s]) => {
+        const leaf = new THREE.Mesh(new THREE.SphereGeometry(0.22 * s, 8, 8), leafMat)
+        leaf.position.set(x + ox, 0.4 + oy, z + oz)
+        leaf.castShadow = true
+        scene.add(leaf)
+      })
+    })
+
+    // ── WALL ART — side walls ─────────────────────────────────────────────
+    const artData = [
+      { x: -17.8, z: -5, ry: Math.PI / 2,  colors: [0x6366f1, 0x7dd3fc, 0xf0abfc] },
+      { x:  17.8, z:  3, ry: -Math.PI / 2, colors: [0xfb923c, 0xfde68a, 0xa3e635] },
+    ]
+    artData.forEach(({ x, z, ry, colors }) => {
+      const frame = new THREE.Mesh(
+        new THREE.BoxGeometry(0.08, 1.6, 2.4),
+        mat(0x475569, 0.5, 0.2)
+      )
+      frame.position.set(x, 2.8, z)
+      frame.rotation.y = ry
+      scene.add(frame)
+
+      // Color block panels (abstract art)
+      colors.forEach((c, i) => {
+        const panel = new THREE.Mesh(
+          new THREE.PlaneGeometry(0.72, 1.35),
+          mat(c, 0.9, 0, 0.1, c)
+        )
+        panel.position.set(x + (ry > 0 ? 0.05 : -0.05), 2.8, z - 0.72 + i * 0.72)
+        panel.rotation.y = ry
+        scene.add(panel)
+      })
+    })
+
+    // ── AMPHITHEATER DESKS ────────────────────────────────────────────────
     const deskSurfMat  = mat(0x1e293b, 0.25, 0.5)
     const deskFrameMat = mat(0x334155, 0.2, 0.8)
     const monitorMat   = mat(0x0f172a, 0.3, 0.5)
@@ -71,24 +364,20 @@ export default function OfficeGeometry({
     AMFI_POSITIONS.forEach((pos, idx) => {
       const { x, z } = pos
 
-      // Desk surface
       const surface = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.06, 1.8), deskSurfMat)
       surface.position.set(x, 0.8, z)
       surface.castShadow = true
       surface.receiveShadow = true
       scene.add(surface)
 
-      // Subtle edge strip — slate (not neon)
-      const edgeMat = mat(0x7dd3fc, 0.4, 0.2, 0.4, 0x93c5fd)
-      const edge = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.03, 0.03), edgeMat)
-      // Orient edge toward camera (positive Z direction from desk center)
-      const angleToCenter = Math.atan2(-z, -x) // direction from desk to origin
+      const angleToCenter = Math.atan2(-z, -x)
       const edgeX = x + Math.cos(angleToCenter) * 0.9
       const edgeZ = z + Math.sin(angleToCenter) * 0.9
+      const edgeMat = mat(0x7dd3fc, 0.4, 0.2, 0.4, 0x93c5fd)
+      const edge = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.03, 0.03), edgeMat)
       edge.position.set(edgeX, 0.82, edgeZ)
       scene.add(edge)
 
-      // Legs
       const legOffsets: [number, number][] = [[-1.4, -0.8], [1.4, -0.8], [-1.4, 0.8], [1.4, 0.8]]
       legOffsets.forEach(([lx, lz]) => {
         const leg = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.8, 0.06), deskFrameMat)
@@ -97,7 +386,6 @@ export default function OfficeGeometry({
         scene.add(leg)
       })
 
-      // Monitor
       const screenColor = screenColors[idx]
       const monitor = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.75, 0.04), monitorMat)
       monitor.position.set(x, 1.55, z - 0.3)
@@ -113,39 +401,29 @@ export default function OfficeGeometry({
       stand.position.set(x, 1.1, z - 0.25)
       scene.add(stand)
 
-      const screenLight = new THREE.PointLight(screenColor, 0.5, 4)
+      const screenLight = new THREE.PointLight(screenColor, 0.4, 3)
       screenLight.position.set(x, 1.55, z - 0.1)
       scene.add(screenLight)
-
-      // Desk spot — soft
-      const deskSpot = new THREE.SpotLight(0xbae6fd, 0.8, 8, Math.PI / 6, 0.5)
-      deskSpot.position.set(x, 4, z)
-      deskSpot.target.position.set(x, 0, z)
-      scene.add(deskSpot)
-      scene.add(deskSpot.target)
     })
 
-    // ── Center Operations Table ────────────────────────────────────────
-    // Slate-700 base + subtle indigo rim emissive
+    // ── CENTER OPERATIONS TABLE ───────────────────────────────────────────
     const opsTable = new THREE.Mesh(
       new THREE.CylinderGeometry(3.5, 3.5, 0.4, 32),
-      mat(0x475569, 0.3, 0.4, 0.3, 0x6366f1) // R3: zeminden ayrışması için açıldı + rim güçlendi
+      mat(0x334155, 0.25, 0.5, 0.15, 0x6366f1)
     )
-    opsTable.position.set(0, 0.2, 0)   // top surface at y=0.4
+    opsTable.position.set(0, 0.2, 0)
     opsTable.castShadow = true
     opsTable.receiveShadow = true
     scene.add(opsTable)
 
-    // Table edge ring — sits 0.3 above top surface (y = 0.4 + 0.3 = 0.7 → torus center)
     const tableEdge = new THREE.Mesh(
       new THREE.TorusGeometry(3.5, 0.05, 8, 64),
       mat(0x818cf8, 0.2, 0.3, 0.7, 0xa5b4fc)
     )
     tableEdge.rotation.x = Math.PI / 2
-    tableEdge.position.set(0, 0.42, 0)  // flush with top face
+    tableEdge.position.set(0, 0.42, 0)
     scene.add(tableEdge)
 
-    // Holographic pillar above table
     const pillar = new THREE.Mesh(
       new THREE.CylinderGeometry(0.08, 0.08, 2.0, 12),
       mat(0x6366f1, 0.1, 0.6, 0.8, 0x818cf8)
@@ -153,21 +431,15 @@ export default function OfficeGeometry({
     pillar.position.set(0, 1.4, 0)
     scene.add(pillar)
 
-    // Center uplight
-    const centerLight = new THREE.PointLight(0x6366f1, 1.5, 12)
+    const centerLight = new THREE.PointLight(0x6366f1, 1.2, 10)
     centerLight.position.set(0, 2, 0)
     scene.add(centerLight)
-
-    // R3: Server rack'leri ve pencereler kaldırıldı — duvarsız açık platformda
-    // bu öğeler bağlamsız kalıyor ve (pencere camı + point light'lar) boşlukta
-    // yüzen parlak şeritler üretiyordu. Platform + amfi + merkez masa yeterli.
 
     return () => {
       // Scene clear handled by Office3DScene on unmount
     }
   }, [scene])
 
-  // Desk ring indices as stable string for dep comparison
   const runningKey = useMemo(() => runningDeskIndices.slice().sort().join(','), [runningDeskIndices])
 
   // ── Dynamic objects (desk rings, approval badge, ops ring, particles) ───────
@@ -175,7 +447,6 @@ export default function OfficeGeometry({
     const objects: THREE.Object3D[] = []
     let animId: number
 
-    // Desk rings for running jobs
     runningDeskIndices.forEach((idx) => {
       const pos = AMFI_POSITIONS[idx]
       if (!pos) return
@@ -189,7 +460,6 @@ export default function OfficeGeometry({
       objects.push(ring)
     })
 
-    // Approval badge on center table when pending > 0
     if (pendingApprovalCount > 0) {
       const badge = new THREE.Mesh(
         new THREE.SphereGeometry(0.25, 10, 10),
@@ -205,20 +475,18 @@ export default function OfficeGeometry({
       objects.push(badgeLight)
     }
 
-    // Center ops ring — size capped at radius 4 (6+ ops would overflow table)
     const clampedOps = Math.min(totalOps, 6)
-    const opsRadius = Math.min(clampedOps * 0.4 + 2, 4)
-    const opsColor = getOpsTableColor(hasEscalation)
-    const opsRing = new THREE.Mesh(
+    const opsRadius  = Math.min(clampedOps * 0.4 + 2, 4)
+    const opsColor   = getOpsTableColor(hasEscalation)
+    const opsRing    = new THREE.Mesh(
       new THREE.TorusGeometry(opsRadius, 0.12, 8, 48),
       mat(opsColor, 0.2, 0.1, 1.2, opsColor)
     )
     opsRing.rotation.x = Math.PI / 2
-    opsRing.position.set(0, 0.7, 0)   // 0.3 above table top (y=0.4)
+    opsRing.position.set(0, 0.7, 0)
     scene.add(opsRing)
     objects.push(opsRing)
 
-    // Particle flow: center → running desks
     const PARTICLE_COUNT_PER_FLOW = runningDeskIndices.length > 0
       ? Math.min(40, Math.floor(200 / runningDeskIndices.length))
       : 0
@@ -257,7 +525,6 @@ export default function OfficeGeometry({
       particleGroups.push({ points: pts, from, to, offsets })
     })
 
-    // Animation loop for particles
     const SPEED = 0.25
     const animate = () => {
       animId = requestAnimationFrame(animate)

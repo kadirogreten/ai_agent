@@ -25,7 +25,7 @@ export default function Office3DScene({ onSceneReady, children }: Office3DSceneP
     // ── Scene ──────────────────────────────────────────────────────────
     const scene = new THREE.Scene()
     scene.background = new THREE.Color(0x1e293b)   // slate-800 — slate-900 fazla siyah kalıyordu (R3)
-    scene.fog = new THREE.FogExp2(0x1e293b, 0.004) // çok hafif derinlik; karartma yok (R3)
+    // No fog — interior room scene
     sceneRef.current = scene
 
     // ── Camera ─────────────────────────────────────────────────────────
@@ -47,10 +47,11 @@ export default function Office3DScene({ onSceneReady, children }: Office3DSceneP
 
     // ── Lighting ───────────────────────────────────────────────────────
     // Soft hemisphere — slate sky / dark ground, matches app palette
-    scene.add(new THREE.HemisphereLight(0x94a3b8, 0x334155, 1.5)) // R3: zemin yansıması + şiddet artırıldı
+    // Soft hemisphere — warm ceiling / cool ground; sıcak lambalar için 1.1
+    scene.add(new THREE.HemisphereLight(0xfff7ed, 0x334155, 1.1))
 
-    // Primary directional (soft shadows)
-    const keyLight = new THREE.DirectionalLight(0xcbd5e1, 1.3)
+    // Primary directional — gün ışığı hissi, gölge yalnız burada
+    const keyLight = new THREE.DirectionalLight(0xcbd5e1, 0.9)
     keyLight.position.set(5, 20, 10)
     keyLight.castShadow = true
     keyLight.shadow.mapSize.set(1024, 1024)
@@ -60,27 +61,18 @@ export default function Office3DScene({ onSceneReady, children }: Office3DSceneP
     keyLight.shadow.bias = -0.0003
     scene.add(keyLight)
 
-    // Pastel sky-blue accent — left
-    const blueLight = new THREE.PointLight(0x7dd3fc, 1.2, 35)
-    blueLight.position.set(-18, 6, 0)
-    scene.add(blueLight)
-
-    // Pastel indigo accent — right
-    const purpleLight = new THREE.PointLight(0xa5b4fc, 0.8, 30)
-    purpleLight.position.set(18, 4, -8)
-    scene.add(purpleLight)
+    // Window daylight — angled from back-left (pencere yönü)
+    const windowLight = new THREE.DirectionalLight(0xfff7ed, 0.5)
+    windowLight.position.set(-8, 4, -22)
+    windowLight.target.position.set(0, 0, 0)
+    scene.add(windowLight)
+    scene.add(windowLight.target)
 
     if (onSceneReady) onSceneReady(scene, camera, renderer)
 
     // ── Animation ──────────────────────────────────────────────────────
     const animate = () => {
       animIdRef.current = requestAnimationFrame(animate)
-      const t = clockRef.current.getElapsedTime()
-
-      // Very gentle pulse on accent lights
-      blueLight.intensity   = 1.2 + Math.sin(t * 0.5) * 0.15
-      purpleLight.intensity = 0.8 + Math.sin(t * 0.4 + 1) * 0.1
-
       renderer.render(scene, camera)
     }
     animate()
