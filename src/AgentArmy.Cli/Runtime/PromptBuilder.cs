@@ -4,7 +4,11 @@ namespace AgentArmy.Cli;
 
 public static class PromptBuilder
 {
-    public static string BuildSystemPrompt(Agent agent, string personaText, string? extraPolicy)
+    public static string BuildSystemPrompt(
+        Agent   agent,
+        string  personaText,
+        string? extraPolicy,
+        string? operationMemory = null)
     {
         var sb = new StringBuilder();
         sb.AppendLine(agent.SystemPrompt);
@@ -14,6 +18,16 @@ public static class PromptBuilder
             sb.AppendLine();
             sb.AppendLine("Ek politika/rubrik:");
             sb.AppendLine(extraPolicy.Trim());
+        }
+
+        // Operasyon belleği: run'lar arası taşınan kararlar ve bulgular.
+        // Sistem prompt'una enjekte edilir — her adımda görünür, kullanıcı prompt'uyla tekrarlanmaz.
+        if (!string.IsNullOrWhiteSpace(operationMemory))
+        {
+            sb.AppendLine();
+            sb.AppendLine("## Operasyon belleği");
+            sb.AppendLine("(Bu operasyonun önceki run'larından taşınan kararlar ve bulgular — doğrulanmış kabul et, tekrar kanıtlamaya çalışma)");
+            sb.AppendLine(operationMemory.Trim());
         }
 
         sb.AppendLine();

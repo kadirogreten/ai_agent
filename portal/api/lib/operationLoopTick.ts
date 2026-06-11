@@ -135,10 +135,12 @@ async function observe(supabase: SupabaseClient, op: Operation) {
   let pendingApprovals = 0
   let oldestPendingAt: string | null = null
   if (lastRun?.id) {
+    // RiskGate artık run_request_id = job.id yazıyor (PR3 Bug 3 düzeltmesi).
+    // Eski step_name fallback'i kaldırıldı — ölü kod, yanlış onay eşleştirmesine yol açabilir.
     const { data: aq } = await supabase
       .from('approval_queue')
       .select('id, created_at')
-      .or(`run_request_id.eq.${lastRun.id},and(run_request_id.is.null,step_name.eq.${lastRun.id})`)
+      .eq('run_request_id', lastRun.id)
       .eq('status', 'pending')
       .order('created_at', { ascending: true })
 

@@ -80,7 +80,7 @@ Her PR bağımsız merge edilebilir; her birinin "biten tanımı" var. Sıra ön
 | **PR1** ✅ | Rollback runtime | `compensation_token`'ı çalıştıran `CompensationExecutor`; reddedilen/başarısız R1+ eylemlerde otomatik tetik; `tool.compensated` audit kaydı | Reddedilen bir `file_store` yazımı otomatik siliniyor, audit'te görünüyor |
 | **PR2** ✅ | Guard hattı: Verifier-blok + bütçe + bildirim **+ PR1 devirleri** | (a) Playbook adımına `blockOnVerifierFail: true` (Verifier-FAIL'de compensation da buna bağlanır); (b) `operation_budgets` tablosu + `RiskGate`'te harcama/çağrı tavanı kontrolü; (c) onay kuyruğuna düşen her kayıt için e-posta/Slack webhook bildirimi; (d) PR1 devri: invocation id'nin `ToolResult`/`ToolExchange`'e taşınması — in-flight compensation DB'yi de patch'lesin (çift geri-alma riski); (e) CLI compensation'da `status='compensated'` güncellemesi | FAIL'li linkle satın alma bloklanıyor; bütçe aşan PO reddediliyor; onaya düşünce bildirim gidiyor; in-flight compensate edilen kayıt CLI'dan ikinci kez compensate edilemiyor |
 | **PR3** ✅ | `operations` şeması + OperationLoop tick | `operations`, `operation_events` tabloları; `operationLoopTick.ts` (observe→decide→act); karar LLM'i için dar JSON sözleşmesi (`continue / retry / escalate / done`); max-adım ve cooldown koruması | Bir hedef verilen operasyon, insan tetiği olmadan 2+ run'ı ardışık yürütüyor, takılınca eskale ediyor |
-| **PR4** | Operasyon belleği | `operation_memory` (facts/decisions/work, operasyon kapsamlı); `FactsStore`'un domain-pack bağımsızlaştırılması; tazelik kuralı (en yeni gözlem kazanır); Orchestrator prompt'una operasyon belleği enjeksiyonu | Aynı operasyonun 2. run'ı, 1. run'ın kararlarını prompt'ta görüyor |
+| **PR4** ✅ | Operasyon belleği | `operation_memory` (facts/decisions/work, operasyon kapsamlı); `FactsStore`'un domain-pack bağımsızlaştırılması; tazelik kuralı (en yeni gözlem kazanır); Orchestrator prompt'una operasyon belleği enjeksiyonu | Aynı operasyonun 2. run'ı, 1. run'ın kararlarını prompt'ta görüyor |
 | **PR5** | RiskGate tek-geçit kanıtı + portal Operations UI | Tüm tool-call path'lerinde RiskGate zorunluluğunu doğrulayan entegrasyon testleri; `OperationsPage` (hedef tanımla, durum izle, duraklat/devam, event timeline) | Test yeşil; portaldan operasyon açılıp canlı izlenebiliyor |
 | **PR6** | Dogfood: tedarik operasyonu kapalı döngü | Tedarik akışını `operations` üstünden uçtan uca koştur: stok düşer → döngü açılır → araştırma → onay (bildirimli) → PO → kargo takibi **döngü tarafından** sorgulanır → teslimde stok güncellenir → operasyon `done`. KPI: insan dokunuşu sayısı, döngü süresi, hata oranı | Tek insan dokunuşu = PO onayı; geri kalanı otonom; KPI raporu `docs/`a yazıldı |
 
@@ -122,6 +122,15 @@ PR4+/sonrası devirler:
 2. Bütçe niyet anında tüketiliyor + `BudgetChecker` fail-open (PR2 not 3–4) hâlâ açık.
 3. Portal `OperationsPage` (izleme/duraklat UI) PR5'te — API hazır, UI yok.
 4. Decide LLM'i Chat Completions endpoint'i kullanıyor; CLI Responses API kullanıyor — bilinçli ayrım, sorun değil.
+
+### PR4 — Tamamlandı (2026-06-11)
+
+Teslim edilenler: `operation_memory` tablosu (`20260611150000`, RLS `operation_events` deseni, aktif-kayıt + dedup indeksleri); `OperationMemoryStore` (FK-güvenli sıra: istemci id → INSERT → eskiye PATCH `superseded_by`; `ComputeTopicKey` SHA256 kind+ilk-120; null-DB no-op); `RunContext.OperationId` (`RUN_OPERATION_ID` env, OwnerId deseni); `PromptBuilder`'a `operationMemory` parametresi (sistem prompt'u, her adımda görünür); Orchestrator run başında max 30 aktif kaydı yükler + run sonunda fact/decision/work üçlüsünü yazar; Runner'da market-intel kilidi kaldırıldı — operasyona bağlı run'larda facts her zaman açık, bağımsız run'larda eski davranış (maliyet kontrollü); worker `RUN_OPERATION_ID` geçiriyor. 23/23 test yeşil.
+
+Bilinen sınırlar / devirler:
+
+1. `topic_key` dedup'ı yalnız aynı-önekli (ilk 120 karakter) içeriği süpersede eder; farklı ifade edilmiş çelişen fact'ler ayrı kayıt kalır — PR6 dogfood'da sorun çıkarırsa anlamsal dedup eklenir.
+2. DB'li supersede/limit senaryoları birim test kapsamı dışında (SupabaseWriter HttpClient sabit) — duman testiyle doğrulanır.
 
 ---
 

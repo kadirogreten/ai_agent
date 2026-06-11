@@ -10,7 +10,7 @@ import {
   Package, Layers, Database, Brain,
   DollarSign, ScrollText, Bell,
   Compass, FileStack, Boxes,
-  Download, LogOut, ChevronDown,
+  Download, LogOut, ChevronDown, Target,
 } from 'lucide-react'
 
 type NavItem = { to: string; label: string; icon: React.ReactNode; primary?: boolean }
@@ -27,6 +27,7 @@ const navGroups: NavGroup[] = [
   {
     title: 'Çalışmalarım',
     items: [
+      { to: '/app/operations', label: 'Operasyonlar', icon: <Target size={15} /> },
       { to: '/app/jobs', label: 'İşler (kuyruk)', icon: <Briefcase size={15} /> },
       { to: '/app/runs', label: 'Çalıştırmalar', icon: <List size={15} /> },
       { to: '/app/stock', label: 'Stok', icon: <Boxes size={15} /> },

@@ -38,6 +38,7 @@ import SelfReflectionPage from '@/pages/SelfReflectionPage'
 import EmpiricalCheckPage from '@/pages/EmpiricalCheckPage'
 import NotificationChannelsPage from '@/pages/NotificationChannelsPage'
 import OfficePage from '@/pages/OfficePage'
+import OperationsPage from '@/pages/OperationsPage'
 
 export default function App() {
   const init = useAuthStore((s) => s.init)
@@ -105,6 +106,7 @@ export default function App() {
           <Route path="self-reflection" element={<SelfReflectionPage />} />
           <Route path="empirical-check" element={<EmpiricalCheckPage />} />
           <Route path="notification-channels" element={<NotificationChannelsPage />} />
+          <Route path="operations" element={<OperationsPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/app" replace />} />
       </Routes>

@@ -21,10 +21,12 @@ public sealed class Orchestrator
     private readonly PersonaProfile _personaProfile;
     private readonly IToolExecutor? _toolExecutor;
     private readonly CompensationExecutor? _compensator;
+    private readonly OperationMemoryStore? _opMemStore;
 
     // Context budget — sliding window. ~16K char ≈ ~4K token (mixed TR/EN).
-    private const int MaxContextChars = 16000;
-    private const int MaxPriorFacts   = 8;
+    private const int MaxContextChars    = 16000;
+    private const int MaxPriorFacts      = 8;
+    private const int MaxOperationMemory = 30;
 
     public Orchestrator(
         ILlmClient llm,
@@ -42,7 +44,8 @@ public sealed class Orchestrator
         FactsIndex? factsIndex = null,
         PersonaProfile? personaProfile = null,
         IToolExecutor? toolExecutor = null,
-        CompensationExecutor? compensator = null
+        CompensationExecutor? compensator = null,
+        OperationMemoryStore? opMemStore = null
     )
     {
         _llm              = llm;
@@ -60,6 +63,7 @@ public sealed class Orchestrator
         _personaProfile       = personaProfile ?? PersonaProfile.FromMarkdownOnly("default", string.Empty);
         _toolExecutor         = toolExecutor;
         _compensator          = compensator;
+        _opMemStore           = opMemStore;
 
         var merged = new Dictionary<string, Agent>(AgentsCatalog.All, StringComparer.OrdinalIgnoreCase);
         if (agentOverrides is not null)
@@ -105,6 +109,21 @@ public sealed class Orchestrator
                 runId       = ctx.RunId,
                 playbook    = ctx.Playbook.Id,
                 facts_count = priorFactsText.Split('\n').Count(l => l.StartsWith("- "))
+            }, ct);
+        }
+
+        // Operasyon belleği: operation_id dolu ise önceki run'lardan taşınan kararları yükle.
+        // Dry-run modunda da çalışır — stderr'e log edilir (bitti kriteri).
+        var opMemoryText = await BuildOperationMemoryBlockAsync(ct);
+        if (!string.IsNullOrWhiteSpace(opMemoryText))
+        {
+            Console.Error.WriteLine($"[Orchestrator] Operasyon belleği yüklendi ({opMemoryText.Split('\n').Length} satır).");
+            await ctx.AppendLogAsync(new
+            {
+                type         = "operation_memory_injected",
+                ts           = DateTimeOffset.UtcNow,
+                operationId  = ctx.OperationId,
+                lines        = opMemoryText.Split('\n').Length
             }, ct);
         }
 
@@ -183,7 +202,7 @@ public sealed class Orchestrator
             var coreAgent   = ResolveAgent(step.Agent);
             var agent       = AgentBehaviorMerge.Apply(coreAgent, _personaProfile);
             var extraPolicy = BuildExtraPolicy(agent);
-            var system      = PromptBuilder.BuildSystemPrompt(agent, personaText, extraPolicy);
+            var system      = PromptBuilder.BuildSystemPrompt(agent, personaText, extraPolicy, opMemoryText);
 
             var rawContext = agent.Behaviors.RequiresFullContext ? ctx.GetWork() : priorWork;
             var context    = TrimContext(rawContext);
@@ -286,6 +305,7 @@ public sealed class Orchestrator
         }
 
         await TryExtractAndStoreFactsAsync(ctx, ct);
+        await TryWriteOperationMemoryAsync(ctx, ct);
 
         // Metrikler — sadece event log'a
         var latencyMs = (int)(DateTimeOffset.UtcNow - runStarted).TotalMilliseconds;
@@ -492,7 +512,8 @@ public sealed class Orchestrator
     {
         var agent       = AgentBehaviorMerge.Apply(ResolveAgent(step.Agent), _personaProfile);
         var extraPolicy = BuildExtraPolicy(agent);
-        var system      = PromptBuilder.BuildSystemPrompt(agent, personaText, extraPolicy);
+        var opMem       = await BuildOperationMemoryBlockAsync(ct);
+        var system      = PromptBuilder.BuildSystemPrompt(agent, personaText, extraPolicy, opMem);
         var context     = TrimContext(ctx.GetWork());
         var priorFacts  = await BuildPriorFactsBlockAsync(ctx.Contract.Topic, ct);
         var user        = PromptBuilder.BuildUserPrompt(ctx, step, context, priorFacts);
@@ -559,6 +580,48 @@ public sealed class Orchestrator
             extracted = facts.Count,
             appended
         }, ct);
+    }
+
+    // ── Operasyon belleği — yazma ─────────────────────────────────────────────
+
+    private async Task TryWriteOperationMemoryAsync(RunContext ctx, CancellationToken ct)
+    {
+        if (_opMemStore is null) return;
+
+        // fact: FactsExtractor'ın işlemediği ham fact accumulator içeriği de kalıcı olsun
+        var factsBlock     = ctx.GetFacts().Trim();
+        var decisionsBlock = ctx.GetDecisions().Trim();
+        var workBlock      = ctx.GetWork().Trim();
+
+        if (factsBlock.Length > 8) // "# Facts\n\n" den uzunsa içerik var
+            await _opMemStore.WriteMemoryAsync("fact", factsBlock, ct);
+
+        if (decisionsBlock.Length > 12) // "# Decisions\n\n"
+            await _opMemStore.WriteMemoryAsync("decision", decisionsBlock, ct);
+
+        if (workBlock.Length > 8) // "# Work\n\n"
+        {
+            // Çok uzun work bloğunu kes — token tavanı (en son 2000 karakter)
+            var workContent = workBlock.Length > 2000 ? workBlock[^2000..] : workBlock;
+            await _opMemStore.WriteMemoryAsync("work", workContent, ct);
+        }
+
+        await ctx.AppendLogAsync(new
+        {
+            type        = "operation_memory_written",
+            ts          = DateTimeOffset.UtcNow,
+            operationId = ctx.OperationId,
+            runId       = ctx.RunId,
+        }, ct);
+    }
+
+    // ── Operasyon belleği — okuma ─────────────────────────────────────────────
+
+    private async Task<string> BuildOperationMemoryBlockAsync(CancellationToken ct)
+    {
+        if (_opMemStore is null) return string.Empty;
+        try { return await _opMemStore.BuildMemoryBlockAsync(MaxOperationMemory, ct); }
+        catch { return string.Empty; }
     }
 
     private static string SafeArtifactFileName(string input)

@@ -21,6 +21,7 @@ type RunRequest = {
   tools: string | null
   created_at: string
   attempt_count: number
+  operation_id: string | null
 }
 
 
@@ -513,6 +514,8 @@ async function processOne(supabase: ReturnType<typeof getSupabaseAdmin>, job: Ru
       RUN_OWNER_USER_ID:           job.owner_user_id,
       // Sector Discovery hook için: Runner draft yazarken run_request_id bilsin.
       RUN_REQUEST_ID:              job.id,
+      // Operasyon belleği: OperationMemoryStore bu id'yi kullanır.
+      RUN_OPERATION_ID:            job.operation_id ?? undefined,
       DOTNET_CLI_TELEMETRY_OPTOUT: '1',
       DOTNET_NOLOGO:               '1',
     }, repoRoot)

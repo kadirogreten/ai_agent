@@ -15,6 +15,12 @@ public sealed class RunContext
     /// <summary>RUN_OWNER_USER_ID env var'dan okunur; run_outputs ve run_events'e eklenir.</summary>
     public string? OwnerId => Environment.GetEnvironmentVariable("RUN_OWNER_USER_ID");
 
+    /// <summary>
+    /// RUN_OPERATION_ID env var'dan okunur; worker tarafından set edilir.
+    /// Dolu ise bu run bir operasyona bağlıdır; operation_memory yazılır/okunur.
+    /// </summary>
+    public string? OperationId => Environment.GetEnvironmentVariable("RUN_OPERATION_ID");
+
     // ── In-memory accumulators (disk yerine) ──────────────────────────────
     private readonly StringBuilder _work      = new("# Work\n\n");
     private readonly StringBuilder _facts     = new("# Facts\n\n");

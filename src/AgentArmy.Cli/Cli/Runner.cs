@@ -156,10 +156,17 @@ public static class Runner
         using var db = SupabaseWriter.TryCreate(supabase);
         using (http)
         {
-            var enableFacts = exec.DomainPack?.Id.Equals("market-intel", StringComparison.OrdinalIgnoreCase) == true
-                              && !exec.DryRun
-                              && (exec.Args.GetValueOrDefault("facts") ?? "true")
-                                  .Equals("true", StringComparison.OrdinalIgnoreCase);
+            // enableFacts:
+            //   - Operasyona bağlı run'larda (OperationId dolu) her zaman açık — kapalı döngü belleği için şart.
+            //   - Bağımsız run'larda eski davranış korunur (market-intel kilidi + --facts flag).
+            var operationId = Environment.GetEnvironmentVariable("RUN_OPERATION_ID");
+            var hasOperation = !string.IsNullOrWhiteSpace(operationId);
+
+            var enableFacts = !exec.DryRun && (
+                hasOperation
+                || (exec.DomainPack?.Id.Equals("market-intel", StringComparison.OrdinalIgnoreCase) == true
+                    && (exec.Args.GetValueOrDefault("facts") ?? "true")
+                           .Equals("true", StringComparison.OrdinalIgnoreCase)));
 
             FactsExtractor? extractor = null;
             FactsStore? store         = null;
@@ -168,13 +175,18 @@ public static class Runner
             if (enableFacts && db is not null)
             {
                 extractor  = new FactsExtractor(llm);
-                store      = new FactsStore(db, exec.DomainPack!.Id);
+                store      = new FactsStore(db, exec.DomainPack?.Id ?? "default");
                 factsTopic = exec.Args.GetValueOrDefault("topic") ?? string.Empty;
             }
 
             // Kapı 1: Hafızalı otonomi — facts'leri DB'den oku (tek hakikat kaynağı).
             FactsIndex? factsIndex = (db is not null && exec.DomainPack is not null)
                 ? new FactsIndex(db, exec.DomainPack.Id)
+                : null;
+
+            // Operasyon belleği: operationId varsa run'lar arası kalıcı durum.
+            OperationMemoryStore? opMemStore = (hasOperation && db is not null)
+                ? new OperationMemoryStore(db, operationId!, runId)
                 : null;
 
             // Persona: DB-first profil (behaviors + risk_ceiling overlay) + disk fallback.
@@ -191,7 +203,9 @@ public static class Runner
                 agentOverrides, images,
                 factsIndex,
                 personaProfile,
-                ToolExecutor.CreateDefault()
+                ToolExecutor.CreateDefault(),
+                compensator: null,
+                opMemStore:  opMemStore
             );
 
             var contract = BuildContract(exec, playbook);

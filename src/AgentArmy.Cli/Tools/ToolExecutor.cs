@@ -16,12 +16,23 @@ namespace AgentArmy.Cli;
 public sealed class ToolExecutor : IToolExecutor
 {
     private readonly IReadOnlyDictionary<string, ITool> _tools;
+    private readonly IRiskGate      _gate;
+    private readonly IBudgetChecker _budget;
 
-    public ToolExecutor(IEnumerable<ITool> tools)
+    /// <summary>
+    /// Üretim ctor — adapter'lar otomatik kullanılır.
+    /// Testler <paramref name="gate"/> ve <paramref name="budget"/> enjekte eder.
+    /// </summary>
+    public ToolExecutor(
+        IEnumerable<ITool> tools,
+        IRiskGate?      gate   = null,
+        IBudgetChecker? budget = null)
     {
         var map = new Dictionary<string, ITool>(StringComparer.OrdinalIgnoreCase);
         foreach (var t in tools) map[t.Slug] = t;
-        _tools = map;
+        _tools  = map;
+        _gate   = gate   ?? new RiskGateAdapter();
+        _budget = budget ?? new BudgetCheckerAdapter();
     }
 
     /// <summary>Faz A varsayılan kaydı: aktif araçlar.</summary>
@@ -77,28 +88,30 @@ public sealed class ToolExecutor : IToolExecutor
             return await FinishAsync(ctx, slug, agent.Id, args, sideEffect, effRisk, null,
                 ToolResult.Failure(slug, $"'{slug}' geri-alınamaz yan etkili — Faz A'da yasak."), ToolInvocationStatus.Blocked, ct);
 
-        // 4a) Bütçe kilidi: parasal araçlarda (purchase_order) tutar + çağrı sayısı kontrolü.
-        //     consume_budget RPC atomik check+increment yapar; C#'ta read-modify-write yok.
-        if (desc.SideEffect.HasSideEffect() && ctx.Db is not null && ctx.OwnerId is not null)
+        // 4a) Bütçe kilidi: yan etkili her araç için koşulsuz çağrılır.
+        //     Null-DB toleransı BudgetCheckerAdapter içinde kalır (allowed=true döner).
+        //     Guard kaldırıldı: IBudgetChecker enjekte edilebilir, test çifti çalışabilir.
+        if (desc.SideEffect.HasSideEffect())
         {
             var amount = BudgetChecker.ExtractAmount(args);
-            var budget = await BudgetChecker.ConsumeAsync(ctx.Db, ctx.OwnerId, slug, amount, ct);
-            if (!budget.Allowed)
+            var budgetResult = await _budget.ConsumeAsync(ctx.Db, ctx.OwnerId, slug, amount, ct);
+            if (!budgetResult.Allowed)
             {
-                var failResult = ToolResult.Failure(slug, $"Bütçe aşıldı ({budget.Reason}).");
+                var failResult = ToolResult.Failure(slug, $"Bütçe aşıldı ({budgetResult.Reason}).");
                 try
                 {
-                    await ctx.Db.CallRpcAsync("append_audit_log", new
-                    {
-                        p_owner_user_id = ctx.OwnerId,
-                        p_actor_type    = "agent",
-                        p_actor_id      = agent.Id,
-                        p_action        = "budget.exceeded",
-                        p_resource_type = "tool",
-                        p_risk_level    = effRisk,
-                        p_severity      = "warn",
-                        p_detail        = new { slug, reason = budget.Reason, amount },
-                    }, ct);
+                    if (ctx.Db is not null && ctx.OwnerId is not null)
+                        await ctx.Db.CallRpcAsync("append_audit_log", new
+                        {
+                            p_owner_user_id = ctx.OwnerId,
+                            p_actor_type    = "agent",
+                            p_actor_id      = agent.Id,
+                            p_action        = "budget.exceeded",
+                            p_resource_type = "tool",
+                            p_risk_level    = effRisk,
+                            p_severity      = "warn",
+                            p_detail        = new { slug, reason = budgetResult.Reason, amount },
+                        }, ct);
                 }
                 catch (Exception ex)
                 {
@@ -109,17 +122,18 @@ public sealed class ToolExecutor : IToolExecutor
             }
         }
 
-        // 4b) Yan etkili araç → RiskGate. R0/R1 oto-onay; R2/R3 onay kuyruğu; yüksek riskte bypass = fail-closed.
+        // 4b) Yan etkili araç → RiskGate (instance _gate; testler FakeRiskGate enjekte eder).
+        //     R0/R1 oto-onay; R2/R3 onay kuyruğu; yüksek riskte bypass = fail-closed.
         string? approvalQueueId = null;
         if (desc.SideEffect.HasSideEffect())
         {
-            var gate    = await RiskGate.GateForToolAsync(ctx.Db, effRisk, ctx.RunId, agent.Id, slug, ArgsToObject(args), ct);
-            approvalQueueId = gate.ApprovalQueueId;
+            var gateResult  = await _gate.GateForToolAsync(ctx.Db, effRisk, ctx.RunId, agent.Id, slug, ArgsToObject(args), ct);
+            approvalQueueId = gateResult.ApprovalQueueId;
             var highRisk = RiskPolicy.Rank(effRisk) >= 2;
-            var bypassed = gate.Reason is not null && gate.Reason.Contains("bypass", StringComparison.OrdinalIgnoreCase);
-            if (!gate.Approved || (highRisk && bypassed))
+            var bypassed = gateResult.Reason is not null && gateResult.Reason.Contains("bypass", StringComparison.OrdinalIgnoreCase);
+            if (!gateResult.Approved || (highRisk && bypassed))
                 return await FinishAsync(ctx, slug, agent.Id, args, sideEffect, effRisk, approvalQueueId,
-                    ToolResult.Failure(slug, $"Onay alınamadı ({gate.Reason ?? "bilinmiyor"})."),
+                    ToolResult.Failure(slug, $"Onay alınamadı ({gateResult.Reason ?? "bilinmiyor"})."),
                     ToolInvocationStatus.Blocked, ct);
         }
 
