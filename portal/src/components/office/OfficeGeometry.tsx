@@ -76,15 +76,24 @@ export default function OfficeGeometry({
       [-9,  4], [0,  4], [9,  4],
     ]
     spotPositions.forEach(([sx, sz]) => {
-      const disc = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.22, 0.22, 0.04, 16),
-        mat(0xfff7ed, 0.2, 0.1, 1.0, 0xfff4e0)
+      // Dark housing cylinder — gömme armatür gövdesi
+      const housing = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.16, 0.16, 0.06, 16),
+        mat(0x334155, 0.5, 0.3)
       )
-      disc.position.set(sx, CEIL_Y - 0.02, sz)
+      housing.position.set(sx, CEIL_Y - 0.03, sz)
+      scene.add(housing)
+
+      // Bright emissive disc inside housing (smaller: 0.22→0.12)
+      const disc = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.12, 0.12, 0.01, 16),
+        mat(0xfff7ed, 0.1, 0.1, 1.2, 0xfff4e0)
+      )
+      disc.position.set(sx, CEIL_Y - 0.055, sz)
       scene.add(disc)
 
       const spot = new THREE.SpotLight(0xfff4e0, 0.6, 8, Math.PI / 4, 0.6)
-      spot.position.set(sx, CEIL_Y - 0.1, sz)
+      spot.position.set(sx, CEIL_Y - 0.08, sz)
       spot.target.position.set(sx, 0, sz)
       scene.add(spot)
       scene.add(spot.target)
@@ -124,10 +133,10 @@ export default function OfficeGeometry({
       frame.position.set(wx, windowY, BACK_Z + 0.18)
       scene.add(frame)
 
-      // "Sky" — emissive plane on inside face; no transparency, no z-fighting
+      // "Sky" — MeshBasicMaterial: light-independent, always bright regardless of scene lighting
       const skyPane = new THREE.Mesh(
         new THREE.PlaneGeometry(5.8, 3.4),
-        mat(0xbfdbfe, 0.1, 0, 0.6, 0x93c5fd)
+        new THREE.MeshBasicMaterial({ color: 0xbfdbfe })
       )
       skyPane.position.set(wx, windowY, BACK_Z + 0.17)
       scene.add(skyPane)
@@ -202,28 +211,32 @@ export default function OfficeGeometry({
       scene.add(pl)
     }
 
-    // ── FLOOR LAMP — front-left corner ────────────────────────────────────
-    const floorLampX = -15, floorLampZ = 10
+    // ── FLOOR LAMP — front-left corner (dik, y-ekseninde) ────────────────
+    const flX = -15, flZ = 9
     const lampMat = mat(0x475569, 0.3, 0.6)
 
-    const flBase = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.22, 0.1, 16), lampMat)
-    flBase.position.set(floorLampX, 0.05, floorLampZ)
+    // Base disc on floor
+    const flBase = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.25, 0.08, 16), lampMat)
+    flBase.position.set(flX, 0.04, flZ)
     scene.add(flBase)
 
-    const flPole = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 3.5, 8), lampMat)
-    flPole.position.set(floorLampX, 1.85, floorLampZ)
+    // Vertical pole (y-axis aligned = upright)
+    const poleH = 3.5
+    const flPole = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, poleH, 8), lampMat)
+    flPole.position.set(flX, 0.08 + poleH / 2, flZ)  // base at y=0.08, pole extends up
     scene.add(flPole)
 
+    // Shade at top — cone opens downward
     const flShade = new THREE.Mesh(
-      new THREE.ConeGeometry(0.4, 0.35, 16, 1, true),
+      new THREE.ConeGeometry(0.38, 0.32, 16, 1, true),
       mat(0xfff4e0, 0.4, 0.05, 0.8, 0xfff4e0)
     )
-    flShade.position.set(floorLampX, 3.4, floorLampZ)
-    flShade.rotation.x = Math.PI
+    flShade.position.set(flX, 0.08 + poleH - 0.08, flZ)
+    flShade.rotation.x = Math.PI   // open end downward
     scene.add(flShade)
 
     const flLight = new THREE.PointLight(0xffedd5, 0.7, 7)
-    flLight.position.set(floorLampX, 3.1, floorLampZ)
+    flLight.position.set(flX, 0.08 + poleH - 0.4, flZ)
     scene.add(flLight)
 
     // ── BOOKSHELVES — back wall flanks ────────────────────────────────────
@@ -234,33 +247,35 @@ export default function OfficeGeometry({
     ]
     const bookColors = [0xef4444, 0x3b82f6, 0x10b981, 0xf59e0b, 0x8b5cf6, 0xec4899]
 
-    shelfPositions.forEach(({ x, z }) => {
-      // Bookshelf body
+    // Kitaplıklar: gövde arka duvara dayalı, raf yüzü odaya (z+ yönüne) bakıyor
+    // body depth (z ekseni) = 0.38; arka duvara: z_back = BACK_Z + 0.19 (gövdenin yarısı)
+    shelfPositions.forEach(({ x }) => {
+      const bodyZ = BACK_Z + 0.19  // gövde sırtı duvara yapışık
+
       const body = new THREE.Mesh(new THREE.BoxGeometry(2.5, 4.2, 0.38), shelfWood)
-      body.position.set(x, 2.1, z)
+      body.position.set(x, 2.1, bodyZ)
       body.castShadow = true
       scene.add(body)
 
-      // 4 shelves with books
       for (let shelf = 0; shelf < 4; shelf++) {
         const sy = 0.6 + shelf * 1.0
 
         // Shelf board
         const board = new THREE.Mesh(new THREE.BoxGeometry(2.3, 0.05, 0.32), shelfWood)
-        board.position.set(x, sy, z)
+        board.position.set(x, sy, bodyZ)
         scene.add(board)
 
-        // Books (5-6 per shelf)
+        // Books facing front (+Z)
         const bookCount = 5 + (shelf % 2)
         const bookW = 2.1 / bookCount
         for (let b = 0; b < bookCount; b++) {
           const bx = x - 1.05 + bookW * b + bookW / 2
-          const bookH = 0.28 + Math.random() * 0.1
+          const bookH = 0.28 + (b % 3) * 0.05   // deterministic height variation
           const book = new THREE.Mesh(
             new THREE.BoxGeometry(bookW - 0.02, bookH, 0.26),
             mat(bookColors[(shelf * bookCount + b) % bookColors.length], 0.8, 0)
           )
-          book.position.set(bx, sy + bookH / 2 + 0.025, z)
+          book.position.set(bx, sy + bookH / 2 + 0.025, bodyZ)
           scene.add(book)
         }
       }
@@ -330,26 +345,34 @@ export default function OfficeGeometry({
     })
 
     // ── WALL ART — side walls ─────────────────────────────────────────────
+    // Tablolar: yan duvarlara bitişik, odaya dönük (ry=±π/2 → yüz +Z'ye bakar)
     const artData = [
-      { x: -17.8, z: -5, ry: Math.PI / 2,  colors: [0x6366f1, 0x7dd3fc, 0xf0abfc] },
-      { x:  17.8, z:  3, ry: -Math.PI / 2, colors: [0xfb923c, 0xfde68a, 0xa3e635] },
+      { x: -17.85, z:  2, ry:  Math.PI / 2, colors: [0x6366f1, 0x7dd3fc, 0xf0abfc] },
+      { x:  17.85, z: -2, ry: -Math.PI / 2, colors: [0xfb923c, 0xfde68a, 0xa3e635] },
     ]
     artData.forEach(({ x, z, ry, colors }) => {
+      // Frame: BoxGeometry(depth, height, width) — thin slab against wall
       const frame = new THREE.Mesh(
-        new THREE.BoxGeometry(0.08, 1.6, 2.4),
+        new THREE.BoxGeometry(0.06, 1.6, 2.4),
         mat(0x475569, 0.5, 0.2)
       )
-      frame.position.set(x, 2.8, z)
+      frame.position.set(x, 3.0, z)
       frame.rotation.y = ry
       scene.add(frame)
 
-      // Color block panels (abstract art)
+      // 3 color panels side by side on the canvas face
       colors.forEach((c, i) => {
         const panel = new THREE.Mesh(
           new THREE.PlaneGeometry(0.72, 1.35),
-          mat(c, 0.9, 0, 0.1, c)
+          new THREE.MeshBasicMaterial({ color: c })
         )
-        panel.position.set(x + (ry > 0 ? 0.05 : -0.05), 2.8, z - 0.72 + i * 0.72)
+        // Offset panels along local Z of frame (world-Z for left wall)
+        const sign = ry > 0 ? 1 : -1
+        panel.position.set(
+          x + sign * 0.04,
+          3.0,
+          z - 0.72 + i * 0.72
+        )
         panel.rotation.y = ry
         scene.add(panel)
       })
