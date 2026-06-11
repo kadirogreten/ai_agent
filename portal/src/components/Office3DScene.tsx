@@ -25,13 +25,13 @@ export default function Office3DScene({ onSceneReady, children }: Office3DSceneP
     // ── Scene ──────────────────────────────────────────────────────────
     const scene = new THREE.Scene()
     scene.background = new THREE.Color(0x0f172a)   // slate-900
-    scene.fog = new THREE.FogExp2(0x0f172a, 0.015) // softer atmospheric fog
+    scene.fog = new THREE.FogExp2(0x0f172a, 0.006) // very light fog — slate-900 blend
     sceneRef.current = scene
 
     // ── Camera ─────────────────────────────────────────────────────────
     const camera = new THREE.PerspectiveCamera(65, w / h, 0.1, 200)
-    camera.position.set(0, 16, 26)
-    camera.lookAt(0, 0, 2)
+    camera.position.set(0, 14, 18)
+    camera.lookAt(0, 1, -4)
     cameraRef.current = camera
 
     // ── Renderer ───────────────────────────────────────────────────────
@@ -41,16 +41,16 @@ export default function Office3DScene({ onSceneReady, children }: Office3DSceneP
     renderer.shadowMap.enabled = true
     renderer.shadowMap.type = THREE.PCFSoftShadowMap
     renderer.toneMapping = THREE.ACESFilmicToneMapping
-    renderer.toneMappingExposure = 0.9
+    renderer.toneMappingExposure = 1.25
     container.appendChild(renderer.domElement)
     rendererRef.current = renderer
 
     // ── Lighting ───────────────────────────────────────────────────────
     // Soft hemisphere — slate sky / dark ground, matches app palette
-    scene.add(new THREE.HemisphereLight(0x94a3b8, 0x1e293b, 0.7))
+    scene.add(new THREE.HemisphereLight(0x94a3b8, 0x1e293b, 1.2))
 
     // Primary directional (soft shadows)
-    const keyLight = new THREE.DirectionalLight(0xcbd5e1, 0.6)
+    const keyLight = new THREE.DirectionalLight(0xcbd5e1, 1.3)
     keyLight.position.set(5, 20, 10)
     keyLight.castShadow = true
     keyLight.shadow.mapSize.set(1024, 1024)

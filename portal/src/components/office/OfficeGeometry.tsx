@@ -34,28 +34,29 @@ export default function OfficeGeometry({
 
   // ── Static geometry (floor, walls, desks, ops table) ───────────────────────
   useEffect(() => {
-    // Floor — slate-tinted concrete
-    const floor = new THREE.Mesh(
-      new THREE.PlaneGeometry(50, 50),
-      mat(0x0d1424, 0.4, 0.3)
+    // Circular platform — amfi r=10 + 6 margin = 16; beyond this the slate-900 bg shows
+    const platform = new THREE.Mesh(
+      new THREE.CylinderGeometry(16, 16, 0.08, 64),
+      mat(0x1e293b, 0.45, 0.3)
     )
-    floor.rotation.x = -Math.PI / 2
-    floor.receiveShadow = true
-    scene.add(floor)
+    platform.position.set(0, 0, 0)
+    platform.receiveShadow = true
+    scene.add(platform)
 
-    // Soft grid — matches slate palette
-    const gridHelper = new THREE.GridHelper(50, 25, 0x1e293b, 0x1e293b)
-    gridHelper.position.y = 0.012
+    // Soft grid — only inside platform, very low opacity
+    const gridHelper = new THREE.GridHelper(28, 14, 0x334155, 0x334155)
+    gridHelper.position.y = 0.05
+    const gridMats = Array.isArray(gridHelper.material)
+      ? gridHelper.material
+      : [gridHelper.material]
+    gridMats.forEach((m) => {
+      const lm = m as THREE.LineBasicMaterial
+      lm.transparent = true
+      lm.opacity = 0.12
+    })
     scene.add(gridHelper)
 
-    // Ceiling
-    const ceiling = new THREE.Mesh(
-      new THREE.PlaneGeometry(50, 50),
-      mat(0x0a1020, 0.9, 0)
-    )
-    ceiling.rotation.x = Math.PI / 2
-    ceiling.position.y = 10
-    scene.add(ceiling)
+    // Ceiling removed — open sky feel, background slate-900 reads above walls
 
     // Walls
     const wallMat = mat(0x0f1e35, 0.85, 0.05)
@@ -86,22 +87,7 @@ export default function OfficeGeometry({
       scene.add(b)
     })
 
-    // Ceiling LED panels — warm neutral (not blue neon)
-    const ledMat = mat(0xe2e8f0, 0.3, 0.1, 0.8, 0xf1f5f9)
-    const ceilLightPositions = [
-      [-8, -8], [-8, 0], [-8, 8],
-      [0, -8],  [0, 0],  [0, 8],
-      [8, -8],  [8, 0],  [8, 8],
-    ]
-    ceilLightPositions.forEach(([x, z]) => {
-      const panel = new THREE.Mesh(new THREE.BoxGeometry(3, 0.04, 0.4), ledMat)
-      panel.position.set(x, 9.97, z)
-      scene.add(panel)
-
-      const pl = new THREE.PointLight(0xe2e8f0, 0.5, 16)
-      pl.position.set(x, 9.8, z)
-      scene.add(pl)
-    })
+    // Ceiling LED bars removed — HemisphereLight + keyLight provide even illumination
 
     // ── Amphitheater desks ─────────────────────────────────────────────
     const deskSurfMat  = mat(0x1e293b, 0.25, 0.5)
@@ -167,23 +153,23 @@ export default function OfficeGeometry({
     })
 
     // ── Center Operations Table ────────────────────────────────────────
-    // Solid cylinder — slate mat
+    // Slate-700 base + subtle indigo rim emissive
     const opsTable = new THREE.Mesh(
       new THREE.CylinderGeometry(3.5, 3.5, 0.4, 32),
-      mat(0x1e293b, 0.2, 0.6)
+      mat(0x334155, 0.25, 0.5, 0.15, 0x6366f1)
     )
-    opsTable.position.set(0, 0.2, 0)
+    opsTable.position.set(0, 0.2, 0)   // top surface at y=0.4
     opsTable.castShadow = true
     opsTable.receiveShadow = true
     scene.add(opsTable)
 
-    // Table edge ring
+    // Table edge ring — sits 0.3 above top surface (y = 0.4 + 0.3 = 0.7 → torus center)
     const tableEdge = new THREE.Mesh(
-      new THREE.TorusGeometry(3.5, 0.04, 8, 64),
-      mat(0x7dd3fc, 0.2, 0.3, 0.6, 0x93c5fd)
+      new THREE.TorusGeometry(3.5, 0.05, 8, 64),
+      mat(0x818cf8, 0.2, 0.3, 0.7, 0xa5b4fc)
     )
     tableEdge.rotation.x = Math.PI / 2
-    tableEdge.position.set(0, 0.41, 0)
+    tableEdge.position.set(0, 0.42, 0)  // flush with top face
     scene.add(tableEdge)
 
     // Holographic pillar above table
@@ -294,7 +280,7 @@ export default function OfficeGeometry({
       mat(opsColor, 0.2, 0.1, 1.2, opsColor)
     )
     opsRing.rotation.x = Math.PI / 2
-    opsRing.position.set(0, 0.6, 0)
+    opsRing.position.set(0, 0.7, 0)   // 0.3 above table top (y=0.4)
     scene.add(opsRing)
     objects.push(opsRing)
 

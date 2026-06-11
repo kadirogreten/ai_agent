@@ -14,8 +14,8 @@ interface UseOfficeCameraProps {
 
 export function useOfficeCamera({ camera, renderer }: UseOfficeCameraProps) {
   const cameraStateRef = useRef<CameraState>({
-    position: { x: 0, y: 16, z: 26 },
-    target: { x: 0, y: 0, z: 2 },
+    position: { x: 0, y: 14, z: 18 },
+    target: { x: 0, y: 1, z: -4 },
     zoom: 1,
   })
 
@@ -119,8 +119,8 @@ export function useOfficeCamera({ camera, renderer }: UseOfficeCameraProps) {
           break
         case 'r':
         case 'R':
-          state.position = { x: 0, y: 16, z: 26 }
-          state.target = { x: 0, y: 0, z: 2 }
+          state.position = { x: 0, y: 14, z: 18 }
+          state.target = { x: 0, y: 1, z: -4 }
           state.zoom = 1
           break
         default:

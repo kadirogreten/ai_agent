@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
+import { getAmphibDeskPositions } from '@/lib/office'
 
 export interface AgentPosition {
   agentId: string
@@ -40,13 +41,7 @@ export function useOfficeSimulation({ scene, dbAgents = [] }: UseOfficeSimulatio
   useEffect(() => {
     if (!scene) return
 
-    const deskPositions = [
-      { x: -12, z: 0 },
-      { x: -6, z: -10 },
-      { x: 0, z: -15 },
-      { x: 6, z: -10 },
-      { x: 12, z: 0 },
-    ]
+    const deskPositions = getAmphibDeskPositions(5)
 
     // Use database agents if available, otherwise use demo agents
     const agentsToInit = dbAgents.length > 0
@@ -128,13 +123,13 @@ export function useOfficeSimulation({ scene, dbAgents = [] }: UseOfficeSimulatio
 
     const roleColor = ROLE_COLORS[agent.role] ?? ROLE_COLORS.default
 
-    // Body material - skin tone base with role color accent
+    // Body material — dark slate base, role color as emissive for clear role ID
     const bodyMaterial = new THREE.MeshStandardMaterial({
-      color: 0xc8a882, // Natural skin tone
+      color: 0x1e293b,
       emissive: roleColor,
-      emissiveIntensity: 0.3,
-      roughness: 0.6,
-      metalness: 0.0,
+      emissiveIntensity: 0.25,
+      roughness: 0.5,
+      metalness: 0.1,
     })
 
     // Head - proportionally smaller than torso
@@ -473,23 +468,18 @@ export function useOfficeSimulation({ scene, dbAgents = [] }: UseOfficeSimulatio
     }
   }
 
-  // Move agent to CEO zone
+  // Move agent to center ops table
   const moveAgentToCeoZone = (agentId: string) => {
-    moveAgentTo(agentId, new THREE.Vector3(0, 2, 5))
+    moveAgentTo(agentId, new THREE.Vector3(0, 2, 0))
     updateAgentStatus(agentId, 'running')
   }
 
-  // Return agent to desk
+  // Return agent to amphitheater desk
   const returnAgentToDesk = (agentId: string, deskIndex: number) => {
-    const deskPositions = [
-      new THREE.Vector3(-12, 2, 0),
-      new THREE.Vector3(-6, 2, -10),
-      new THREE.Vector3(0, 2, -15),
-      new THREE.Vector3(6, 2, -10),
-      new THREE.Vector3(12, 2, 0),
-    ]
-    if (deskIndex < deskPositions.length) {
-      moveAgentTo(agentId, deskPositions[deskIndex])
+    const amphi = getAmphibDeskPositions(5)
+    if (deskIndex < amphi.length) {
+      const { x, z } = amphi[deskIndex]
+      moveAgentTo(agentId, new THREE.Vector3(x, 2, z))
       updateAgentStatus(agentId, 'idle')
     }
   }
