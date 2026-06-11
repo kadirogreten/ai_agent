@@ -1,0 +1,11 @@
+[Unit]
+Description=AgentArmy tick: %i
+After=network.target
+
+[Service]
+Type=oneshot
+User=agentarmy
+WorkingDirectory=/opt/agentarmy/app
+EnvironmentFile=/etc/agentarmy.env
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/npx tsx portal/api/lib/%i.ts

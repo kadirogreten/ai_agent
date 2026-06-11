@@ -1,0 +1,9 @@
+[Unit]
+Description=AgentArmy selfReflectionTick (her gece 02:00 UTC) — playbook öz-yansıma
+
+[Timer]
+OnCalendar=*-*-* 02:00:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target

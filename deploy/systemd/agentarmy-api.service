@@ -1,0 +1,17 @@
+[Unit]
+Description=AgentArmy Portal API (Express)
+After=network.target
+
+[Service]
+Type=simple
+User=agentarmy
+WorkingDirectory=/opt/agentarmy/app/portal
+EnvironmentFile=/etc/agentarmy.env
+Environment=NODE_ENV=production
+Environment=PORT=3006
+ExecStart=/usr/bin/npx tsx api/server.ts
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

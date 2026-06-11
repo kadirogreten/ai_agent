@@ -1,0 +1,19 @@
+[Unit]
+Description=AgentArmy Run-Request Worker (sürekli döngü — GH Actions 15dk cron'unun yerini alır)
+After=network.target
+
+[Service]
+Type=simple
+User=agentarmy
+WorkingDirectory=/opt/agentarmy/app
+EnvironmentFile=/etc/agentarmy.env
+Environment=NODE_ENV=production
+# deploy.sh her deploy'da Release build alır; worker tekrar derlemesin:
+Environment=DOTNET_NO_BUILD=true
+Environment=WORKER_INTERVAL_MS=10000
+ExecStart=/usr/bin/npx tsx portal/api/lib/runRequestWorkerLoop.ts
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

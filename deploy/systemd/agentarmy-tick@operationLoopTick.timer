@@ -1,0 +1,10 @@
+[Unit]
+Description=AgentArmy operationLoopTick (5 dk) — kapalı döngü operasyonlar
+
+[Timer]
+OnCalendar=*:0/5
+Persistent=true
+RandomizedDelaySec=15
+
+[Install]
+WantedBy=timers.target

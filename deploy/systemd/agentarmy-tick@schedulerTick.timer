@@ -1,0 +1,10 @@
+[Unit]
+Description=AgentArmy schedulerTick (5 dk) — persona_schedules tetikleyici
+
+[Timer]
+OnCalendar=*:0/5
+Persistent=true
+RandomizedDelaySec=15
+
+[Install]
+WantedBy=timers.target
