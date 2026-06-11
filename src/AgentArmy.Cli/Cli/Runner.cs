@@ -307,7 +307,8 @@ public static class Runner
                 }
                 catch (Exception ex)
                 {
-                    Console.Error.WriteLine($"[Runner] RUN_INTENT_JSON parse hatası: {ex.Message}");
+                    // Env var varsa ama bozuksa fail-closed: kötü niyetli manipülasyona açık kapı bırakma.
+                    throw new InvalidOperationException($"intent sözleşmesi okunamadı: {ex.Message}", ex);
                 }
             }
 

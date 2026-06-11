@@ -121,14 +121,15 @@ public sealed class AnthropicMessagesClient : ILlmClient
                 role    = "assistant",
                 content = new object[] { new { type = "tool_use", id = call.CallId, name = call.Slug, input = call.Args } },
             });
-            // user → tool_result content block
-            var resultText = ex.Result.Output is JsonElement outp
+            // user → tool_result content block (DIŞ VERİ sarması: injection riskini işaretler)
+            var rawResult = ex.Result.Output is JsonElement outp
                 ? (outp.ValueKind == JsonValueKind.String ? outp.GetString() : outp.GetRawText())
                 : (ex.Result.Error ?? "");
+            var resultText = ToolResultDelimiter.Wrap(rawResult ?? "");
             msgs.Add(new
             {
                 role    = "user",
-                content = new object[] { new { type = "tool_result", tool_use_id = call.CallId, content = resultText ?? "" } },
+                content = new object[] { new { type = "tool_result", tool_use_id = call.CallId, content = resultText } },
             });
         }
         // Asıl kullanıcı mesajı
@@ -139,10 +140,20 @@ public sealed class AnthropicMessagesClient : ILlmClient
     private static object[] BuildToolDefs(IReadOnlyList<ToolDescriptor> tools) =>
         tools.Select(t => (object)new
         {
-            name        = t.Slug,
-            description = t.Description ?? t.Name,
-            input_schema = new { type = "object", properties = new { }, required = Array.Empty<string>() },
+            name         = t.Slug,
+            description  = t.Description ?? t.Name,
+            input_schema = SchemaOrEmpty(t.InputSchema),
         }).ToArray();
+
+    private static object SchemaOrEmpty(JsonElement schema)
+    {
+        if (schema.ValueKind == JsonValueKind.Object) return schema;
+        return new Dictionary<string, object?>
+        {
+            ["type"]       = "object",
+            ["properties"] = new Dictionary<string, object?>(),
+        };
+    }
 
     private async Task<(JsonElement Root, int TokensIn, int TokensOut)> PostAsync(
         object payload, CancellationToken ct)

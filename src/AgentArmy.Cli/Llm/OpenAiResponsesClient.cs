@@ -168,11 +168,15 @@ public sealed class OpenAiResponsesClient : ILlmClient
 
     private static string ResultToString(ToolResult result)
     {
+        string raw;
         if (!result.Ok)
-            return JsonSerializer.Serialize(new { ok = false, error = result.Error });
-        if (result.Output is { ValueKind: not JsonValueKind.Undefined } o)
-            return o.GetRawText();
-        return JsonSerializer.Serialize(new { ok = true });
+            raw = JsonSerializer.Serialize(new { ok = false, error = result.Error });
+        else if (result.Output is { ValueKind: not JsonValueKind.Undefined } o)
+            raw = o.GetRawText();
+        else
+            raw = JsonSerializer.Serialize(new { ok = true });
+        // DIŞ VERİ sarması: araç çıktısındaki injection girişimlerini işaretler
+        return ToolResultDelimiter.Wrap(raw);
     }
 
     private LlmTurn ExtractTurn(string respText)

@@ -22,6 +22,16 @@ jobs:
           dotnet build src/AgentArmy.Cli/AgentArmy.Cli.csproj \
             --no-restore --configuration Release --nologo \
             -warnaserror
+      - name: Restore + Build tests
+        run: |
+          dotnet restore tests/AgentArmy.Cli.Tests/AgentArmy.Cli.Tests.csproj
+          dotnet build tests/AgentArmy.Cli.Tests/AgentArmy.Cli.Tests.csproj \
+            --no-restore --nologo
+      - name: Run tests
+        run: |
+          dotnet test tests/AgentArmy.Cli.Tests/AgentArmy.Cli.Tests.csproj \
+            --no-build --nologo \
+            --logger "console;verbosity=normal"
 
   portal:
     name: Build Portal (TS + Vite)
@@ -39,6 +49,8 @@ jobs:
       - name: TypeScript check
         working-directory: portal
         run: npx tsc --noEmit
+      - name: Vitest
+        run: npm run --prefix portal test
       - name: Vite build
         run: npm run --prefix portal build
 

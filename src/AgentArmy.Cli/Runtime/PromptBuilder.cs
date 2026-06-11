@@ -70,7 +70,7 @@ public static class PromptBuilder
         if (!string.IsNullOrWhiteSpace(priorWork))
         {
             sb.AppendLine("Önceki çalışma (referans için):");
-            sb.AppendLine(priorWork.Trim());
+            sb.AppendLine(ToolResultDelimiter.Wrap(priorWork.Trim()));
             sb.AppendLine();
         }
 
