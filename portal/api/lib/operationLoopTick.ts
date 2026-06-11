@@ -183,7 +183,100 @@ async function observe(supabase: SupabaseClient, op: Operation) {
 
 // ── DECIDE ─────────────────────────────────────────────────────────────────────
 
-async function decide(op: Operation, obs: Awaited<ReturnType<typeof observe>>) {
+type LlmProviderRow = {
+  slug:              string
+  model_id:          string
+  api_base:          string
+  api_key_env:       string
+  kind:              'openai' | 'anthropic'
+  tier:              'basic' | 'standard' | 'frontier'
+  max_decision_risk: string
+}
+
+const DECIDE_PROVIDER_FALLBACK: LlmProviderRow = {
+  slug: 'gpt-4.1-fallback', model_id: 'gpt-4.1', api_base: 'https://api.openai.com',
+  api_key_env: 'OPENAI_API_KEY', kind: 'openai', tier: 'standard', max_decision_risk: 'R2',
+}
+
+async function resolveDecideProvider(supabase: SupabaseClient): Promise<LlmProviderRow> {
+  try {
+    const { data } = await supabase
+      .from('llm_providers')
+      .select('slug,model_id,api_base,api_key_env,kind,tier,max_decision_risk')
+      .eq('enabled', true)
+      .contains('is_default_for', ['decide'])
+      .limit(1)
+    const row = (data ?? [])[0] as LlmProviderRow | undefined
+    if (row) {
+      log(`decide provider: ${row.slug} (${row.model_id})`)
+      return row
+    }
+  } catch (e) {
+    log('decide provider çözümleme hatası, fallback kullanılıyor', { error: (e as Error).message })
+  }
+  log(`decide provider: fallback (${DECIDE_PROVIDER_FALLBACK.model_id})`)
+  return DECIDE_PROVIDER_FALLBACK
+}
+
+async function callDecideLlm(
+  provider: LlmProviderRow,
+  systemPrompt: string,
+  userMsg: string,
+): Promise<string> {
+  const apiKey = process.env[provider.api_key_env]
+  if (!apiKey) throw new Error(`[decide] env '${provider.api_key_env}' bulunamadı`)
+
+  if (provider.kind === 'anthropic') {
+    // Anthropic Messages API — max_tokens zorunlu, x-api-key header
+    const resp = await fetch(`${provider.api_base.replace(/\/$/, '')}/v1/messages`, {
+      method:  'POST',
+      headers: {
+        'x-api-key':        apiKey,
+        'anthropic-version': '2023-06-01',
+        'Content-Type':     'application/json',
+      },
+      body: JSON.stringify({
+        model:      provider.model_id,
+        max_tokens: 256,
+        system:     systemPrompt,
+        messages:   [{ role: 'user', content: userMsg }],
+      }),
+    })
+    if (!resp.ok) {
+      const body = await resp.text()
+      throw new Error(`Anthropic API hatası ${resp.status}: ${body.slice(0, 200)}`)
+    }
+    const json = await resp.json() as { content: { type: string; text: string }[] }
+    return json.content.find((b) => b.type === 'text')?.text ?? ''
+  }
+
+  // OpenAI Chat Completions (varsayılan)
+  const resp = await fetch(`${provider.api_base.replace(/\/$/, '')}/v1/chat/completions`, {
+    method:  'POST',
+    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model:       provider.model_id,
+      messages:    [
+        { role: 'system', content: systemPrompt },
+        { role: 'user',   content: userMsg },
+      ],
+      temperature: 0,
+      max_tokens:  256,
+    }),
+  })
+  if (!resp.ok) {
+    const body = await resp.text()
+    throw new Error(`OpenAI API hatası ${resp.status}: ${body.slice(0, 200)}`)
+  }
+  const json = await resp.json() as { choices: { message: { content: string } }[] }
+  return json.choices[0]?.message?.content ?? ''
+}
+
+async function decide(
+  supabase: SupabaseClient,
+  op: Operation,
+  obs: Awaited<ReturnType<typeof observe>>,
+): Promise<{ response: Awaited<ReturnType<typeof parseDecideResponse>>; provider: LlmProviderRow }> {
   const userMsg = buildDecideUserMessage({
     goalText:            op.goal_text,
     lastRunStatus:       obs.lastRunStatus,
@@ -199,31 +292,9 @@ async function decide(op: Operation, obs: Awaited<ReturnType<typeof observe>>) {
     intent:              op.intent_json,
   })
 
-  const model  = op.model ?? 'gpt-4.1'
-  const apiKey = getOpenAIKey()
-
-  const resp = await fetch('https://api.openai.com/v1/chat/completions', {
-    method:  'POST',
-    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model,
-      messages: [
-        { role: 'system', content: DECIDE_SYSTEM_PROMPT },
-        { role: 'user',   content: userMsg },
-      ],
-      temperature: 0,
-      max_tokens:  256,
-    }),
-  })
-
-  if (!resp.ok) {
-    const body = await resp.text()
-    throw new Error(`OpenAI API hatası ${resp.status}: ${body.slice(0, 200)}`)
-  }
-
-  const json = await resp.json() as { choices: { message: { content: string } }[] }
-  const raw  = json.choices[0]?.message?.content ?? ''
-  return parseDecideResponse(raw)
+  const provider = await resolveDecideProvider(supabase)
+  const raw = await callDecideLlm(provider, DECIDE_SYSTEM_PROMPT, userMsg)
+  return { response: parseDecideResponse(raw), provider }
 }
 
 // ── escalate helper ────────────────────────────────────────────────────────────
@@ -338,16 +409,26 @@ async function processOperation(supabase: SupabaseClient, op: Operation) {
   }
 
   // ── DECIDE ────────────────────────────────────────────────────────────────
-  const decideResp = await decide(op, obs)
+  const { response: decideResp, provider: decideProvider } = await decide(supabase, op, obs)
   await logEvent(supabase, op.id, 'decide', {
     raw_action:    decideResp?.action ?? 'parse_failed',
     next_playbook: decideResp?.next_playbook ?? null,
     reason:        decideResp?.reason ?? 'LLM yanıtı parse edilemedi',
+    provider_slug: decideProvider.slug,
   })
 
   if (!decideResp) {
     await logEvent(supabase, op.id, 'escalate', { reason: 'decide_parse_failed' })
     await escalateOp(supabase, op, 'LLM karar yanıtı parse edilemedi')
+    return
+  }
+
+  // PR10: Tier kapısı — basic provider otonom aksiyon (continue/retry) tetikleyemez.
+  if (decideProvider.tier === 'basic' &&
+      (decideResp.action === 'continue' || decideResp.action === 'retry')) {
+    const reason = 'decide provider tier=basic otonom aksiyon tetikleyemez'
+    await logEvent(supabase, op.id, 'escalate', { reason, provider_slug: decideProvider.slug })
+    await escalateOp(supabase, op, reason)
     return
   }
 

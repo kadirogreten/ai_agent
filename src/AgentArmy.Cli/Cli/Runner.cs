@@ -120,6 +120,10 @@ public static class Runner
         ILlmClient? webLlm = null;
         HttpClient? http   = null;
         OpenAiImageClient? images = null;
+        LlmProviderRecord? provider = null;
+
+        // PR10: DB erken açılıyor — provider çözümleme için (DryRun'da da null-safe).
+        using var db = SupabaseWriter.TryCreate(supabase);
 
         if (exec.DryRun)
         {
@@ -127,33 +131,49 @@ public static class Runner
         }
         else
         {
-            if (string.IsNullOrWhiteSpace(exec.ApiKey))
-                throw new InvalidOperationException("Missing OpenAI API key.");
+            // PR10: DB-first provider çözümleme.
+            // --model CLI argümanı verilmişse exec.Args'tan gelir ve geriye uyumluluk korunur (BuildExecution).
+            // Verilmemişse DB'den is_default_for='run' kaydı çözümlenir.
+            var cliModelOverride = exec.Args.GetValueOrDefault("model");
+            if (!string.IsNullOrWhiteSpace(cliModelOverride))
+            {
+                // Geriye uyumluluk: --model verilmiş, fallback provider record yap.
+                provider = LlmProviderResolver.Fallback with { ModelId = cliModelOverride };
+                Console.Error.WriteLine($"[LlmProvider] run: CLI override ({cliModelOverride})");
+            }
+            else
+            {
+                provider = await LlmProviderResolver.ResolveAsync(db, "run", ct);
+            }
 
             // Paylaşılan handler; LLM çağrıları uzun sürebilir, timeout 5dk.
             http = new HttpClient(HttpClientPool.SharedHandler, disposeHandler: false)
             {
                 Timeout = TimeSpan.FromMinutes(5)
             };
-            var fallbackModel = LlmRouter.ModelForCostClass("low");
-            ILlmClient baseLlm = new OpenAiResponsesClient(http, exec.ApiKey, exec.Model, enableWebSearch: false);
-            ILlmClient? fallbackLlm = exec.Model != fallbackModel
-                ? new OpenAiResponsesClient(http, exec.ApiKey, fallbackModel, enableWebSearch: false)
+
+            ILlmClient baseLlm = LlmClientFactory.Create(http, provider, enableWebSearch: false);
+            var fallbackProvider = LlmProviderResolver.Fallback with
+            {
+                ModelId   = LlmRouter.ModelForCostClass("low"),
+                ApiKeyEnv = provider.ApiKeyEnv,
+            };
+            ILlmClient? fallbackLlm = provider.ModelId != fallbackProvider.ModelId
+                ? LlmClientFactory.Create(
+                    new HttpClient(HttpClientPool.SharedHandler, disposeHandler: false) { Timeout = TimeSpan.FromMinutes(5) },
+                    fallbackProvider, enableWebSearch: false)
                 : null;
-            llm    = new LlmRouter(baseLlm, exec.Model, fallbackLlm);
-            images = new OpenAiImageClient(http, exec.ApiKey);
+            llm    = new LlmRouter(baseLlm, provider.ModelId, fallbackLlm);
+            images = new OpenAiImageClient(http, Environment.GetEnvironmentVariable(provider.ApiKeyEnv) ?? "");
 
             if (exec.Web)
             {
-                ILlmClient webBase = new OpenAiResponsesClient(
-                    http, exec.ApiKey, exec.Model,
-                    enableWebSearch: true,
-                    allowedDomains: exec.DomainPack?.AllowedDomains);
-                webLlm = new LlmRouter(webBase, exec.Model, fallbackLlm);
+                ILlmClient webBase = LlmClientFactory.Create(
+                    new HttpClient(HttpClientPool.SharedHandler, disposeHandler: false) { Timeout = TimeSpan.FromMinutes(5) },
+                    provider, enableWebSearch: true);
+                webLlm = new LlmRouter(webBase, provider.ModelId, fallbackLlm);
             }
         }
-
-        using var db = SupabaseWriter.TryCreate(supabase);
         using (http)
         {
             // enableFacts:
@@ -292,6 +312,14 @@ public static class Runner
             }
 
             var contract = BuildContract(exec, playbook);
+
+            // PR10: Tier kontrolü — run risk'i provider max_decision_risk'ini aşarsa reddet.
+            // provider değişkeni yukarıda (using (http) öncesinde) çözümlendi; DryRun'da skip.
+            if (!exec.DryRun && provider is not null &&
+                LlmProviderResolver.RiskLevel(contract.Risk) > LlmProviderResolver.RiskLevel(provider.MaxDecisionRisk))
+                throw new InvalidOperationException(
+                    $"[Runner] model tier yetersiz: {provider.Slug} max={provider.MaxDecisionRisk} < run risk={contract.Risk}");
+
             var ctx = new RunContext
             {
                 RunId                = runId,

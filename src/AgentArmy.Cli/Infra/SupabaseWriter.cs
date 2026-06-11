@@ -27,6 +27,21 @@ public sealed class SupabaseWriter : IDisposable
         _key  = key;
     }
 
+    /// <summary>
+    /// Test ctor: özel HttpMessageHandler enjekte eder (örn. stub yanıtlar için).
+    /// Üretim kodu bu ctor'u kullanmaz; yalnızca test projelerinden erişilebilir.
+    /// Bu ctor HttpClient'ı dispose eder — paylaşımlı handler değildir.
+    /// </summary>
+    internal SupabaseWriter(string baseUrl, string key, HttpMessageHandler handler)
+    {
+        _http = new HttpClient(handler, disposeHandler: true) { Timeout = TimeSpan.FromSeconds(15) };
+        _base = baseUrl.TrimEnd('/');
+        _key  = key;
+        _ownHttp = true;
+    }
+
+    private readonly bool _ownHttp;
+
     public static SupabaseWriter? TryCreate(LocalConfig.SupabaseConfigSection? cfg)
     {
         if (cfg?.IsConfigured != true) return null;
@@ -256,5 +271,5 @@ public sealed class SupabaseWriter : IDisposable
     /// Paylaşılan HttpClient kullandığı için burada dispose yok — IDisposable
     /// yalnızca eski `using var` çağrılarıyla uyumluluk için duruyor.
     /// </summary>
-    public void Dispose() { /* no-op: shared client */ }
+    public void Dispose() { if (_ownHttp) _http.Dispose(); }
 }

@@ -12,7 +12,7 @@ import {
   DollarSign, ScrollText, Bell,
   Compass, FileStack, Boxes,
   Download, LogOut, ChevronDown, Target,
-  Settings, Wallet,
+  Settings, Wallet, Cpu,
 } from 'lucide-react'
 
 type NavItem = { to: string; label: string; icon: React.ReactNode; primary?: boolean; badge?: number }
@@ -64,6 +64,7 @@ const navGroups: NavGroup[] = [
       { to: '/app/cost-ledger', label: 'Maliyet', icon: <DollarSign size={15} /> },
       { to: '/app/budgets', label: 'Bütçeler', icon: <Wallet size={15} /> },
       { to: '/app/policies', label: 'Politikalar', icon: <Settings size={15} /> },
+      { to: '/app/llm-providers', label: 'Modeller', icon: <Cpu size={15} /> },
     ],
   },
   {

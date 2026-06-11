@@ -7,4 +7,9 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- Test projesi internal üyelere erişebilsin (SupabaseWriter test ctor, vb.) -->
+    <InternalsVisibleTo Include="AgentArmy.Cli.Tests" />
+  </ItemGroup>
+
 </Project>

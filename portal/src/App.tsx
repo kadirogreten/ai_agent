@@ -39,6 +39,7 @@ import EmpiricalCheckPage from '@/pages/EmpiricalCheckPage'
 import NotificationChannelsPage from '@/pages/NotificationChannelsPage'
 import PoliciesPage from '@/pages/PoliciesPage'
 import BudgetsPage from '@/pages/BudgetsPage'
+import LlmProvidersPage from '@/pages/LlmProvidersPage'
 import OfficePage from '@/pages/OfficePage'
 import OperationsPage from '@/pages/OperationsPage'
 
@@ -110,6 +111,7 @@ export default function App() {
           <Route path="notification-channels" element={<NotificationChannelsPage />} />
           <Route path="policies" element={<PoliciesPage />} />
           <Route path="budgets" element={<BudgetsPage />} />
+          <Route path="llm-providers" element={<LlmProvidersPage />} />
           <Route path="operations" element={<OperationsPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/app" replace />} />

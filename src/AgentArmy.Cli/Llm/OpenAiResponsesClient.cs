@@ -11,13 +11,14 @@ public sealed class OpenAiResponsesClient : ILlmClient
     private readonly bool _enableWebSearch;
     private readonly IReadOnlyList<string>? _allowedDomains;
 
-    public OpenAiResponsesClient(HttpClient http, string apiKey, string model, bool enableWebSearch, IReadOnlyList<string>? allowedDomains = null)
+    public OpenAiResponsesClient(HttpClient http, string apiKey, string model, bool enableWebSearch, IReadOnlyList<string>? allowedDomains = null, string? apiBase = null)
     {
         _http = http;
         _model = model;
         _enableWebSearch = enableWebSearch;
         _allowedDomains = allowedDomains;
-        _http.BaseAddress = new Uri("https://api.openai.com/v1/");
+        var baseUrl = (apiBase?.TrimEnd('/') ?? "https://api.openai.com") + "/v1/";
+        _http.BaseAddress = new Uri(baseUrl);
         _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
     }
 
