@@ -156,6 +156,119 @@ Piramit eşlemesi: S3 (çoklu ajan ekipleri) kapalı döngü ile **mühendislik 
 
 ---
 
+## İkinci seri: DB-first tamamlama + operasyon UX (PR7–PR8)
+
+PR6 sonrası taramada tespit edilen boşluklar: politika eşikleri kodda sabit (RiskGate 4h/15s, wait_approval 24h, self-reflection %40/5 run/24h, bellek limiti 30, kargo eşikleri); `operation_budgets` için UI yok (bütçe yalnız SQL'le tanımlanabiliyor); decide prompt'u dosyada; `tools.enabled` bayrağı executor'da okunmuyor (DB'den araç kapatılamıyor).
+
+| PR | Başlık | Biten tanımı |
+|---|---|---|
+| **PR7** ✅ | DB-first tamamlama: policy_settings + BudgetsPage + tools.enabled | Eşikler portaldan değişiyor (deploy'suz); bütçe UI'dan tanımlanıp doluluk göstergesiyle izleniyor; DB'de disable edilen araç executor'da reddediliyor |
+| **PR8** | Operasyon UX paketi | Operasyon kapanış KPI kartı, escalated'dan "düzelt ve devam et", bekleyen onaya tek tık + nav rozeti, pack seçici + bütçe bağlama, bildirim test butonu, compensation rozetleri |
+
+### PR7 prompt'u — policy_settings + BudgetsPage + tools.enabled
+
+```
+Repo: ai_agent. Bağlam: docs/otomasyon-plani-ve-sonnet-promptlari.md (İkinci seri bölümü),
+src/AgentArmy.Cli/Cli/RiskGate.cs (MaxWait/PollInterval sabitleri),
+portal/api/lib/operationLoopTick.ts (24h timeout), portal/api/lib/selfReflectionTick.ts
+(FAIL_RATE_THRESHOLD/MIN_RUNS/COOLDOWN_HOURS), src/AgentArmy.Cli/Runtime/Orchestrator.cs
+(MaxOperationMemory), src/AgentArmy.Cli/Tools/CargoTrackTool.cs (durum eşikleri),
+src/AgentArmy.Cli/Tools/ToolExecutor.cs (CreateDefault), portal/src/pages/NotificationChannelsPage.tsx
+(CRUD sayfa deseni).
+
+KURAL: Migration yazmadan önce hedef tablonun gerçek kolonlarını ve CHECK kısıtlarını
+mevcut migration dosyalarından doğrula; kolon/değer uydurma (PR6'da iki kez yaşandı).
+
+Görev 1 — policy_settings:
+1. Migration: policy_settings(id, owner_user_id UUID NULL — NULL=global varsayılan,
+   key TEXT, value JSONB, description TEXT, updated_at). UNIQUE(owner_user_id, key).
+   RLS: owner kendi satırlarını + global (owner_user_id IS NULL) satırları SELECT eder;
+   kendi satırlarını INSERT/UPDATE eder; service_role tam.
+   Seed (global): riskgate.max_wait_hours=4, riskgate.poll_seconds=15,
+   oploop.wait_approval_timeout_hours=24, selfreflect.fail_rate=0.4,
+   selfreflect.min_runs=5, selfreflect.cooldown_hours=24, memory.max_entries=30,
+   cargo.stage_minutes=[10,25,45,70,100].
+2. C# PolicyReader (Infra/): SelectAsync ile owner→global fallback okuma, 5 dk in-memory
+   cache, DB yoksa koddaki mevcut sabit. RiskGate, Orchestrator, CargoTrackTool bunu kullanır.
+3. TS policyReader.ts (portal/api/lib/): aynı fallback mantığı; operationLoopTick ve
+   selfReflectionTick sabitleri buradan okur.
+4. Portal: Ayarlar > Politikalar sayfası — global varsayılanlar salt-okunur gösterilir,
+   kullanıcı kendi override'ını ekler/siler (NotificationChannelsPage CRUD deseni).
+
+Görev 2 — BudgetsPage:
+1. portal/src/pages/BudgetsPage.tsx: operation_budgets CRUD — scope (tools tablosundan
+   slug seçici + 'global'), period, max_amount, max_tool_calls. Dönem içi doluluk:
+   spent_amount/max_amount ve used_calls/max_tool_calls progress bar'ları, %80 üstü sarı,
+   %100 kırmızı. Auth deseni: insert'te owner_user_id = auth.uid() (OperationsPage deseni).
+2. Nav + route ekle.
+
+Görev 3 — tools.enabled enforcement:
+1. tools tablosunda enabled kolonu varsa kullan, yoksa migration ile ekle (default true).
+2. ToolExecutor: çözümleme adımında DB'den (ctx.Db varsa) aracın enabled durumunu kontrol et;
+   disabled ise ToolResult.Failure + ToolInvocationStatus.Blocked + audit "tool.disabled".
+   DB yoksa mevcut davranış (kod listesi). Performans: run başına tek SELECT ile tüm
+   slug→enabled haritasını çek, RunContext'te cache'le.
+3. ToolsPage'e enable/disable toggle ekle.
+
+Önce kısa uygulama planı yaz, onaydan sonra koda geç.
+Bitti kriteri: dotnet build + test yeşil; npm run build yeşil; portaldan
+riskgate.max_wait_hours=1 yapınca CLI RiskGate 1 saat bekliyor (log'dan doğrula);
+BudgetsPage'den bütçe tanımlanıp progress görünüyor; ToolsPage'den kapatılan araç
+çağrıldığında Blocked dönüyor ve audit'te tool.disabled var.
+```
+
+### PR7 — Tamamlandı (2026-06-11)
+
+Teslim edilenler: `policy_settings` (`20260611170000`, çift partial-unique index ile NULL semantiği doğru, 8 global seed); `PolicyReader.cs` + `policyReader.ts` (owner→global→kod sabiti zinciri, 5 dk cache, parse hatasında sessiz fallback); tüketiciler: RiskGate (MaxWait/Poll + doğrulama logu), Orchestrator (bellek limiti), CargoTrackTool (kargo eşikleri), operationLoopTick (24h timeout), selfReflectionTick (3 eşik); `BudgetsPage` (progress bar'lı CRUD); `PoliciesPage` (global salt-okunur + tipli override CRUD); `tools.enabled` enforcement — Runner tenant filtreli tek SELECT (platform→tenant öncelik), ToolExecutor'da Blocked + `tool.disabled` audit. 28/28 test.
+
+PR8'e zorunlu devir: ToolsPage toggle'ı platform satırını (tenant_id NULL) doğrudan güncelliyor ve `tools_update` RLS'i buna izin veriyor — bir kullanıcı platform aracını **tüm tenant'lar için** kapatabilir. PR8 madde 7'de RLS daraltma + tenant override upsert ile kapatılacak. Tek kullanıcılı kurulumda acil risk değil.
+
+### PR8 prompt'u — Operasyon UX paketi
+
+```
+Repo: ai_agent. Bağlam: portal/src/pages/OperationsPage.tsx, ApprovalQueuePage.tsx,
+RunDetailPage.tsx, AppShell.tsx, NotificationChannelsPage.tsx, PlaybookUpsertPage.tsx
+(domain_pack seçici deseni), portal/api/lib/notifyChannels.ts, scripts/export-kpi.ts
+(KPI alanları).
+
+Görev — altı UX iyileştirmesi:
+1. Operasyon kapanış kartı: status=done operasyonun detay panelinde kpi_summary event'i
+   varsa kart göster: toplam süre, tick sayısı, insan dokunuşu, hata sayısı, koşulan
+   playbook'lar. escalated ise escalation_reason + "Düzelt ve devam et" butonu:
+   tıklanınca status='active', escalation_reason=null, step_count korunur; operation_events'e
+   kind='act', payload={action:'resumed_by_user'} yazılır.
+2. Bekleyen onay entegrasyonu: OperationsPage satırında bekleyen onay sayısı rozeti
+   (approval_queue, operasyonun run'larına bağlı, status=pending). Tıklayınca
+   ApprovalQueuePage'e query param ile gidip ilgili kaydı highlight eder.
+3. Nav rozeti: AppShell'de Onay Kuyruğu nav öğesine toplam pending sayısı (60 sn polling,
+   0 ise gizli).
+4. Yeni operasyon formu: domain_pack serbest metin yerine domain_packs tablosundan seçici;
+   opsiyonel "bütçe bağla" dropdown'u (operation_budgets'tan scope listesi — bilgilendirme
+   amaçlı, context_json.budget_scope'a yazılır).
+5. Bildirim test butonu: NotificationChannelsPage'de her kanal satırına "Test gönder" —
+   notifyChannels'ı tek kanala test mesajıyla çağıran küçük API endpoint'i
+   (POST /api/notifications/test, auth token'dan owner; owner_user_id body'den ALINMAZ).
+6. Compensation rozetleri: RunDetailPage'de tool_invocations listesinde
+   status='compensated' kayıtlara rozet + compensation_status (succeeded/failed) +
+   compensated_at tooltip'i.
+7. PR7 devri — ToolsPage toggle çok-tenant düzeltmesi (ZORUNLU):
+   a. Migration: tools_update RLS policy'sini daralt — authenticated yalnız kendi tenant
+      satırını (tenant_id = auth.uid()) UPDATE edebilsin; platform satırı (tenant_id IS NULL)
+      yalnız service_role. Bugün herhangi bir kullanıcı platform aracını HERKES için
+      kapatabiliyor.
+   b. ToolsPage.toggleEnabled: platform aracında (tenant_id IS NULL) doğrudan UPDATE yerine
+      kullanıcının tenant'ına override satırı upsert et (aynı slug, tenant_id=user.id,
+      enabled=!current). Runner'daki platform→tenant öncelik mantığı (PR7) bu override'ı
+      zaten uygular. UI'da override'lı araçlara "kişisel ayar" rozeti + "varsayılana dön"
+      (override satırını sil) aksiyonu.
+
+Önce kısa plan, onaydan sonra kod. Bitti kriteri: npm run build yeşil; altı iyileştirme
+portal duman testinde çalışıyor (done-KPI kartı, escalated→resume, onay rozetinden
+ApprovalQueue'ya geçiş, pack seçici, test bildirimi Slack'e düşüyor, compensated rozeti).
+```
+
+---
+
 ## 4. Sonnet'e verilecek promptlar
 
 Genel kullanım önerileri:

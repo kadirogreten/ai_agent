@@ -19,6 +19,7 @@ import {
   buildDecideUserMessage,
 } from './prompts/operationDecide.js'
 import { notifyChannels } from './notifyChannels.js'
+import { getPolicy } from './policyReader.js'
 
 // ── helpers ────────────────────────────────────────────────────────────────────
 
@@ -398,9 +399,11 @@ async function processOperation(supabase: SupabaseClient, op: Operation) {
   } else if (action === 'wait_approval') {
     if (obs.oldestPendingAt) {
       const ageMs = Date.now() - new Date(obs.oldestPendingAt).getTime()
-      if (ageMs > 24 * 60 * 60 * 1000) {
+      const timeoutHours = await getPolicy(supabase, op.owner_user_id ?? null, 'oploop.wait_approval_timeout_hours', 24)
+      const timeoutMs    = (timeoutHours as number) * 60 * 60 * 1000
+      if (ageMs > timeoutMs) {
         await logEvent(supabase, op.id, 'escalate', { reason: 'wait_approval_timeout', oldest_pending_at: obs.oldestPendingAt })
-        await escalateOp(supabase, op, `Onay 24 saatten uzun süredir bekliyor (${obs.oldestPendingAt})`)
+        await escalateOp(supabase, op, `Onay ${timeoutHours} saatten uzun süredir bekliyor (${obs.oldestPendingAt})`)
         return
       }
     }

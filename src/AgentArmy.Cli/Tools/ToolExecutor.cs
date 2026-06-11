@@ -78,6 +78,37 @@ public sealed class ToolExecutor : IToolExecutor
         var sideEffect = desc.SideEffect.ToDbString();
         var effRisk    = desc.EffectiveRisk(ctx.Contract.Risk);
 
+        // 1b) tools.enabled kontrolü: run başında yüklenen harita; null → tüm araçlar enabled.
+        if (ctx.ToolEnabledMap is not null &&
+            ctx.ToolEnabledMap.TryGetValue(slug, out var isEnabled) && !isEnabled)
+        {
+            // Disabled audit: append_audit_log + tool.disabled action
+            if (ctx.Db is not null && ctx.OwnerId is not null)
+            {
+                try
+                {
+                    await ctx.Db.CallRpcAsync("append_audit_log", new
+                    {
+                        p_owner_user_id = ctx.OwnerId,
+                        p_actor_type    = "agent",
+                        p_actor_id      = agent.Id,
+                        p_action        = "tool.disabled",
+                        p_resource_type = "tool",
+                        p_risk_level    = effRisk,
+                        p_severity      = "warn",
+                        p_detail        = new { slug, reason = "Tool is disabled in registry." },
+                    }, ct);
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"[ToolExecutor] tool.disabled audit yazılamadı: {ex.Message}");
+                }
+            }
+            return await FinishAsync(ctx, slug, agent.Id, args, sideEffect, effRisk, null,
+                ToolResult.Failure(slug, $"Araç '{slug}' devre dışı (ToolsPage'den etkinleştirilebilir)."),
+                ToolInvocationStatus.Blocked, ct);
+        }
+
         // 2) İzin (görev sözleşmesi). agent_tools DB kesişimi sonraki PR'da eklenecek.
         var perms = ToolPermissions.Parse(ctx.Contract.ToolPermissions);
         if (!perms.IsToolAllowed(slug))

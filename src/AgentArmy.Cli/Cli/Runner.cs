@@ -208,6 +208,39 @@ public static class Runner
                 opMemStore:  opMemStore
             );
 
+            // tools.enabled haritasını run başında yükle (tek SELECT; service_role bypass eder).
+            // platform araçları (tenant_id IS NULL) önce yüklenir; kullanıcı override satırı kazanır.
+            IReadOnlyDictionary<string, bool>? toolEnabledMap = null;
+            if (db is not null)
+            {
+                var ownerId = Environment.GetEnvironmentVariable("RUN_OWNER_USER_ID");
+                try
+                {
+                    var filter = string.IsNullOrWhiteSpace(ownerId)
+                        ? "select=slug,enabled,tenant_id&tenant_id=is.null"
+                        : $"select=slug,enabled,tenant_id&or=(tenant_id.is.null,tenant_id.eq.{Uri.EscapeDataString(ownerId)})&order=tenant_id.nullsfirst";
+                    var json = await db.SelectAsync("tools", filter, ct);
+                    if (json.ValueKind == System.Text.Json.JsonValueKind.Array)
+                    {
+                        var map = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+                        // Önce NULL (platform) satırları yükle, ardından tenant satırları üzerine yazar.
+                        foreach (var row in json.EnumerateArray())
+                        {
+                            if (!row.TryGetProperty("slug", out var slugEl)) continue;
+                            var slug = slugEl.GetString();
+                            if (string.IsNullOrWhiteSpace(slug)) continue;
+                            var enabled = !row.TryGetProperty("enabled", out var enEl) || enEl.GetBoolean();
+                            map[slug] = enabled;
+                        }
+                        toolEnabledMap = map;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"[Runner] tools.enabled haritası yüklenemedi: {ex.Message}");
+                }
+            }
+
             var contract = BuildContract(exec, playbook);
             var ctx = new RunContext
             {
@@ -216,7 +249,8 @@ public static class Runner
                 Contract       = contract,
                 Playbook       = playbook,
                 SelectedAgents = selectedAgents,
-                Db             = db
+                Db             = db,
+                ToolEnabledMap = toolEnabledMap
             };
 
             await orchestrator.RunAsync(ctx, ct);

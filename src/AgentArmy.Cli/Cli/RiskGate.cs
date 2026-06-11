@@ -10,8 +10,9 @@ namespace AgentArmy.Cli;
 /// </summary>
 public static class RiskGate
 {
-    private static readonly TimeSpan PollInterval     = TimeSpan.FromSeconds(15);
-    private static readonly TimeSpan MaxWait          = TimeSpan.FromHours(4);
+    // Varsayılanlar: policy_settings'ten okunur; DB yoksa bu sabitler kullanılır.
+    private static readonly TimeSpan DefaultPollInterval = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan DefaultMaxWait      = TimeSpan.FromHours(4);
     private const string EnvOwnerKey      = "RUN_OWNER_USER_ID";
     // Worker bu env var'ı set eder (runRequestWorker.ts:515).
     // approval_queue.run_request_id doldurulursa operationLoopTick observe sorgusu çalışır.
@@ -96,13 +97,19 @@ public static class RiskGate
         // Kapsam: yalnız CLI RiskGate yolu; run-seviyesi onaylar PR3'te eklenecek.
         await NotificationDispatcher.NotifyApprovalQueueAsync(db, ownerId, queueId, actionSummary, normalized, ct);
 
-        var deadline = DateTimeOffset.UtcNow.Add(MaxWait);
+        var maxHours  = await PolicyReader.GetAsync(db, ownerId, "riskgate.max_wait_hours", DefaultMaxWait.TotalHours, ct);
+        var pollSecs  = await PolicyReader.GetAsync(db, ownerId, "riskgate.poll_seconds",   DefaultPollInterval.TotalSeconds, ct);
+        var maxWait   = TimeSpan.FromHours(maxHours);
+        var pollDelay = TimeSpan.FromSeconds(pollSecs);
+        Console.Error.WriteLine($"[RiskGate] MaxWait={maxWait:hh\\:mm\\:ss} PollInterval={pollDelay.TotalSeconds}s");
+
+        var deadline  = DateTimeOffset.UtcNow.Add(maxWait);
         var pollCount = 0;
 
         while (DateTimeOffset.UtcNow < deadline)
         {
             ct.ThrowIfCancellationRequested();
-            await Task.Delay(PollInterval, ct);
+            await Task.Delay(pollDelay, ct);
             pollCount++;
 
             var q = $"id=eq.{Uri.EscapeDataString(queueId)}&select=status,reviewer_note&limit=1";
@@ -133,10 +140,10 @@ public static class RiskGate
             }
 
             if (pollCount % 20 == 0)
-                Console.WriteLine($"[RiskGate] hala beklemede ({pollCount * PollInterval.TotalSeconds:0}sn)...");
+                Console.WriteLine($"[RiskGate] hala beklemede ({pollCount * pollDelay.TotalSeconds:0}sn)...");
         }
 
-        Console.Error.WriteLine($"[RiskGate] TIMEOUT — {MaxWait.TotalHours} saat içinde karar verilmedi.");
-        return new GateOutcome(false, $"timeout after {MaxWait.TotalHours}h", queueId);
+        Console.Error.WriteLine($"[RiskGate] TIMEOUT — {maxWait.TotalHours} saat içinde karar verilmedi.");
+        return new GateOutcome(false, $"timeout after {maxWait.TotalHours}h", queueId);
     }
 }

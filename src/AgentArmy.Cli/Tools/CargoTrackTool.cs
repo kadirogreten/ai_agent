@@ -65,25 +65,28 @@ public sealed class CargoTrackTool : ITool
     private static double DemoScale =>
         double.TryParse(Environment.GetEnvironmentVariable("CARGO_DEMO_SCALE"), out var v) && v > 0 ? v : 1.0;
 
-    // Aşama eşikleri (demo dakika cinsinden)
-    private static readonly (int Threshold, int Stage)[] StageThresholds =
-    {
-        (100, 5), // 100+ dk → Teslim edildi
-        ( 70, 4), //  70+ dk → Dağıtıma çıktı
-        ( 45, 3), //  45+ dk → Transfer merkezinde
-        ( 25, 2), //  25+ dk → Kargoya verildi
-        ( 10, 1), //  10+ dk → Hazırlanıyor
-        (  0, 0), //   0+ dk → Sipariş alındı
-    };
+    // Varsayılan aşama eşikleri (demo dakika cinsinden, azalan sıra)
+    private static readonly int[] DefaultStageMinutes = { 10, 25, 45, 70, 100 };
 
-    public Task<ToolResult> InvokeAsync(JsonElement args, RunContext ctx, CancellationToken ct)
+    private static (int Threshold, int Stage)[] BuildThresholds(int[] minutes)
+    {
+        // minutes[i] = i+1. aşama için eşik dakikası (artan sıra beklenir)
+        // Döndürülen dizi azalan eşik sırası (TryParseStageFromTracking için)
+        var result = new (int, int)[minutes.Length + 1];
+        for (var i = minutes.Length - 1; i >= 0; i--)
+            result[minutes.Length - 1 - i] = (minutes[i], i + 1);
+        result[minutes.Length] = (0, 0);
+        return result;
+    }
+
+    public async Task<ToolResult> InvokeAsync(JsonElement args, RunContext ctx, CancellationToken ct)
     {
         if (args.ValueKind != JsonValueKind.Object ||
             !args.TryGetProperty("tracking_number", out var tEl) ||
             tEl.ValueKind != JsonValueKind.String ||
             string.IsNullOrWhiteSpace(tEl.GetString()))
         {
-            return Task.FromResult(ToolResult.Failure(Slug, "Zorunlu 'tracking_number' argümanı (string) eksik."));
+            return ToolResult.Failure(Slug, "Zorunlu 'tracking_number' argümanı (string) eksik.");
         }
 
         var tracking = tEl.GetString()!.Trim();
@@ -92,9 +95,13 @@ public sealed class CargoTrackTool : ITool
 
         var now = DateTimeOffset.UtcNow;
 
+        // Aşama eşiklerini policy_settings'ten yükle; hata/eksik → varsayılan kullan.
+        var stageMinutes = await PolicyReader.GetAsync(ctx.Db, ctx.OwnerId, "cargo.stage_minutes", DefaultStageMinutes, ct);
+        var thresholds   = BuildThresholds(stageMinutes is { Length: > 0 } ? stageMinutes : DefaultStageMinutes);
+
         // Tracking numarasındaki Unix saniyesini parse et (PurchaseOrderTool formatı: "...{hash}-{unixSec}").
         // Parse başarısız → hash tabanlı fallback (eski format geriye uyumluluk).
-        var stageIndex = TryParseStageFromTracking(tracking, now);
+        var stageIndex = TryParseStageFromTracking(tracking, now, thresholds);
 
         var history = new List<object>();
         for (var i = 0; i <= stageIndex; i++)
@@ -127,10 +134,10 @@ public sealed class CargoTrackTool : ITool
             history,
         });
 
-        return Task.FromResult(ToolResult.Success(Slug, output));
+        return ToolResult.Success(Slug, output);
     }
 
-    private static int TryParseStageFromTracking(string tracking, DateTimeOffset now)
+    private static int TryParseStageFromTracking(string tracking, DateTimeOffset now, (int Threshold, int Stage)[] thresholds)
     {
         // Format: "TR{yyMMdd}{hash6}-{unixSec}"
         var dashIdx = tracking.LastIndexOf('-');
@@ -143,7 +150,7 @@ public sealed class CargoTrackTool : ITool
                 var elapsedRealMin = (now - orderTime).TotalMinutes;
                 var demoMin        = elapsedRealMin * DemoScale;
 
-                foreach (var (threshold, stage) in StageThresholds)
+                foreach (var (threshold, stage) in thresholds)
                     if (demoMin >= threshold)
                         return stage;
             }

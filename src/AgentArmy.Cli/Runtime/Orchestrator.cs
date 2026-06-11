@@ -26,7 +26,7 @@ public sealed class Orchestrator
     // Context budget — sliding window. ~16K char ≈ ~4K token (mixed TR/EN).
     private const int MaxContextChars    = 16000;
     private const int MaxPriorFacts      = 8;
-    private const int MaxOperationMemory = 30;
+    private int _maxOperationMemory = 30; // policy_settings'ten güncellenir; varsayılan: 30
 
     public Orchestrator(
         ILlmClient llm,
@@ -91,6 +91,9 @@ public sealed class Orchestrator
         // image dosyaları için RunDir'i oluştur (varsa)
         if (!string.IsNullOrWhiteSpace(ctx.RunDir))
             Directory.CreateDirectory(ctx.RunDir);
+
+        // policy_settings'ten yapılandırma yükle (DB yoksa sabit değerler kullanılır)
+        _maxOperationMemory = await PolicyReader.GetAsync(ctx.Db, ctx.OwnerId, "memory.max_entries", 30, ct);
 
         var personaText = _personaProfile.ContextMarkdown;
         if (string.IsNullOrWhiteSpace(personaText))
@@ -620,7 +623,7 @@ public sealed class Orchestrator
     private async Task<string> BuildOperationMemoryBlockAsync(CancellationToken ct)
     {
         if (_opMemStore is null) return string.Empty;
-        try { return await _opMemStore.BuildMemoryBlockAsync(MaxOperationMemory, ct); }
+        try { return await _opMemStore.BuildMemoryBlockAsync(_maxOperationMemory, ct); }
         catch { return string.Empty; }
     }
 

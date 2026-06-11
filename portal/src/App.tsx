@@ -37,6 +37,8 @@ import SchedulesPage from '@/pages/SchedulesPage'
 import SelfReflectionPage from '@/pages/SelfReflectionPage'
 import EmpiricalCheckPage from '@/pages/EmpiricalCheckPage'
 import NotificationChannelsPage from '@/pages/NotificationChannelsPage'
+import PoliciesPage from '@/pages/PoliciesPage'
+import BudgetsPage from '@/pages/BudgetsPage'
 import OfficePage from '@/pages/OfficePage'
 import OperationsPage from '@/pages/OperationsPage'
 
@@ -106,6 +108,8 @@ export default function App() {
           <Route path="self-reflection" element={<SelfReflectionPage />} />
           <Route path="empirical-check" element={<EmpiricalCheckPage />} />
           <Route path="notification-channels" element={<NotificationChannelsPage />} />
+          <Route path="policies" element={<PoliciesPage />} />
+          <Route path="budgets" element={<BudgetsPage />} />
           <Route path="operations" element={<OperationsPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/app" replace />} />

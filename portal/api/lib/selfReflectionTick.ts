@@ -14,10 +14,12 @@
  * Manuel: npx tsx portal/api/lib/selfReflectionTick.ts
  */
 import { createClient } from '@supabase/supabase-js'
+import { getPolicy } from './policyReader.js'
 
-const FAIL_RATE_THRESHOLD = 0.4  // %40 FAIL oranı aşılırsa sinyal gönder
-const MIN_RUNS            = 5    // En az bu kadar run olmadan değerlendirme yapma
-const COOLDOWN_HOURS      = 24   // Aynı playbook için minimum sinyal aralığı
+// Kod sabitleri — policy_settings bulunamazsa kullanılır
+const DEFAULT_FAIL_RATE_THRESHOLD = 0.4
+const DEFAULT_MIN_RUNS            = 5
+const DEFAULT_COOLDOWN_HOURS      = 24
 
 function log(msg: string, meta?: Record<string, unknown>) {
   const ts = new Date().toISOString()
@@ -43,6 +45,12 @@ type PlaybookStats = {
 
 export async function selfReflectionTick() {
   const supabase = getSupabase()
+
+  // policy_settings'ten yapılandırma yükle (global; service_role ile RLS bypass)
+  const FAIL_RATE_THRESHOLD = await getPolicy<number>(supabase, null, 'selfreflect.fail_rate',    DEFAULT_FAIL_RATE_THRESHOLD)
+  const MIN_RUNS            = await getPolicy<number>(supabase, null, 'selfreflect.min_runs',      DEFAULT_MIN_RUNS)
+  const COOLDOWN_HOURS      = await getPolicy<number>(supabase, null, 'selfreflect.cooldown_hours', DEFAULT_COOLDOWN_HOURS)
+
   const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
 
   // Son 30 günde Verifier sonucu olan run'ları playbook bazında grupla

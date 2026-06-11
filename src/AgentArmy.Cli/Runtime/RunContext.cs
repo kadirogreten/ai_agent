@@ -12,6 +12,13 @@ public sealed class RunContext
     public IReadOnlyList<string> SelectedAgents { get; init; } = Array.Empty<string>();
     public SupabaseWriter? Db { get; init; }
 
+    /// <summary>
+    /// Run başında bir kez yüklenen araç enabled/disabled haritası.
+    /// null → tüm araçlar enabled sayılır (DB olmayan test ortamı).
+    /// Değer false → araç Blocked + tool.disabled audit kaydı.
+    /// </summary>
+    public IReadOnlyDictionary<string, bool>? ToolEnabledMap { get; init; }
+
     /// <summary>RUN_OWNER_USER_ID env var'dan okunur; run_outputs ve run_events'e eklenir.</summary>
     public string? OwnerId => Environment.GetEnvironmentVariable("RUN_OWNER_USER_ID");
 
