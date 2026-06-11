@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import { getSupabaseAdmin } from './supabaseAdmin.js'
 import { assertBundleExists } from './builtinBundles.js'
+import { notifyChannels } from './notifyChannels.js'
 
 type RunRequest = {
   id: string
@@ -444,7 +445,7 @@ async function processOne(supabase: ReturnType<typeof getSupabaseAdmin>, job: Ru
       log('R2/R3 job requires human approval — gating', { id: job.id, risk: job.risk })
       const actionSummary = [job.mode, job.domain_pack, job.request_text?.slice(0, 120)]
         .filter(Boolean).join(' · ')
-      const { error: gateErr } = await supabase.rpc('gate_run_for_approval', {
+      const { data: queueId, error: gateErr } = await supabase.rpc('gate_run_for_approval', {
         p_run_request_id: job.id,
         p_owner_user_id:  job.owner_user_id,
         p_risk_level:     job.risk,
@@ -462,6 +463,18 @@ async function processOne(supabase: ReturnType<typeof getSupabaseAdmin>, job: Ru
       })
       if (gateErr) throw new Error(`Approval gate failed: ${gateErr.message}`)
       log('Job gated for approval', { id: job.id, risk: job.risk })
+
+      // PR2 devir (b): run-seviyesi R2/R3 onay bildirimi (worker yolu).
+      // CLI RiskGate bildirimi C# NotificationDispatcher'da; bu worker yolu.
+      await notifyChannels({
+        ownerId: job.owner_user_id,
+        subject: `[AgentArmy] ${job.risk} onay bekliyor`,
+        message: [
+          `Çalıştırma isteği onay bekliyor (${job.risk}).`,
+          `Özet: ${actionSummary || job.mode}`,
+          `Onay ID: ${queueId ?? job.id}`,
+        ].join('\n'),
+      })
       return
     }
 

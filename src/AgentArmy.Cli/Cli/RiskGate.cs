@@ -12,7 +12,10 @@ public static class RiskGate
 {
     private static readonly TimeSpan PollInterval     = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan MaxWait          = TimeSpan.FromHours(4);
-    private const string EnvOwnerKey = "RUN_OWNER_USER_ID";
+    private const string EnvOwnerKey      = "RUN_OWNER_USER_ID";
+    // Worker bu env var'ı set eder (runRequestWorker.ts:515).
+    // approval_queue.run_request_id doldurulursa operationLoopTick observe sorgusu çalışır.
+    private const string EnvRunRequestKey = "RUN_REQUEST_ID";
 
     public sealed record GateOutcome(bool Approved, string? Reason, string? ApprovalQueueId);
 
@@ -71,11 +74,15 @@ public static class RiskGate
         var queueId = Guid.NewGuid().ToString();
         Console.WriteLine($"[RiskGate] {normalized} risk — approval_queue'ya yazılıyor (id={queueId})...");
 
+        // Bug 3 düzeltme: run_request_id doldurulursa operationLoopTick observe sorgusu
+        // CLI araç-seviyesi onayları görebilir. Worker RUN_REQUEST_ID env'ini set eder.
+        var runRequestId = Environment.GetEnvironmentVariable(EnvRunRequestKey);
+
         await db.InsertAsync("approval_queue", new
         {
             id              = queueId,
             owner_user_id   = ownerId,
-            run_request_id  = (string?)null,
+            run_request_id  = string.IsNullOrWhiteSpace(runRequestId) ? (string?)null : runRequestId,
             step_index      = 0,
             step_name       = runId,
             agent_code      = agentId,

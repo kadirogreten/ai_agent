@@ -79,7 +79,7 @@ Her PR bağımsız merge edilebilir; her birinin "biten tanımı" var. Sıra ön
 |---|---|---|---|
 | **PR1** ✅ | Rollback runtime | `compensation_token`'ı çalıştıran `CompensationExecutor`; reddedilen/başarısız R1+ eylemlerde otomatik tetik; `tool.compensated` audit kaydı | Reddedilen bir `file_store` yazımı otomatik siliniyor, audit'te görünüyor |
 | **PR2** ✅ | Guard hattı: Verifier-blok + bütçe + bildirim **+ PR1 devirleri** | (a) Playbook adımına `blockOnVerifierFail: true` (Verifier-FAIL'de compensation da buna bağlanır); (b) `operation_budgets` tablosu + `RiskGate`'te harcama/çağrı tavanı kontrolü; (c) onay kuyruğuna düşen her kayıt için e-posta/Slack webhook bildirimi; (d) PR1 devri: invocation id'nin `ToolResult`/`ToolExchange`'e taşınması — in-flight compensation DB'yi de patch'lesin (çift geri-alma riski); (e) CLI compensation'da `status='compensated'` güncellemesi | FAIL'li linkle satın alma bloklanıyor; bütçe aşan PO reddediliyor; onaya düşünce bildirim gidiyor; in-flight compensate edilen kayıt CLI'dan ikinci kez compensate edilemiyor |
-| **PR3** | `operations` şeması + OperationLoop tick | `operations`, `operation_events` tabloları; `operationLoopTick.ts` (observe→decide→act); karar LLM'i için dar JSON sözleşmesi (`continue / retry / escalate / done`); max-adım ve cooldown koruması | Bir hedef verilen operasyon, insan tetiği olmadan 2+ run'ı ardışık yürütüyor, takılınca eskale ediyor |
+| **PR3** ✅ | `operations` şeması + OperationLoop tick | `operations`, `operation_events` tabloları; `operationLoopTick.ts` (observe→decide→act); karar LLM'i için dar JSON sözleşmesi (`continue / retry / escalate / done`); max-adım ve cooldown koruması | Bir hedef verilen operasyon, insan tetiği olmadan 2+ run'ı ardışık yürütüyor, takılınca eskale ediyor |
 | **PR4** | Operasyon belleği | `operation_memory` (facts/decisions/work, operasyon kapsamlı); `FactsStore`'un domain-pack bağımsızlaştırılması; tazelik kuralı (en yeni gözlem kazanır); Orchestrator prompt'una operasyon belleği enjeksiyonu | Aynı operasyonun 2. run'ı, 1. run'ın kararlarını prompt'ta görüyor |
 | **PR5** | RiskGate tek-geçit kanıtı + portal Operations UI | Tüm tool-call path'lerinde RiskGate zorunluluğunu doğrulayan entegrasyon testleri; `OperationsPage` (hedef tanımla, durum izle, duraklat/devam, event timeline) | Test yeşil; portaldan operasyon açılıp canlı izlenebiliyor |
 | **PR6** | Dogfood: tedarik operasyonu kapalı döngü | Tedarik akışını `operations` üstünden uçtan uca koştur: stok düşer → döngü açılır → araştırma → onay (bildirimli) → PO → kargo takibi **döngü tarafından** sorgulanır → teslimde stok güncellenir → operasyon `done`. KPI: insan dokunuşu sayısı, döngü süresi, hata oranı | Tek insan dokunuşu = PO onayı; geri kalanı otonom; KPI raporu `docs/`a yazıldı |
@@ -107,6 +107,21 @@ Sonraki PR'lara devreden notlar:
 3. Bütçe niyet anında tüketiliyor (onay/invoke öncesi) — bilinçli muhafazakâr tercih; reddedilen PO da bütçe yer.
 4. `BudgetChecker` RPC hatasında fail-open — ileride `amount > 0` iken fail-closed yapılmalı.
 5. Run-seviyesi R2 onay bildirimleri (worker / `gate_run_for_approval`) kapsam dışı kaldı — PR3'te eklenecek.
+
+> PR2 devir durumu: 1 (in-flight status) ✅ PR3'te kapandı · 2 (FOR UPDATE) ✅ PR3'te kapandı (`20260611141000`) · 5 (worker bildirimi) ✅ PR3'te kapandı (`notifyChannels.ts`) · 3 (niyet anında bütçe) ve 4 (fail-open) bilinçli tercih olarak açık.
+
+### PR3 — Tamamlandı (2026-06-11)
+
+Teslim edilenler: `operations` + `operation_events` tabloları + `run_requests.operation_id` (`20260611140000`); `operationLoopTick.ts` (observe→decide→act; optimistic claim NULL/değer ayrımlı, max_steps kod kontrolü, ard arda 3 başarısız → escalate, `wait_approval` 24h timeout → escalate, strict JSON parse başarısız → escalate); decide prompt'u ayrı modülde (`prompts/operationDecide.ts`); paylaşılan `notifyChannels.ts` (Slack + Resend, target loglanmaz) — escalate + worker R2 onayı buradan bildirir; `operation-loop.yml` (5 dk cron); `POST/GET /api/operations` + `/api/operations/:id/events` (owner auth token'dan, 42ca135 deseni); PR2 devirleri: `consume_budget`'a `FOR UPDATE` (`20260611141000`), in-flight compensation'a `status='compensated'`.
+
+Review'da yakalanıp kapatılan buglar: (1) `verifier_outcome` `run_events`'ten değil `runs`'tan okunur — `result_json.run_id → runs.external_id` zinciri kuruldu; (2) decide model varsayılanı `claude-sonnet-4-6` → `gpt-4.1` (OpenAI endpoint'inde 404 → tick çöküyordu); (3) CLI araç-seviyesi onayları döngüye görünmüyordu — `RUN_REQUEST_ID` env → `RiskGate` → `approval_queue.run_request_id`.
+
+PR4+/sonrası devirler:
+
+1. observe'daki `.or()` fallback'inde `step_name = lastRun.id` koşulu ölü kod (step_name CLI run id taşır, run_request UUID değil) — temizlenebilir.
+2. Bütçe niyet anında tüketiliyor + `BudgetChecker` fail-open (PR2 not 3–4) hâlâ açık.
+3. Portal `OperationsPage` (izleme/duraklat UI) PR5'te — API hazır, UI yok.
+4. Decide LLM'i Chat Completions endpoint'i kullanıyor; CLI Responses API kullanıyor — bilinçli ayrım, sorun değil.
 
 ---
 

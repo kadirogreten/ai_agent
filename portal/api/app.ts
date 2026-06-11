@@ -12,6 +12,7 @@ import dotenv from 'dotenv'
 import { fileURLToPath } from 'url'
 import importRoutes from './routes/import.js'
 import ceoRoutes from './routes/ceo.js'
+import operationsRoutes from './routes/operations.js'
 
 fileURLToPath(import.meta.url)
 
@@ -27,6 +28,7 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }))
 
 app.use('/api/import', importRoutes)
 app.use('/api/ceo', ceoRoutes)
+app.use('/api/operations', operationsRoutes)
 
 /**
  * health

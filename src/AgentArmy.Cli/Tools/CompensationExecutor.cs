@@ -165,14 +165,15 @@ public sealed class CompensationExecutor
             var severity = result.Ok ? "info" : "error";
             Console.Error.WriteLine($"[CompensationExecutor] {action} runId={runId} slug={ex.Call.Slug} msg={result.Message}");
 
-            // InvocationId varsa DB satırını güncelle (PR4a: çift compensation'ı önler).
+            // InvocationId varsa DB satırını güncelle — status='compensated' dahil (CLI yoluyla tutarlılık).
+            // Bu patch idempotency guard görevi de görür: compensated_at doluysa CLI ikinci kez compensate edemez.
             if (db is not null && !string.IsNullOrWhiteSpace(ex.Result.InvocationId))
             {
                 var compStatus = result.Ok ? "succeeded" : "failed";
                 await db.PatchAsync(
                     "tool_invocations",
                     $"id=eq.{Uri.EscapeDataString(ex.Result.InvocationId!)}",
-                    new { compensated_at = DateTimeOffset.UtcNow, compensation_status = compStatus },
+                    new { status = "compensated", compensated_at = DateTimeOffset.UtcNow, compensation_status = compStatus },
                     ct);
             }
 

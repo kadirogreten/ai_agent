@@ -1,0 +1,38 @@
+name: Operation Loop Tick
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/5 * * * *"
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Cache npm deps
+        uses: actions/cache@v4
+        with:
+          path: portal/node_modules
+          key: npm-${{ runner.os }}-${{ hashFiles('portal/package-lock.json') }}
+          restore-keys: npm-${{ runner.os }}-
+
+      - name: Install portal deps
+        run: npm ci --prefix portal
+
+      - name: Run operation loop tick
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          RESEND_FROM_EMAIL: ${{ secrets.RESEND_FROM_EMAIL }}
+        run: npx tsx portal/api/lib/operationLoopTick.ts
