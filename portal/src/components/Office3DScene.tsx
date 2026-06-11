@@ -24,8 +24,8 @@ export default function Office3DScene({ onSceneReady, children }: Office3DSceneP
 
     // ── Scene ──────────────────────────────────────────────────────────
     const scene = new THREE.Scene()
-    scene.background = new THREE.Color(0x0f172a)   // slate-900
-    scene.fog = new THREE.FogExp2(0x0f172a, 0.006) // very light fog — slate-900 blend
+    scene.background = new THREE.Color(0x1e293b)   // slate-800 — slate-900 fazla siyah kalıyordu (R3)
+    scene.fog = new THREE.FogExp2(0x1e293b, 0.004) // çok hafif derinlik; karartma yok (R3)
     sceneRef.current = scene
 
     // ── Camera ─────────────────────────────────────────────────────────
@@ -41,13 +41,13 @@ export default function Office3DScene({ onSceneReady, children }: Office3DSceneP
     renderer.shadowMap.enabled = true
     renderer.shadowMap.type = THREE.PCFSoftShadowMap
     renderer.toneMapping = THREE.ACESFilmicToneMapping
-    renderer.toneMappingExposure = 1.25
+    renderer.toneMappingExposure = 1.4 // R3: koyu materyaller için pozlama artırıldı
     container.appendChild(renderer.domElement)
     rendererRef.current = renderer
 
     // ── Lighting ───────────────────────────────────────────────────────
     // Soft hemisphere — slate sky / dark ground, matches app palette
-    scene.add(new THREE.HemisphereLight(0x94a3b8, 0x1e293b, 1.2))
+    scene.add(new THREE.HemisphereLight(0x94a3b8, 0x334155, 1.5)) // R3: zemin yansıması + şiddet artırıldı
 
     // Primary directional (soft shadows)
     const keyLight = new THREE.DirectionalLight(0xcbd5e1, 1.3)

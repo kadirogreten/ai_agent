@@ -37,7 +37,7 @@ export default function OfficeGeometry({
     // Circular platform — amfi r=10 + 6 margin = 16; beyond this the slate-900 bg shows
     const platform = new THREE.Mesh(
       new THREE.CylinderGeometry(16, 16, 0.08, 64),
-      mat(0x1e293b, 0.45, 0.3)
+      mat(0x334155, 0.55, 0.2) // R3: slate-700 — zemin arka plandan ayrışsın
     )
     platform.position.set(0, 0, 0)
     platform.receiveShadow = true
@@ -52,42 +52,15 @@ export default function OfficeGeometry({
     gridMats.forEach((m) => {
       const lm = m as THREE.LineBasicMaterial
       lm.transparent = true
-      lm.opacity = 0.12
+      lm.opacity = 0.06 // R3: daha açık zeminde grid iyice silikleşsin
     })
     scene.add(gridHelper)
 
     // Ceiling removed — open sky feel, background slate-900 reads above walls
 
-    // Walls
-    const wallMat = mat(0x0f1e35, 0.85, 0.05)
-    const walls: { size: [number,number,number]; pos: [number,number,number] }[] = [
-      { size: [50, 10, 0.3], pos: [0, 5, -25] },
-      { size: [50, 10, 0.3], pos: [0, 5, 25]  },
-      { size: [0.3, 10, 50], pos: [25, 5, 0]  },
-      { size: [0.3, 10, 50], pos: [-25, 5, 0] },
-    ]
-    walls.forEach(({ size, pos }) => {
-      const w = new THREE.Mesh(new THREE.BoxGeometry(...size), wallMat)
-      w.position.set(...pos)
-      w.receiveShadow = true
-      scene.add(w)
-    })
-
-    // Subtle baseboard strips (slate blue, no neon)
-    const baseboardMat = mat(0x334155, 0.5, 0.2, 0.2, 0x475569)
-    const baseboards: { size: [number,number,number]; pos: [number,number,number] }[] = [
-      { size: [50, 0.06, 0.06], pos: [0, 0.03, -24.85] },
-      { size: [50, 0.06, 0.06], pos: [0, 0.03, 24.85]  },
-      { size: [0.06, 0.06, 50], pos: [24.85, 0.03, 0]  },
-      { size: [0.06, 0.06, 50], pos: [-24.85, 0.03, 0] },
-    ]
-    baseboards.forEach(({ size, pos }) => {
-      const b = new THREE.Mesh(new THREE.BoxGeometry(...size), baseboardMat)
-      b.position.set(...pos)
-      scene.add(b)
-    })
-
-    // Ceiling LED bars removed — HemisphereLight + keyLight provide even illumination
+    // R3: Duvarlar/süpürgelikler kaldırıldı — açık platform konsepti.
+    // Karanlıkta görünmeyen duvarların pencere/ışık öğeleri boşlukta yüzen
+    // beyaz barlar olarak görünüyordu; oda kutusu tamamen bırakıldı.
 
     // ── Amphitheater desks ─────────────────────────────────────────────
     const deskSurfMat  = mat(0x1e293b, 0.25, 0.5)
@@ -156,7 +129,7 @@ export default function OfficeGeometry({
     // Slate-700 base + subtle indigo rim emissive
     const opsTable = new THREE.Mesh(
       new THREE.CylinderGeometry(3.5, 3.5, 0.4, 32),
-      mat(0x334155, 0.25, 0.5, 0.15, 0x6366f1)
+      mat(0x475569, 0.3, 0.4, 0.3, 0x6366f1) // R3: zeminden ayrışması için açıldı + rim güçlendi
     )
     opsTable.position.set(0, 0.2, 0)   // top surface at y=0.4
     opsTable.castShadow = true
@@ -185,48 +158,9 @@ export default function OfficeGeometry({
     centerLight.position.set(0, 2, 0)
     scene.add(centerLight)
 
-    // ── Server racks (right wall) — slate tones ────────────────────────
-    const rackMat = mat(0x1e293b, 0.3, 0.6)
-    const ledGreen = mat(0x86efac, 0.1, 0, 1.5, 0x4ade80)
-    const ledAmber = mat(0xfcd34d, 0.1, 0, 1.2, 0xfbbf24)
-
-    for (let r = 0; r < 3; r++) {
-      const rz = -12 + r * 6
-      const rack = new THREE.Mesh(new THREE.BoxGeometry(0.8, 5, 2.0), rackMat)
-      rack.position.set(24, 2.5, rz)
-      rack.castShadow = true
-      scene.add(rack)
-
-      for (let l = 0; l < 8; l++) {
-        const led = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.04, 0.04), l % 3 === 0 ? ledAmber : ledGreen)
-        led.position.set(23.6, 0.8 + l * 0.5, rz)
-        scene.add(led)
-      }
-
-      const rl = new THREE.PointLight(0x4ade80, 0.4, 5)
-      rl.position.set(23.4, 2.5, rz)
-      scene.add(rl)
-    }
-
-    // ── Windows (left wall) ────────────────────────────────────────────
-    const glassMat = mat(0x475569, 0.05, 0.1, 0.15, 0x7dd3fc)
-    glassMat.transparent = true
-    glassMat.opacity = 0.3
-
-    for (let i = 0; i < 4; i++) {
-      const wz = -15 + i * 10
-      const frame = new THREE.Mesh(new THREE.BoxGeometry(0.3, 3.5, 4.0), mat(0x1e293b, 0.2, 0.8))
-      frame.position.set(-24.85, 4, wz)
-      scene.add(frame)
-
-      const glass = new THREE.Mesh(new THREE.BoxGeometry(0.1, 3.0, 3.6), glassMat)
-      glass.position.set(-24.75, 4, wz)
-      scene.add(glass)
-
-      const wl = new THREE.PointLight(0x7dd3fc, 0.8, 10)
-      wl.position.set(-23, 4, wz)
-      scene.add(wl)
-    }
+    // R3: Server rack'leri ve pencereler kaldırıldı — duvarsız açık platformda
+    // bu öğeler bağlamsız kalıyor ve (pencere camı + point light'lar) boşlukta
+    // yüzen parlak şeritler üretiyordu. Platform + amfi + merkez masa yeterli.
 
     return () => {
       // Scene clear handled by Office3DScene on unmount
