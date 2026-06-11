@@ -76,18 +76,18 @@ public sealed class PurchaseOrderTool : ITool, ICompensable
 
     private static readonly string[] Carriers = { "Yurtiçi Kargo", "Aras Kargo", "MNG Kargo", "PTT Kargo" };
 
-    public async Task<ToolResult> InvokeAsync(JsonElement args, RunContext ctx, CancellationToken ct)
+    public Task<ToolResult> InvokeAsync(JsonElement args, RunContext ctx, CancellationToken ct)
     {
         if (args.ValueKind != JsonValueKind.Object ||
             !args.TryGetProperty("product", out var pEl) || pEl.ValueKind != JsonValueKind.String ||
             string.IsNullOrWhiteSpace(pEl.GetString()))
         {
-            return ToolResult.Failure(Slug, "Zorunlu 'product' argümanı (string) eksik.");
+            return Task.FromResult(ToolResult.Failure(Slug, "Zorunlu 'product' argümanı (string) eksik."));
         }
         if (!args.TryGetProperty("quantity", out var qEl) || qEl.ValueKind != JsonValueKind.Number ||
             !qEl.TryGetInt32(out var quantity) || quantity < 1)
         {
-            return ToolResult.Failure(Slug, "Zorunlu 'quantity' argümanı (>=1 tamsayı) eksik/geçersiz.");
+            return Task.FromResult(ToolResult.Failure(Slug, "Zorunlu 'quantity' argümanı (>=1 tamsayı) eksik/geçersiz."));
         }
 
         var product  = pEl.GetString()!.Trim();
@@ -116,32 +116,14 @@ public sealed class PurchaseOrderTool : ITool, ICompensable
 
         var now      = DateTimeOffset.UtcNow;
         var orderId  = $"PO-{now:yyyyMMdd}-{ShortHash(product + supplier + now.Ticks)}";
-        var tracking = $"TR{now:yyMMdd}{Math.Abs((product + quantity).GetHashCode()) % 1_000_000:D6}";
+        // Unix saniyesi tracking numarasına gömülür: CargoTrackTool sipariş yaşını hesaplamak için parse eder.
+        var unixSec  = now.ToUnixTimeSeconds();
+        var tracking = $"TR{now:yyMMdd}{Math.Abs((product + quantity).GetHashCode()) % 1_000_000:D6}-{unixSec}";
         var carrier  = Carriers[Math.Abs(supplier.GetHashCode()) % Carriers.Length];
         var eta      = now.AddDays(2 + Math.Abs(product.GetHashCode()) % 4); // 2–5 gün
 
-        // Onaylı sipariş sonrası stoğu yenile: stock_levels.current_stock += quantity.
-        // (Bu metot RiskGate'ten SONRA çalışır; yani yalnız İNSAN ONAYI alınmış siparişte tetiklenir.)
-        // Gerçekte stok teslimde artar; demoda sipariş anında yeniliyoruz ki döngü kapansın
-        // (stok eşik üstüne çıkar, izleyici aynı ürünü tekrar tetiklemez).
-        var stockReplenished = false;
-        if (ctx.Db is not null && !string.IsNullOrWhiteSpace(ctx.OwnerId))
-        {
-            try
-            {
-                await ctx.Db.CallRpcAsync("adjust_stock", new
-                {
-                    p_owner   = ctx.OwnerId,
-                    p_product = product,
-                    p_delta   = quantity,
-                }, ct);
-                stockReplenished = true;
-            }
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine($"[purchase_order] stok güncellenemedi: {ex.Message}");
-            }
-        }
+        // Stok artışı sipariş anında yapılmaz: teslim anında StockReplenishTool (write/R1) çağrılır.
+        // CompensateAsync yalnız siparişi iptal eder; stok geri alımı StockReplenishTool.CompensateAsync'e aittir.
 
         var output = JsonSerializer.SerializeToElement(new
         {
@@ -162,63 +144,38 @@ public sealed class PurchaseOrderTool : ITool, ICompensable
             carrier,
             estimated_delivery = eta.ToString("yyyy-MM-dd"),
             placed_at          = now.ToString("o"),
-            stock_replenished  = stockReplenished,
         });
 
-        // Geri-alma anahtarı: JSON token — order_id + ürün + adet.
-        // cancel_order sırasında adjust_stock(-qty) çağrısı için ürün+adet gerekli.
-        var tokenObj = new { order_id = orderId, product, quantity };
+        // Geri-alma anahtarı: yalnız order_id — stok adjust'ı StockReplenishTool'a taşındı.
+        var tokenObj = new { order_id = orderId };
         var token    = JsonSerializer.Serialize(tokenObj);
-        return ToolResult.Success(Slug, output, compensationToken: token);
+        return Task.FromResult(ToolResult.Success(Slug, output, compensationToken: token));
     }
 
-    // ICompensable: token = {"order_id":"...","product":"...","quantity":N}
-    // Stoğu geri alır (adjust_stock ile -qty) ve iptal loglar.
-    public async Task<CompensationResult> CompensateAsync(string token, SupabaseWriter? db, string? ownerId, CancellationToken ct)
+    // ICompensable: token = {"order_id":"..."}.
+    // Yalnız siparişi iptal eder; stok geri alımı StockReplenishTool.CompensateAsync'e aittir
+    // (sipariş anında stok artırılmadığından burada adjust_stock çağrısı olmaz).
+    public Task<CompensationResult> CompensateAsync(string token, SupabaseWriter? db, string? ownerId, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(token))
-            return CompensationResult.Failure("Boş compensation_token; iptal edilecek sipariş bilinmiyor.");
+            return Task.FromResult(CompensationResult.Failure("Boş compensation_token; iptal edilecek sipariş bilinmiyor."));
 
-        string? orderId  = null;
-        string? product  = null;
-        int     quantity = 0;
+        string? orderId = null;
         try
         {
             using var doc = JsonDocument.Parse(token);
-            var root = doc.RootElement;
-            orderId  = root.TryGetProperty("order_id",  out var oid) ? oid.GetString() : null;
-            product  = root.TryGetProperty("product",   out var pr)  ? pr.GetString()  : null;
-            quantity = root.TryGetProperty("quantity",  out var q) && q.TryGetInt32(out var qi) ? qi : 0;
+            orderId = doc.RootElement.TryGetProperty("order_id", out var oid) ? oid.GetString() : null;
         }
         catch (Exception ex)
         {
-            return CompensationResult.Failure($"Token ayrıştırılamadı: {ex.Message}");
+            return Task.FromResult(CompensationResult.Failure($"Token ayrıştırılamadı: {ex.Message}"));
         }
 
         if (string.IsNullOrWhiteSpace(orderId))
-            return CompensationResult.Failure("Token'da order_id yok.");
+            return Task.FromResult(CompensationResult.Failure("Token'da order_id yok."));
 
-        // Stok geri al: sipariş sırasında eklenen miktarı çıkar.
-        string stockNote;
-        if (db is not null && !string.IsNullOrWhiteSpace(ownerId) && !string.IsNullOrWhiteSpace(product) && quantity > 0)
-        {
-            await db.CallRpcAsync("adjust_stock", new
-            {
-                p_owner   = ownerId,
-                p_product = product,
-                p_delta   = -quantity,
-            }, ct);
-            stockNote = $"stok geri alındı: {product} -{quantity}";
-        }
-        else
-        {
-            // token'da product/qty eksikse veya DB yoksa stok geri alınamaz.
-            stockNote = "stok geri alınamadı: token'da product/qty eksik veya DB yok";
-            Console.Error.WriteLine($"[purchase_order] cancel_order uyarı: {stockNote} orderId={orderId}");
-        }
-
-        Console.Error.WriteLine($"[purchase_order] cancel_order orderId={orderId} product={product} qty=-{quantity}");
-        return CompensationResult.Success($"İptal edildi: {orderId} ({stockNote})");
+        Console.Error.WriteLine($"[purchase_order] cancel_order orderId={orderId}");
+        return Task.FromResult(CompensationResult.Success($"Sipariş iptal edildi: {orderId}"));
     }
 
     // ── Yardımcılar ──────────────────────────────────────────────────────────

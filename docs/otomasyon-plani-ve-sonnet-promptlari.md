@@ -82,7 +82,7 @@ Her PR bağımsız merge edilebilir; her birinin "biten tanımı" var. Sıra ön
 | **PR3** ✅ | `operations` şeması + OperationLoop tick | `operations`, `operation_events` tabloları; `operationLoopTick.ts` (observe→decide→act); karar LLM'i için dar JSON sözleşmesi (`continue / retry / escalate / done`); max-adım ve cooldown koruması | Bir hedef verilen operasyon, insan tetiği olmadan 2+ run'ı ardışık yürütüyor, takılınca eskale ediyor |
 | **PR4** ✅ | Operasyon belleği | `operation_memory` (facts/decisions/work, operasyon kapsamlı); `FactsStore`'un domain-pack bağımsızlaştırılması; tazelik kuralı (en yeni gözlem kazanır); Orchestrator prompt'una operasyon belleği enjeksiyonu | Aynı operasyonun 2. run'ı, 1. run'ın kararlarını prompt'ta görüyor |
 | **PR5** ✅ | RiskGate tek-geçit kanıtı + portal Operations UI | Tüm tool-call path'lerinde RiskGate zorunluluğunu doğrulayan entegrasyon testleri; `OperationsPage` (hedef tanımla, durum izle, duraklat/devam, event timeline) | Test yeşil; portaldan operasyon açılıp canlı izlenebiliyor |
-| **PR6** | Dogfood: tedarik operasyonu kapalı döngü | Tedarik akışını `operations` üstünden uçtan uca koştur: stok düşer → döngü açılır → araştırma → onay (bildirimli) → PO → kargo takibi **döngü tarafından** sorgulanır → teslimde stok güncellenir → operasyon `done`. KPI: insan dokunuşu sayısı, döngü süresi, hata oranı | Tek insan dokunuşu = PO onayı; geri kalanı otonom; KPI raporu `docs/`a yazıldı |
+| **PR6** ✅ | Dogfood: tedarik operasyonu kapalı döngü | Tedarik akışını `operations` üstünden uçtan uca koştur: stok düşer → döngü açılır → araştırma → onay (bildirimli) → PO → kargo takibi **döngü tarafından** sorgulanır → teslimde stok güncellenir → operasyon `done`. KPI: insan dokunuşu sayısı, döngü süresi, hata oranı | Tek insan dokunuşu = PO onayı; geri kalanı otonom; KPI raporu `docs/`a yazıldı |
 
 Tahmini sıra maliyeti: PR1–2 küçük (1–2 oturum), PR3 en büyüğü, PR4–5 orta, PR6 ağırlıkla test/ayar.
 
@@ -139,6 +139,20 @@ Teslim edilenler — Görev A: `IRiskGate` + `RiskGateAdapter` (static RiskGate'
 Review'da yakalanıp kapatılan buglar: (1) bütçe guard'ı null-DB testinde checker'ı atlıyordu — guard kaldırıldı; (2) `NewOpForm` insert'i `owner_user_id` göndermiyordu (NOT NULL + RLS WITH CHECK ihlali) — `auth.getUser()` + `owner_user_id: user.id` eklendi.
 
 > RiskGate tek-geçit kanıtı tamam: üç yürütme yolu (CLI run, worker, ceo-executor) tek `IToolExecutor` pipeline'ından geçiyor ve bypass fail-closed testle doğrulandı. Faz B'nin "enforce" ayağı ve 4. basamak soketinin yönetişim katmanı bu PR ile kapandı.
+
+### PR6 — Tamamlandı (2026-06-11)
+
+Teslim edilenler: `operations.context_json` + çift tetik koruması; `stockMonitorTick` artık run_request değil **operasyon** açıyor; tedarik akışı üç alt-playbook'a bölündü ve DB'ye seed edildi (`tedarik-arastirma` 5 adım, `tedarik-siparis` Verifier re-check + PO `blockOnVerifierFail:true` — PR2 kilidi bölünmede korundu, `tedarik-kargo` cargo_track → stock_replenish → özet); decide prompt'una tedarik faz kuralları + DB'den çekilen gerçek slug listesi ("yalnız bu slug'lar" kısıtı); yeni `StockReplenishTool` (write/R1/reversible/ICompensable — stok artışı sipariş anından teslim anına taşındı, yönetişim hattının içinden); PO compensation'dan `adjust_stock(-qty)` kaldırıldı (tutarlılık); `CargoTrackTool` Unix-gömülü tracking + zamana dayalı durum makinesi + `CARGO_DEMO_SCALE` env (duman testi ~2 dk); `kpi_summary` event (CHECK genişletildi) + `computeKpiSummary` + `scripts/export-kpi.ts` → `docs/dogfood-tedarik-kpi.md`; `docs/tedarik-otomasyonu.md` güncellendi.
+
+Review'da yakalanıp kapatılan buglar: (1) playbook seed'i var olmayan kolonlara insert ediyordu (`title/domain_pack/steps_json` → gerçek şema `name/pack_id/steps`); (2) step JSON'u `{step,name,persona,instructions}` formatındaydı — `PlaybookStep` kontratı `{id,agent,goal,output}`'a çevrildi; (3) PO'daki Verifier kilidi playbook bölünmesinde sessizce düşüyordu — `tedarik-siparis`'e re-verify adımı eklendi; (4) `stock_replenish` kategorisi `'inventory'` CHECK'e takıldı → `'commerce'`; (5) ilk tasarımda cargo_track (read aracı) içine `adjust_stock` gömülüyordu — yönetişim ihlali, ayrı write aracına taşındı.
+
+**Kalan kabul adımı (kod değil, operasyon):** canlı uçtan uca dogfood — stok eşiği düşür → operasyon açılır → araştırma → PO onayı (tek insan dokunuşu) → kargo → teslim → stok artar → `done` + `kpi_summary` → `export-kpi.ts` ile KPI satırı. `CARGO_DEMO_SCALE=60` ile ~30 dk'da koşulabilir. Bu koşu yeşil olana kadar OA3 "mühendislik olarak tamam, operasyonda kanıtlanmadı" statüsünde.
+
+---
+
+## Seri durumu (2026-06-11): PR1–PR6 tamamlandı
+
+Piramit eşlemesi: S3 (çoklu ajan ekipleri) kapalı döngü ile **mühendislik olarak tamamlandı**; Faz A–D yerinde, Faz E (dogfood kanıtı) canlı koşu bekliyor. 4. basamak soketi (denetim + geri alma + sınır + tek-geçit) PR1/PR2/PR5 ile kuruldu. Açık kalan bilinçli tercihler: bütçe niyet anında tüketimi, `BudgetChecker` fail-open, topic_key önek dedup'ı.
 
 ---
 

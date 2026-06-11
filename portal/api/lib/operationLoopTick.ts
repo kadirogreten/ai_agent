@@ -1,17 +1,13 @@
 /**
- * PR3 — İzle-ve-devam-et operasyon döngüsü tick'i.
+ * PR3 + PR6 — İzle-ve-devam-et operasyon döngüsü tick'i.
  *
  * Her çalışmada:
- *   1. Aktif operasyonları sıraya göre seç (step_count < max_steps filtresi YOK — kod kontrol eder).
+ *   1. Aktif operasyonları sıraya göre seç.
  *   2. Optimistic claim: UPDATE last_tick_at WHERE last_tick_at = <okunan değer>.
- *      Etkilenen satır 0 ise başka tick almıştır; atla.
- *   3. OBSERVE: DB'den son run durumu, verifier_outcome, onay kuyruğu, ard arda başarısız sayısı.
- *   4. DECIDE: LLM'e gözlem ver, strict JSON parse et.
- *      Parse başarısız → escalate.
- *   5. ACT:
- *      - continue / retry → run_requests INSERT, step_count++
- *      - wait_approval    → bekleyen onay 24h'den eskiyse escalate + bildirim
- *      - done / escalate  → status güncelle + bildirim (escalate'te)
+ *   3. OBSERVE: son run durumu, verifier_outcome, onay kuyruğu, consecutiveFails,
+ *              lastResultSummary (kargo durumu dahil), availablePlaybooks (DB'den gerçek slug).
+ *   4. DECIDE: LLM'e gözlem + gerçek playbook slug listesini ver, strict JSON parse et.
+ *   5. ACT: continue/retry → run_request; wait_approval; done (→ KPI özeti); escalate.
  *   6. Her faz operation_events'e loglanır.
  *
  * Çalıştırma: npx tsx portal/api/lib/operationLoopTick.ts
@@ -48,7 +44,7 @@ function getOpenAIKey(): string {
 async function logEvent(
   supabase: SupabaseClient,
   operationId: string,
-  kind: 'observe' | 'decide' | 'act' | 'escalate',
+  kind: 'observe' | 'decide' | 'act' | 'escalate' | 'kpi_summary',
   payload: Record<string, unknown>,
 ) {
   const { error } = await supabase.from('operation_events').insert({
@@ -62,18 +58,20 @@ async function logEvent(
 // ── tipler ─────────────────────────────────────────────────────────────────────
 
 type Operation = {
-  id:              string
-  owner_user_id:   string
-  goal_text:       string
-  domain_pack:     string
-  persona:         string | null
-  model:           string | null
-  risk:            'R0' | 'R1' | 'R2' | 'R3'
-  status:          string
-  max_steps:       number
-  step_count:      number
+  id:               string
+  owner_user_id:    string
+  goal_text:        string
+  domain_pack:      string
+  persona:          string | null
+  model:            string | null
+  risk:             'R0' | 'R1' | 'R2' | 'R3'
+  status:           string
+  max_steps:        number
+  step_count:       number
   cooldown_minutes: number
-  last_tick_at:    string | null
+  last_tick_at:     string | null
+  context_json:     Record<string, unknown> | null
+  created_at:       string
 }
 
 type RunRequestRow = {
@@ -97,9 +95,7 @@ async function observe(supabase: SupabaseClient, op: Operation) {
 
   const lastRun = (runs ?? [])[0] as RunRequestRow | undefined
 
-  // Bug 1 düzeltme: verifier_outcome, runs tablosunda (0012_runs_cost_ledger.sql:14),
-  // run_events'te değil. Worker runs'a external_id = CLI runId ile insert eder.
-  // CLI runId → result_json.run_id'den alınır (run tamamlanmışsa).
+  // verifier_outcome: runs tablosundan (external_id = CLI runId)
   let lastVerifierOutcome: string | null = null
   if (lastRun) {
     const cliRunId = (lastRun.result_json as Record<string, unknown> | null)?.run_id as string | undefined
@@ -109,12 +105,23 @@ async function observe(supabase: SupabaseClient, op: Operation) {
         .select('verifier_outcome')
         .eq('external_id', cliRunId)
         .maybeSingle()
-
       lastVerifierOutcome = (runsRow as { verifier_outcome: string | null } | null)?.verifier_outcome ?? null
     }
   }
 
-  // Ard arda başarısız sayısı: son N run_requests status='failed'
+  // lastResultSummary: son run'ın result_json'undan özet (kargo "Teslim edildi" durumu dahil)
+  let lastResultSummary: string | null = null
+  if (lastRun?.result_json) {
+    const rj = lastRun.result_json as Record<string, unknown>
+    const summary = rj.summary ?? rj.work_output ?? rj.output
+    if (typeof summary === 'string') {
+      lastResultSummary = summary.slice(0, 400)
+    } else if (summary !== null && summary !== undefined) {
+      lastResultSummary = JSON.stringify(summary).slice(0, 400)
+    }
+  }
+
+  // Ard arda başarısız sayısı
   const { data: recentRuns } = await supabase
     .from('run_requests')
     .select('status')
@@ -128,22 +135,16 @@ async function observe(supabase: SupabaseClient, op: Operation) {
     else break
   }
 
-  // Bug 3 düzeltme: CLI RiskGate, approval_queue'ya run_request_id = job.id (RUN_REQUEST_ID
-  // env var'dan) yazar (RiskGate.cs düzeltmesi). Sorgu artık run_request_id ile çalışır.
-  // Ek olarak: run_request_id = null AND step_name = lastRun.id fallback'i de sorgulanır;
-  // bu, düzeltme öncesi yazılmış (eski) onay kayıtlarını da yakalar.
+  // Onay kuyruğu
   let pendingApprovals = 0
   let oldestPendingAt: string | null = null
   if (lastRun?.id) {
-    // RiskGate artık run_request_id = job.id yazıyor (PR3 Bug 3 düzeltmesi).
-    // Eski step_name fallback'i kaldırıldı — ölü kod, yanlış onay eşleştirmesine yol açabilir.
     const { data: aq } = await supabase
       .from('approval_queue')
       .select('id, created_at')
       .eq('run_request_id', lastRun.id)
       .eq('status', 'pending')
       .order('created_at', { ascending: true })
-
     pendingApprovals = (aq ?? []).length
     oldestPendingAt  = (aq ?? [])[0]?.created_at ?? null
   }
@@ -152,13 +153,20 @@ async function observe(supabase: SupabaseClient, op: Operation) {
     ? ((lastRun.answers_json as Record<string, unknown>)?.playbookId as string | undefined) ?? null
     : null
 
-  const lastError = lastRun?.status === 'failed'
-    ? `Run ${lastRun.id} failed`
-    : null
+  const lastError = lastRun?.status === 'failed' ? `Run ${lastRun.id} failed` : null
+
+  // Mevcut playbook slug'larını DB'den al — LLM'e gerçek listeyi ver, slug uydurmasın
+  const { data: pbRows } = await supabase
+    .from('playbooks')
+    .select('slug')
+    .or('owner_user_id.eq.' + op.owner_user_id + ',is_public.eq.true')
+    .order('slug')
+  const availablePlaybooks = ((pbRows ?? []) as { slug: string }[]).map((r) => r.slug)
 
   return {
     lastRunStatus:       lastRun?.status ?? null,
     lastVerifierOutcome,
+    lastResultSummary,
     consecutiveFails,
     pendingApprovals,
     oldestPendingAt,
@@ -166,15 +174,13 @@ async function observe(supabase: SupabaseClient, op: Operation) {
     maxSteps:            op.max_steps,
     lastPlaybook,
     lastError,
+    availablePlaybooks,
   }
 }
 
 // ── DECIDE ─────────────────────────────────────────────────────────────────────
 
-async function decide(
-  op:  Operation,
-  obs: Awaited<ReturnType<typeof observe>>,
-) {
+async function decide(op: Operation, obs: Awaited<ReturnType<typeof observe>>) {
   const userMsg = buildDecideUserMessage({
     goalText:            op.goal_text,
     lastRunStatus:       obs.lastRunStatus,
@@ -185,19 +191,16 @@ async function decide(
     maxSteps:            obs.maxSteps,
     lastPlaybook:        obs.lastPlaybook,
     lastError:           obs.lastError,
+    lastResultSummary:   obs.lastResultSummary,
+    availablePlaybooks:  obs.availablePlaybooks,
   })
 
-  // Bug 2 düzeltme: endpoint api.openai.com → varsayılan gpt-4.1 (repo standardı).
-  // claude-sonnet-4-6 Anthropic modeli; OpenAI endpoint'ine 404 döner.
   const model  = op.model ?? 'gpt-4.1'
   const apiKey = getOpenAIKey()
 
   const resp = await fetch('https://api.openai.com/v1/chat/completions', {
     method:  'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type':  'application/json',
-    },
+    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model,
       messages: [
@@ -221,11 +224,7 @@ async function decide(
 
 // ── escalate helper ────────────────────────────────────────────────────────────
 
-async function escalateOp(
-  supabase: SupabaseClient,
-  op: Operation,
-  reason: string,
-) {
+async function escalateOp(supabase: SupabaseClient, op: Operation, reason: string) {
   log('escalate', { id: op.id, reason })
   await supabase
     .from('operations')
@@ -235,25 +234,73 @@ async function escalateOp(
   await notifyChannels({
     ownerId: op.owner_user_id,
     subject: `[AgentArmy] Operasyon eskalasyon: ${op.goal_text.slice(0, 60)}`,
-    message: [
-      `Operasyon eskalasyona alındı.`,
-      `Hedef: ${op.goal_text}`,
-      `Sebep: ${reason}`,
-      `Operasyon ID: ${op.id}`,
-    ].join('\n'),
+    message: [`Operasyon eskalasyona alındı.`, `Hedef: ${op.goal_text}`, `Sebep: ${reason}`, `ID: ${op.id}`].join('\n'),
   })
+}
+
+// ── KPI özeti ─────────────────────────────────────────────────────────────────
+
+async function computeKpiSummary(supabase: SupabaseClient, op: Operation) {
+  const { count: tickCount } = await supabase
+    .from('operation_events')
+    .select('id', { count: 'exact', head: true })
+    .eq('operation_id', op.id)
+    .eq('kind', 'observe')
+
+  const { count: errorCount } = await supabase
+    .from('operation_events')
+    .select('id', { count: 'exact', head: true })
+    .eq('operation_id', op.id)
+    .eq('kind', 'escalate')
+
+  const { data: opRunIds } = await supabase
+    .from('run_requests')
+    .select('id')
+    .eq('operation_id', op.id)
+  const runIds = ((opRunIds ?? []) as { id: string }[]).map((r) => r.id)
+
+  let humanTouchCount = 0
+  if (runIds.length > 0) {
+    const { count } = await supabase
+      .from('approval_queue')
+      .select('id', { count: 'exact', head: true })
+      .in('run_request_id', runIds)
+      .in('status', ['approved', 'rejected'])
+    humanTouchCount = count ?? 0
+  }
+
+  const totalDurationMin = Math.round((Date.now() - new Date(op.created_at).getTime()) / 60_000)
+
+  const { data: actEvents } = await supabase
+    .from('operation_events')
+    .select('payload')
+    .eq('operation_id', op.id)
+    .eq('kind', 'act')
+    .order('created_at')
+  const playbooksRun = ((actEvents ?? []) as { payload: Record<string, unknown> }[])
+    .map((e) => e.payload?.playbook as string | undefined)
+    .filter(Boolean) as string[]
+
+  return {
+    total_duration_min: totalDurationMin,
+    tick_count:         tickCount ?? 0,
+    human_touch_count:  humanTouchCount,
+    error_count:        errorCount ?? 0,
+    step_count:         op.step_count,
+    max_steps:          op.max_steps,
+    playbooks_run:      playbooksRun,
+    goal_text:          op.goal_text,
+    context_json:       op.context_json,
+    completed_at:       new Date().toISOString(),
+  }
 }
 
 // ── single operation tick ──────────────────────────────────────────────────────
 
-async function processOperation(
-  supabase: SupabaseClient,
-  op:       Operation,
-) {
+async function processOperation(supabase: SupabaseClient, op: Operation) {
   log('tick başlıyor', { id: op.id, step: op.step_count, max: op.max_steps })
 
-  // ── Optimistic claim: UPDATE WHERE last_tick_at = okunan değer ──────────────
-  // Supabase JS v2'de NULL ve değer için ayrı koşul gerekir.
+  // ── Optimistic claim ────────────────────────────────────────────────────────
   let claimQuery = supabase
     .from('operations')
     .update({ last_tick_at: new Date().toISOString() })
@@ -266,17 +313,10 @@ async function processOperation(
   }
 
   const claimResult = await claimQuery.select('id')
+  if (claimResult.error) { log('claim hatası', { id: op.id, error: claimResult.error.message }); return }
+  if ((claimResult.data ?? []).length === 0) { log('claim kaybedildi — başka tick aldı', { id: op.id }); return }
 
-  if (claimResult.error) {
-    log('claim hatası', { id: op.id, error: claimResult.error.message })
-    return
-  }
-  if ((claimResult.data ?? []).length === 0) {
-    log('claim kaybedildi — başka tick aldı', { id: op.id })
-    return
-  }
-
-  // ── max_steps kontrolü (SELECT filtresi DEĞİL — kod kontrol eder) ──────────
+  // ── max_steps kontrolü ──────────────────────────────────────────────────────
   if (op.step_count >= op.max_steps) {
     await logEvent(supabase, op.id, 'escalate', { reason: 'max_steps_exceeded', step_count: op.step_count, max_steps: op.max_steps })
     await escalateOp(supabase, op, `max_steps aşıldı (${op.step_count}/${op.max_steps})`)
@@ -287,7 +327,6 @@ async function processOperation(
   const obs = await observe(supabase, op)
   await logEvent(supabase, op.id, 'observe', obs as unknown as Record<string, unknown>)
 
-  // Ard arda 3 başarısız → DECIDE'dan önce escalate
   if (obs.consecutiveFails >= 3) {
     await logEvent(supabase, op.id, 'escalate', { reason: 'consecutive_failures', count: obs.consecutiveFails })
     await escalateOp(supabase, op, `Ard arda ${obs.consecutiveFails} başarısız çalıştırma`)
@@ -303,7 +342,6 @@ async function processOperation(
   })
 
   if (!decideResp) {
-    // Strict parse başarısız → güvenli eskalasyon
     await logEvent(supabase, op.id, 'escalate', { reason: 'decide_parse_failed' })
     await escalateOp(supabase, op, 'LLM karar yanıtı parse edilemedi')
     return
@@ -313,8 +351,20 @@ async function processOperation(
 
   // ── ACT ───────────────────────────────────────────────────────────────────
   if (action === 'continue' || action === 'retry') {
-    const playbook = next_playbook ?? obs.lastPlaybook ?? op.domain_pack
-    const topic    = next_topic    ?? op.goal_text
+    const playbook = next_playbook
+      ?? obs.lastPlaybook
+      ?? (op.context_json?.first_playbook as string | undefined)
+      ?? op.domain_pack
+
+    const topic = next_topic ?? op.goal_text
+
+    // Kargo fazı için stok tetik bilgisini run'a taşı (agent stock_replenish aracını besler)
+    const stockCtx = op.context_json
+      ? {
+          stock_trigger_product: op.context_json.stock_trigger_product,
+          reorder_quantity:      op.context_json.reorder_quantity,
+        }
+      : {}
 
     const { error: insErr } = await supabase.from('run_requests').insert({
       owner_user_id:   op.owner_user_id,
@@ -326,6 +376,7 @@ async function processOperation(
         persona:      op.persona,
         topic,
         operation_id: op.id,
+        ...stockCtx,
       },
       model:           op.model,
       risk:            op.risk,
@@ -334,10 +385,7 @@ async function processOperation(
       operation_id:    op.id,
     })
 
-    if (insErr) {
-      log('run_request insert hatası', { id: op.id, error: insErr.message })
-      return
-    }
+    if (insErr) { log('run_request insert hatası', { id: op.id, error: insErr.message }); return }
 
     await supabase
       .from('operations')
@@ -348,11 +396,9 @@ async function processOperation(
     log('run tetiklendi', { id: op.id, action, playbook })
 
   } else if (action === 'wait_approval') {
-    // 24 saatten eski onay kaydı varsa → escalate
     if (obs.oldestPendingAt) {
       const ageMs = Date.now() - new Date(obs.oldestPendingAt).getTime()
-      const TWENTY_FOUR_H = 24 * 60 * 60 * 1000
-      if (ageMs > TWENTY_FOUR_H) {
+      if (ageMs > 24 * 60 * 60 * 1000) {
         await logEvent(supabase, op.id, 'escalate', { reason: 'wait_approval_timeout', oldest_pending_at: obs.oldestPendingAt })
         await escalateOp(supabase, op, `Onay 24 saatten uzun süredir bekliyor (${obs.oldestPendingAt})`)
         return
@@ -367,6 +413,16 @@ async function processOperation(
       .update({ status: 'done', updated_at: new Date().toISOString() })
       .eq('id', op.id)
     await logEvent(supabase, op.id, 'act', { action, reason })
+
+    // KPI özeti: kpi_summary event (CHECK kısıtı migration'da genişletildi)
+    try {
+      const kpi = await computeKpiSummary(supabase, op)
+      await logEvent(supabase, op.id, 'kpi_summary', kpi as unknown as Record<string, unknown>)
+      log('KPI özeti kaydedildi', { id: op.id, total_duration_min: kpi.total_duration_min, tick_count: kpi.tick_count })
+    } catch (kpiErr) {
+      log('KPI hesaplama hatası', { id: op.id, error: (kpiErr as Error).message })
+    }
+
     log('operasyon tamamlandı', { id: op.id })
 
   } else if (action === 'escalate') {
@@ -380,21 +436,17 @@ async function processOperation(
 export async function tick() {
   const supabase = getSupabase()
 
-  // Aktif operasyonları seç. step_count < max_steps filtresi YOKTUR — kod kontrol eder.
-  // Sıralama: son tick en eskiden (NULLS FIRST) → cooldown uygulanan önce işlenmez.
   const { data: ops, error } = await supabase
     .from('operations')
-    .select('id, owner_user_id, goal_text, domain_pack, persona, model, risk, status, max_steps, step_count, cooldown_minutes, last_tick_at')
+    .select('id, owner_user_id, goal_text, domain_pack, persona, model, risk, status, max_steps, step_count, cooldown_minutes, last_tick_at, context_json, created_at')
     .eq('status', 'active')
     .order('last_tick_at', { ascending: true, nullsFirst: true })
     .limit(20)
 
   if (error) throw error
-
   log(`aktif operasyon: ${(ops ?? []).length}`)
 
   for (const op of (ops ?? []) as Operation[]) {
-    // Cooldown: son tick'ten bu yana yeterli süre geçti mi?
     if (op.last_tick_at) {
       const elapsedMin = (Date.now() - new Date(op.last_tick_at).getTime()) / 60_000
       if (elapsedMin < op.cooldown_minutes) {
@@ -402,7 +454,6 @@ export async function tick() {
         continue
       }
     }
-
     try {
       await processOperation(supabase, op)
     } catch (e) {

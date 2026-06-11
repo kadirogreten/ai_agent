@@ -59,6 +59,23 @@ public sealed class CargoTrackTool : ITool
         "Teslim edildi",
     };
 
+    // CARGO_DEMO_SCALE: gerçek dakika başına kaç "demo dakika" ilerleneceği.
+    // Varsayılan 1 (gerçek zamanlı: teslim 100 dk+).
+    // Duman testi için: CARGO_DEMO_SCALE=60 → 1 gerçek dk = 60 demo dk (teslim ~2 gerçek dk'da).
+    private static double DemoScale =>
+        double.TryParse(Environment.GetEnvironmentVariable("CARGO_DEMO_SCALE"), out var v) && v > 0 ? v : 1.0;
+
+    // Aşama eşikleri (demo dakika cinsinden)
+    private static readonly (int Threshold, int Stage)[] StageThresholds =
+    {
+        (100, 5), // 100+ dk → Teslim edildi
+        ( 70, 4), //  70+ dk → Dağıtıma çıktı
+        ( 45, 3), //  45+ dk → Transfer merkezinde
+        ( 25, 2), //  25+ dk → Kargoya verildi
+        ( 10, 1), //  10+ dk → Hazırlanıyor
+        (  0, 0), //   0+ dk → Sipariş alındı
+    };
+
     public Task<ToolResult> InvokeAsync(JsonElement args, RunContext ctx, CancellationToken ct)
     {
         if (args.ValueKind != JsonValueKind.Object ||
@@ -73,10 +90,11 @@ public sealed class CargoTrackTool : ITool
         var carrier  = args.TryGetProperty("carrier", out var cEl) && cEl.ValueKind == JsonValueKind.String
             ? cEl.GetString()!.Trim() : "Yurtiçi Kargo";
 
-        // Takip no'ya bağlı deterministik bir ilerleme aşaması (demo): 2..4 arası.
-        var seed       = Math.Abs(tracking.GetHashCode());
-        var stageIndex = 2 + seed % 3; // Kargoya verildi .. Dağıtıma çıktı
-        var now        = DateTimeOffset.UtcNow;
+        var now = DateTimeOffset.UtcNow;
+
+        // Tracking numarasındaki Unix saniyesini parse et (PurchaseOrderTool formatı: "...{hash}-{unixSec}").
+        // Parse başarısız → hash tabanlı fallback (eski format geriye uyumluluk).
+        var stageIndex = TryParseStageFromTracking(tracking, now);
 
         var history = new List<object>();
         for (var i = 0; i <= stageIndex; i++)
@@ -90,23 +108,49 @@ public sealed class CargoTrackTool : ITool
                     1 => "Satıcı deposu",
                     2 => "İstanbul Aktarma",
                     3 => "Ankara Transfer Merkezi",
-                    _ => "Alıcı şubesi",
+                    4 => "Alıcı şubesi",
+                    _ => "Alıcı adresi",
                 },
-                ts = now.AddHours(-(stageIndex - i) * 9).ToString("o"),
+                ts = now.AddMinutes(-(stageIndex - i) * 20).ToString("o"),
             });
         }
 
+        var delivered = stageIndex >= 5;
         var output = JsonSerializer.SerializeToElement(new
         {
             tracking_number    = tracking,
             carrier,
             status             = Stages[stageIndex],
+            delivered,
             last_update        = now.ToString("o"),
-            estimated_delivery = now.AddDays(stageIndex >= 4 ? 0 : 2).ToString("yyyy-MM-dd"),
+            estimated_delivery = now.AddDays(delivered ? 0 : 1).ToString("yyyy-MM-dd"),
             history,
         });
 
         return Task.FromResult(ToolResult.Success(Slug, output));
+    }
+
+    private static int TryParseStageFromTracking(string tracking, DateTimeOffset now)
+    {
+        // Format: "TR{yyMMdd}{hash6}-{unixSec}"
+        var dashIdx = tracking.LastIndexOf('-');
+        if (dashIdx >= 0 && dashIdx < tracking.Length - 1)
+        {
+            var suffix = tracking[(dashIdx + 1)..];
+            if (long.TryParse(suffix, out var unixSec))
+            {
+                var orderTime      = DateTimeOffset.FromUnixTimeSeconds(unixSec);
+                var elapsedRealMin = (now - orderTime).TotalMinutes;
+                var demoMin        = elapsedRealMin * DemoScale;
+
+                foreach (var (threshold, stage) in StageThresholds)
+                    if (demoMin >= threshold)
+                        return stage;
+            }
+        }
+
+        // Fallback: hash tabanlı (eski format, 2–4 arası)
+        return 2 + Math.Abs(tracking.GetHashCode()) % 3;
     }
 
     private static JsonElement Schema(string json)

@@ -46,6 +46,7 @@ public sealed class ToolExecutor : IToolExecutor
         new ProductSearchTool(),
         new PurchaseOrderTool(),
         new CargoTrackTool(),
+        new StockReplenishTool(),
     });
 
     /// <summary>Tüm kayıtlı araçları döner (CompensationExecutor için).</summary>

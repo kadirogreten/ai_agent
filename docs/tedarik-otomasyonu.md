@@ -58,5 +58,17 @@ Araç çağıran adımlar (1,2,6,7) **Operator** olmalı (yalnız `CanUseTools` 
 ## Bilinen sınırlar / sonraki adımlar
 - Verifier FAIL şu an bilgilendirici (satın almayı otomatik durdurmaz) — istenirse "FAIL → satın almayı blokla" eklenebilir.
 - Onayda tek öneri onaylanır; "alternatifler arasından seç" interaktif onay eklenebilir.
-- Stok teslimde değil sipariş anında yenilenir (demo tercihi).
+- Stok teslim anında yenilenir: `CargoTrackTool` "Teslim edildi" durumuyla döndüğünde `StockReplenishTool` (write/R1) `adjust_stock` çağırır. Sipariş anında stok artışı yapılmaz.
 - Bütçe sınırı / onay eşiği, e-posta/Slack bildirimi, sipariş idempotency'si eklenebilir.
+
+## PR6: Operations kapalı döngü
+
+`stockMonitorTick` artık `run_requests` değil `operations` tablosuna kayıt açar. Akış:
+
+1. `stockMonitorTick` → `operations` INSERT (context_json: ürün+adet+hedef)
+2. `operationLoopTick` Faz 1 → `tedarik-arastirma` playbook run_request
+3. Faz 2 → `tedarik-siparis` playbook (PO, R3 onay kuyruğu) → insan onayı
+4. Faz 3 → `tedarik-kargo` playbook (cargo_track → stock_replenish → özet)
+5. Operasyon `done` → `kpi_summary` event → `scripts/export-kpi.ts` ile KPI dosyasına export
+
+Demo hızlandırma: `CARGO_DEMO_SCALE=60` → 1 gerçek dakika = 60 demo dakika (teslim ~2 dk'da).
