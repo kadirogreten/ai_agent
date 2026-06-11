@@ -138,7 +138,7 @@ export default function OfficeGeometry({
         new THREE.PlaneGeometry(5.8, 3.4),
         new THREE.MeshBasicMaterial({ color: 0xbfdbfe })
       )
-      skyPane.position.set(wx, windowY, BACK_Z + 0.17)
+      skyPane.position.set(wx, windowY, BACK_Z + 0.25) // R4.2: çerçeve ön yüzü +0.24'te; cam ÖNDE olmalı (0.17'de kutu içinde gömülü kalıyordu)
       scene.add(skyPane)
 
       // Subtle window sill
@@ -172,7 +172,7 @@ export default function OfficeGeometry({
         mat(0xfff4e0, 0.4, 0.05, 0.8, 0xfff4e0)
       )
       shade.position.set(x, lampY - 0.14, z)
-      shade.rotation.x = Math.PI   // open end faces down
+      // R4.2: rotation gereksiz — ConeGeometry varsayılanı zaten tepe yukarı/ağız aşağı
       scene.add(shade)
 
       // PointLight — warm pool on desk
@@ -203,7 +203,7 @@ export default function OfficeGeometry({
         mat(0xfff4e0, 0.4, 0.05, 0.8, 0xfff4e0)
       )
       shade.position.set(px, opsLampY - 0.15, pz)
-      shade.rotation.x = Math.PI
+      // R4.2: rotation gereksiz — varsayılan yön doğru
       scene.add(shade)
 
       const pl = new THREE.PointLight(0xffedd5, 0.7, 5)
@@ -232,7 +232,8 @@ export default function OfficeGeometry({
       mat(0xfff4e0, 0.4, 0.05, 0.8, 0xfff4e0)
     )
     flShade.position.set(flX, 0.08 + poleH - 0.08, flZ)
-    flShade.rotation.x = Math.PI   // open end downward
+    // R4.2: rotation.x=π KALDIRILDI — ConeGeometry zaten tepe yukarı/ağız aşağı doğar;
+    // çevirmek abajuru ters huniye döndürüp üstten beyaz "yelken" gibi gösteriyordu.
     scene.add(flShade)
 
     const flLight = new THREE.PointLight(0xffedd5, 0.7, 7)
