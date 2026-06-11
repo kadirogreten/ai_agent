@@ -1,21 +1,16 @@
 import { useEffect } from 'react'
 import * as THREE from 'three'
+import { getAmphibDeskPositions } from '@/lib/office'
 
 interface OfficeAssetsProps {
   scene: THREE.Scene
 }
 
+const DESK_POSITIONS = getAmphibDeskPositions(5)
+
 export default function OfficeAssets({ scene }: OfficeAssetsProps) {
   useEffect(() => {
-    console.log('OfficeAssets: Creating detailed desk furniture...')
-
-    const deskPositions = [
-      { x: -12, z: 0 },
-      { x: -6, z: -10 },
-      { x: 0, z: -15 },
-      { x: 6, z: -10 },
-      { x: 12, z: 0 },
-    ]
+    const deskPositions = DESK_POSITIONS
 
     deskPositions.forEach((pos) => {
       createDetailedDesk(scene, pos.x, pos.z)

@@ -9,9 +9,19 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Bot, Activity, Users, Cpu, Zap, AlertCircle, CheckCircle2, Clock } from 'lucide-react'
 import * as THREE from 'three'
 
-type Agent   = { id: string; name: string | null; code: string | null; role: string | null }
-type Run     = { id: string; status: string; created_at: string }
-type Job     = { id: string; agent_id: string | null; status: string; created_at: string }
+type Agent     = { id: string; name: string | null; code: string | null; role: string | null }
+type Run       = { id: string; status: string; created_at: string }
+type Job       = { id: string; agent_id: string | null; status: string; created_at: string }
+type Operation = { id: string; goal_text: string; status: string; step_count: number; max_steps: number }
+
+async function fetchPendingApprovalCount(userId: string): Promise<number> {
+  const { data } = await supabase
+    .from('approval_queue')
+    .select('id')
+    .eq('owner_user_id', userId)
+    .eq('status', 'pending')
+  return (data ?? []).length
+}
 
 const ROLE_COLORS: Record<string, string> = {
   research:     '#3b82f6',
@@ -42,12 +52,14 @@ export default function OfficePage() {
   const user        = useAuthStore((s) => s.user)
   const initialized = useAuthStore((s) => s.initialized)
 
-  const [scene,    setScene]    = useState<THREE.Scene | null>(null)
-  const [agents,   setAgents]   = useState<Agent[]>([])
-  const [runs,     setRuns]     = useState<Run[]>([])
-  const [jobs,     setJobs]     = useState<Job[]>([])
-  const [err,      setErr]      = useState<string | null>(null)
-  const [panel,    setPanel]    = useState<'agents' | 'jobs'>('agents')
+  const [scene,              setScene]             = useState<THREE.Scene | null>(null)
+  const [agents,             setAgents]            = useState<Agent[]>([])
+  const [runs,               setRuns]              = useState<Run[]>([])
+  const [jobs,               setJobs]              = useState<Job[]>([])
+  const [operations,         setOperations]        = useState<Operation[]>([])
+  const [pendingApprovalCount, setPendingApprovalCount] = useState(0)
+  const [err,                setErr]               = useState<string | null>(null)
+  const [panel,              setPanel]             = useState<'agents' | 'jobs' | 'ops'>('agents')
 
   const { agents: officeAgents, moveAgentToCeoZone, returnAgentToDesk, updateAgentStatus } =
     useOfficeSimulation({ scene, dbAgents: agents })
@@ -76,12 +88,21 @@ export default function OfficePage() {
     const load = async () => {
       if (!initialized || !user) return
       try {
-        const [{ data: agentsData }, { data: runsData }] = await Promise.all([
+        const [{ data: agentsData }, { data: runsData }, { data: opsData }, pending] = await Promise.all([
           supabase.from('agents').select('id,name,code,role').limit(20),
           supabase.from('runs').select('id,status,created_at').order('created_at', { ascending: false }).limit(10),
+          supabase
+            .from('operations')
+            .select('id, goal_text, status, step_count, max_steps')
+            .in('status', ['active', 'escalated'])
+            .order('created_at', { ascending: false })
+            .limit(20),
+          fetchPendingApprovalCount(user.id),
         ])
         setAgents((agentsData ?? []) as Agent[])
         setRuns((runsData ?? []) as Run[])
+        setOperations((opsData ?? []) as Operation[])
+        setPendingApprovalCount(pending)
         setJobs(
           (runsData ?? []).map((r) => {
             const row = r as Record<string, unknown>
@@ -103,6 +124,14 @@ export default function OfficePage() {
   const activeJobs    = jobs.filter((j) => j.status === 'running').length
   const completedJobs = jobs.filter((j) => j.status === 'success' || j.status === 'completed').length
 
+  // Desk indices with running jobs (maps agent position in list → desk index)
+  const runningDeskIndices = agents
+    .map((a, idx) => ({ idx, running: jobs.some((j) => j.agent_id === a.id && j.status === 'running') }))
+    .filter((x) => x.running)
+    .map((x) => x.idx)
+
+  const hasEscalation = operations.some((o) => o.status === 'escalated')
+
   return (
     <div className="relative h-[calc(100vh-3rem)] overflow-hidden rounded-2xl">
 
@@ -111,7 +140,13 @@ export default function OfficePage() {
         <Office3DScene onSceneReady={setScene}>
           {scene && (
             <>
-              <OfficeGeometry scene={scene} />
+              <OfficeGeometry
+                scene={scene}
+                runningDeskIndices={runningDeskIndices}
+                pendingApprovalCount={pendingApprovalCount}
+                totalOps={operations.length}
+                hasEscalation={hasEscalation}
+              />
               <OfficeAssets scene={scene} />
             </>
           )}
@@ -150,10 +185,11 @@ export default function OfficePage() {
       {/* ── KPI bar overlay (bottom-left) ─────────────────────────── */}
       <div className="absolute bottom-5 left-5 flex gap-2">
         {[
-          { label: 'Agents', value: agents.length, icon: <Users size={12} />, color: 'blue' },
-          { label: 'Active', value: activeJobs,    icon: <Activity size={12} />, color: 'emerald' },
-          { label: 'Runs',   value: runs.length,   icon: <Cpu size={12} />, color: 'purple' },
-          { label: 'Done',   value: completedJobs, icon: <Zap size={12} />, color: 'cyan' },
+          { label: 'Agents',  value: agents.length,       icon: <Users size={12} />,    color: 'blue' },
+          { label: 'Active',  value: activeJobs,           icon: <Activity size={12} />, color: 'emerald' },
+          { label: 'Runs',    value: runs.length,          icon: <Cpu size={12} />,      color: 'purple' },
+          { label: 'Ops',     value: operations.length,    icon: <Zap size={12} />,      color: 'cyan' },
+          { label: 'Done',    value: completedJobs,        icon: <CheckCircle2 size={12} />, color: 'slate' },
         ].map((kpi) => (
           <motion.div
             key={kpi.label}
@@ -180,7 +216,7 @@ export default function OfficePage() {
       >
         {/* Panel toggle */}
         <div className="flex rounded-xl border border-white/[0.07] bg-black/60 p-1 backdrop-blur-md">
-          {(['agents', 'jobs'] as const).map((p) => (
+          {(['agents', 'jobs', 'ops'] as const).map((p) => (
             <button
               key={p}
               onClick={() => setPanel(p)}
@@ -190,7 +226,7 @@ export default function OfficePage() {
                   : 'text-white/40 hover:text-white/60'
               }`}
             >
-              {p === 'agents' ? 'Agents' : 'Runs'}
+              {p === 'agents' ? 'Agents' : p === 'jobs' ? 'Runs' : 'Ops'}
             </button>
           ))}
         </div>
@@ -226,7 +262,7 @@ export default function OfficePage() {
                     </motion.div>
                   ))}
                 </motion.div>
-              ) : (
+              ) : panel === 'jobs' ? (
                 <motion.div key="jobs" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-1">
                   {jobs.length === 0 ? (
                     <p className="py-8 text-center text-xs text-white/30">No runs yet</p>
@@ -245,6 +281,42 @@ export default function OfficePage() {
                       </div>
                     </motion.div>
                   ))}
+                </motion.div>
+              ) : (
+                <motion.div key="ops" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-1">
+                  {operations.length === 0 ? (
+                    <p className="py-8 text-center text-xs text-white/30">Aktif operasyon yok</p>
+                  ) : operations.map((op, i) => (
+                    <motion.div
+                      key={op.id}
+                      initial={{ opacity: 0, x: 10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: i * 0.04 }}
+                      className="flex items-start gap-2 rounded-lg px-2.5 py-2 transition-colors hover:bg-white/5"
+                    >
+                      <div className={`mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full ${
+                        op.status === 'escalated' ? 'bg-red-400' : 'bg-emerald-400'
+                      }`} />
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-[11px] font-medium text-white/80">{op.goal_text}</div>
+                        <div className="mt-0.5 flex items-center gap-1.5">
+                          <span className={`rounded px-1 py-0.5 text-[9px] font-medium ${
+                            op.status === 'escalated'
+                              ? 'bg-red-500/20 text-red-300'
+                              : 'bg-emerald-500/15 text-emerald-400'
+                          }`}>
+                            {op.status === 'escalated' ? 'Eskalasyon' : 'Aktif'}
+                          </span>
+                          <span className="text-[9px] text-white/30">{op.step_count}/{op.max_steps}</span>
+                        </div>
+                      </div>
+                    </motion.div>
+                  ))}
+                  {pendingApprovalCount > 0 && (
+                    <div className="mt-1 flex items-center gap-2 rounded-lg border border-amber-500/20 bg-amber-500/10 px-2.5 py-2">
+                      <span className="text-[10px] text-amber-300">⏳ {pendingApprovalCount} onay bekliyor</span>
+                    </div>
+                  )}
                 </motion.div>
               )}
             </AnimatePresence>

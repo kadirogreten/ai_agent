@@ -14,8 +14,8 @@ interface UseOfficeCameraProps {
 
 export function useOfficeCamera({ camera, renderer }: UseOfficeCameraProps) {
   const cameraStateRef = useRef<CameraState>({
-    position: { x: 15, y: 7, z: 25 },
-    target: { x: 0, y: 2, z: 0 },
+    position: { x: 0, y: 16, z: 26 },
+    target: { x: 0, y: 0, z: 2 },
     zoom: 1,
   })
 
@@ -46,8 +46,8 @@ export function useOfficeCamera({ camera, renderer }: UseOfficeCameraProps) {
       state.position.x = state.target.x + distance * Math.cos(angle)
       state.position.z = state.target.z + distance * Math.sin(angle)
 
-      // Vertical camera movement
-      state.position.y = Math.max(2, Math.min(20, state.position.y + deltaY * 0.02))
+      // Vertical camera movement (clamp y 5..25)
+      state.position.y = Math.max(5, Math.min(25, state.position.y + deltaY * 0.02))
 
       camera.position.set(state.position.x, state.position.y, state.position.z)
       camera.lookAt(state.target.x, state.target.y, state.target.z)
@@ -119,9 +119,8 @@ export function useOfficeCamera({ camera, renderer }: UseOfficeCameraProps) {
           break
         case 'r':
         case 'R':
-          // Reset camera
-          state.position = { x: 15, y: 7, z: 25 }
-          state.target = { x: 0, y: 2, z: 0 }
+          state.position = { x: 0, y: 16, z: 26 }
+          state.target = { x: 0, y: 0, z: 2 }
           state.zoom = 1
           break
         default:

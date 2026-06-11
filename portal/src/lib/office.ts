@@ -20,23 +20,35 @@ export const ROLE_LABELS: Record<string, string> = {
   default: 'Agent',
 }
 
-// Calculate grid positions for agents
+// Amphitheater desk positions — radius 10, 200°→340° arc facing +Z camera
+export function getAmphibDeskPositions(count: number): { x: number; z: number }[] {
+  if (count < 2) return [{ x: 0, z: 0 }]
+  const radius = 10
+  const startRad = (200 * Math.PI) / 180
+  const sweepRad = (140 * Math.PI) / 180
+  return Array.from({ length: count }, (_, i) => {
+    const angle = startRad + i * (sweepRad / (count - 1))
+    return { x: Math.cos(angle) * radius, z: Math.sin(angle) * radius }
+  })
+}
+
+// Calculate amphitheater positions for agent avatars (y=2 = standing height)
 export function calculateAgentPositions(agentCount: number): THREE.Vector3[] {
-  const positions: THREE.Vector3[] = []
-  const deskPositions = [
-    { x: -12, z: 0 },
-    { x: -6, z: -10 },
-    { x: 0, z: -15 },
-    { x: 6, z: -10 },
-    { x: 12, z: 0 },
-  ]
+  if (agentCount < 1) return []
+  if (agentCount === 1) return [new THREE.Vector3(0, 2, 0)]
+  return getAmphibDeskPositions(agentCount).map(({ x, z }) => new THREE.Vector3(x, 2, z))
+}
 
-  for (let i = 0; i < agentCount; i++) {
-    const desk = deskPositions[i % deskPositions.length]
-    positions.push(new THREE.Vector3(desk.x, 2, desk.z))
-  }
+// Ring color for agent desk based on job status
+export function getAgentRingColor(status: string): number {
+  if (status === 'running') return 0x3b82f6
+  if (status === 'pending') return 0xf59e0b
+  return 0x475569
+}
 
-  return positions
+// Center ops table ring color
+export function getOpsTableColor(hasEscalation: boolean): number {
+  return hasEscalation ? 0xef4444 : 0x6366f1
 }
 
 // Map run status to color

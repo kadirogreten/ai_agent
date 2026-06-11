@@ -24,14 +24,14 @@ export default function Office3DScene({ onSceneReady, children }: Office3DSceneP
 
     // ── Scene ──────────────────────────────────────────────────────────
     const scene = new THREE.Scene()
-    scene.background = new THREE.Color(0x04080f)   // deep navy-black
-    scene.fog = new THREE.FogExp2(0x04080f, 0.018) // atmospheric depth fog
+    scene.background = new THREE.Color(0x0f172a)   // slate-900
+    scene.fog = new THREE.FogExp2(0x0f172a, 0.015) // softer atmospheric fog
     sceneRef.current = scene
 
     // ── Camera ─────────────────────────────────────────────────────────
     const camera = new THREE.PerspectiveCamera(65, w / h, 0.1, 200)
-    camera.position.set(14, 9, 22)
-    camera.lookAt(0, 1, 0)
+    camera.position.set(0, 16, 26)
+    camera.lookAt(0, 0, 2)
     cameraRef.current = camera
 
     // ── Renderer ───────────────────────────────────────────────────────
@@ -46,34 +46,29 @@ export default function Office3DScene({ onSceneReady, children }: Office3DSceneP
     rendererRef.current = renderer
 
     // ── Lighting ───────────────────────────────────────────────────────
-    // Very dim ambient — this is a moody, dramatic scene
-    scene.add(new THREE.AmbientLight(0x0a1530, 0.6))
+    // Soft hemisphere — slate sky / dark ground, matches app palette
+    scene.add(new THREE.HemisphereLight(0x94a3b8, 0x1e293b, 0.7))
 
-    // Primary overhead — cool blue-white
-    const keyLight = new THREE.DirectionalLight(0x8ab4f8, 0.8)
+    // Primary directional (soft shadows)
+    const keyLight = new THREE.DirectionalLight(0xcbd5e1, 0.6)
     keyLight.position.set(5, 20, 10)
     keyLight.castShadow = true
-    keyLight.shadow.mapSize.set(2048, 2048)
+    keyLight.shadow.mapSize.set(1024, 1024)
     keyLight.shadow.camera.far = 80
     keyLight.shadow.camera.left = keyLight.shadow.camera.bottom = -30
     keyLight.shadow.camera.right = keyLight.shadow.camera.top = 30
     keyLight.shadow.bias = -0.0003
     scene.add(keyLight)
 
-    // Blue accent — left side
-    const blueLight = new THREE.PointLight(0x3b82f6, 2.5, 35)
+    // Pastel sky-blue accent — left
+    const blueLight = new THREE.PointLight(0x7dd3fc, 1.2, 35)
     blueLight.position.set(-18, 6, 0)
     scene.add(blueLight)
 
-    // Purple accent — right side
-    const purpleLight = new THREE.PointLight(0x8b5cf6, 1.5, 30)
+    // Pastel indigo accent — right
+    const purpleLight = new THREE.PointLight(0xa5b4fc, 0.8, 30)
     purpleLight.position.set(18, 4, -8)
     scene.add(purpleLight)
-
-    // Cyan ground fill
-    const cyanFill = new THREE.PointLight(0x06b6d4, 0.8, 40)
-    cyanFill.position.set(0, 0.5, 8)
-    scene.add(cyanFill)
 
     if (onSceneReady) onSceneReady(scene, camera, renderer)
 
@@ -82,10 +77,9 @@ export default function Office3DScene({ onSceneReady, children }: Office3DSceneP
       animIdRef.current = requestAnimationFrame(animate)
       const t = clockRef.current.getElapsedTime()
 
-      // Subtle pulsing on accent lights
-      blueLight.intensity   = 2.5 + Math.sin(t * 0.7) * 0.4
-      purpleLight.intensity = 1.5 + Math.sin(t * 0.5 + 1) * 0.3
-      cyanFill.intensity    = 0.8 + Math.sin(t * 1.1) * 0.2
+      // Very gentle pulse on accent lights
+      blueLight.intensity   = 1.2 + Math.sin(t * 0.5) * 0.15
+      purpleLight.intensity = 0.8 + Math.sin(t * 0.4 + 1) * 0.1
 
       renderer.render(scene, camera)
     }

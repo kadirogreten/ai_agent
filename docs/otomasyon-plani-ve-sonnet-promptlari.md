@@ -917,6 +917,56 @@ delegation_rule_id'li kayıt düşüyor; scope dışı (tutar üstü) PO normal 
 compensate sonrası kural askıya alınıyor.
 ```
 
+### Ara PR — 3D Ofis yenileme (UI, seriden bağımsız)
+
+```
+Repo: ai_agent. Bağlam: portal/src/pages/OfficePage.tsx (263), portal/src/components/
+Office3DScene.tsx (121), portal/src/components/office/OfficeAssets.tsx (568) +
+OfficeGeometry.tsx (327), portal/src/lib/office.ts (156), portal/src/hooks/useOfficeCamera.ts.
+Mevcut sorun (canlı incelemeden): kamera alçak/uzak — ekranın yarısı boş; ambient çok
+karanlık; masalar köşelere dağınık, merkez podyum veri taşımıyor; palet (saf siyah + neon)
+uygulamanın slate-900 + yumuşak mavi dilinden kopuk; sahne uygulama verisini anlatmıyor.
+
+Görev: 3D ofisi "süs"ten "canlı operasyon merkezi"ne çevir. Mevcut bileşen yapısını koru
+(Office3DScene/OfficeAssets/OfficeGeometry/lib), içini yeniden tasarla.
+
+1. KOMPOZİSYON — amfi düzeni:
+   a. Merkez: dairesel "Operasyon Masası" (alçak holo-masa). Üstünde dönen holografik
+      halka; aktif operasyon sayısı kadar yörünge parçacığı. operations status=active
+      verisine bağlı (supabase'ten OfficePage zaten agents/runs çekiyor; operations
+      sorgusu eklenir).
+   b. Etraf: YARIM ÇEMBER (amfi) düzeninde rol masaları — AgentsCatalog rolleri
+      (Researcher/Analyst/Writer/Editor/Verifier/Operator/Contrarian/CEO...). Pozisyonlar
+      calculateAgentPositions'ta sabit liste yerine yarıçap+açıyla üretilir (ajan sayısına
+      uyarlanır). Her masada mevcut detaylı masa seti kalır (OfficeAssets iyi), monitör
+      ekran emissive rengi ROLE_COLORS'tan.
+   c. Boş köşelere mevcut bitki/dolap asset'lerinden 2-3 set — doluluk hissi.
+2. DURUM GÖRSELLEŞTİRME (uygulamayla uyum — asıl amaç):
+   a. Koşan job'ın ajan masası: monitör parlar + masa üstünde yavaş dönen renkli halka
+      (jobs status=running, agent eşlemesi OfficePage'de var).
+   b. Bekleyen onay: Operator masası üstünde sarı pulse'lı ünlem rozeti (approval_queue
+      pending count > 0).
+   c. Aktif run'da merkez masadan ilgili ajan masasına parçacık akışı
+      (lib/office.ts getDataFlowPaths zaten var — bağla).
+   d. Eskalasyonlu operasyon varsa merkez halka kırmızıya döner.
+3. IŞIK + PALET (uygulama dili):
+   a. scene.background 0x0f172a (slate-900, AppShell ile aynı); fog yoğunluğu yarıya.
+   b. HemisphereLight(0x94a3b8 gök, 0x1e293b zemin, 0.7) + mevcut key light 1.0'a;
+      nokta ışıklar pastel (emissive intensity 0.4-0.6 aralığı, neon yok).
+   c. Zemin: grid yerine mat slate platform + ince çizgi deseni (GridHelper opacity 0.15).
+4. KAMERA: position (0, 16, 26) → lookAt(0, 0, 2) — amfi tam kadrajda; useOfficeCamera'da
+   OrbitControls sınırları: minDistance 12, maxDistance 45, maxPolarAngle 75°, pan kapalı.
+5. PERFORMANS: shadow.mapSize 1024, renderer.setPixelRatio(Math.min(devicePixelRatio, 2)),
+   parçacık sayıları <= 200; requestAnimationFrame döngüsünde delta-time kullan.
+6. Sağ panel + alt KPI barı + LIVE rozeti korunur; panel'e "Operasyonlar" sekmesi eklenir
+   (status rozetli mini liste, OperationsPage'e link).
+
+Önce kısa plan, onaydan sonra kod. Bitti kriteri: npm run build temiz; sahnede amfi düzeni
++ merkez operasyon masası; koşan job'da masa halkası + parçacık akışı görünür (canlı
+doğrulama: bir run tetiklenip sahnede izlenir); arka plan slate-900, neon yok; 60fps
+(Chrome devtools performance kabaca).
+```
+
 ### Dördüncü seri sonrası: sektör bağımsızlığının tanımı
 
 Dört PR bittiğinde "yeni sektöre girmek" şu hale gelir: bir operasyon hedefi yaz ("X sektörüne gir") → sistem sektörü araştırır, paketi sentezler, eksik araçları MCP registry'den önerir, kendi üstünde test eder, onayına getirir; sen merge edersin → ilk gerçek işler koşar, playbook'lar kullandıkça kendini eler/terfi eder, onay yükün delegasyon teklifleriyle zamanla düşer. El yapımı hiçbir katman kalmaz; insan rolü üretim değil **yönetim** olur. Piramit diliyle: S3'ün "genişlik" ekseni de otomatikleşmiş olur — S4 beklenirken sistem yatayda kendi kendine büyür.

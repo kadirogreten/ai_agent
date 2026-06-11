@@ -1,13 +1,15 @@
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 import * as THREE from 'three'
+import { getAmphibDeskPositions, getOpsTableColor } from '@/lib/office'
 
 interface OfficeGeometryProps {
   scene: THREE.Scene
+  runningDeskIndices?: number[]
+  pendingApprovalCount?: number
+  totalOps?: number
+  hasEscalation?: boolean
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Material helpers
-// ─────────────────────────────────────────────────────────────────────────────
 function mat(color: number, rough = 0.6, metal = 0, emit = 0, emitColor?: number) {
   return new THREE.MeshStandardMaterial({
     color,
@@ -18,45 +20,50 @@ function mat(color: number, rough = 0.6, metal = 0, emit = 0, emitColor?: number
   })
 }
 
-export default function OfficeGeometry({ scene }: OfficeGeometryProps) {
-  useEffect(() => {
+// Fixed 5-desk amphitheater layout
+const DESK_COUNT = 5
+const AMFI_POSITIONS = getAmphibDeskPositions(DESK_COUNT)
 
-    // ── Floor — dark polished concrete with glowing grid ───────────────
+export default function OfficeGeometry({
+  scene,
+  runningDeskIndices = [],
+  pendingApprovalCount = 0,
+  totalOps = 0,
+  hasEscalation = false,
+}: OfficeGeometryProps) {
+
+  // ── Static geometry (floor, walls, desks, ops table) ───────────────────────
+  useEffect(() => {
+    // Floor — slate-tinted concrete
     const floor = new THREE.Mesh(
       new THREE.PlaneGeometry(50, 50),
-      mat(0x050a14, 0.3, 0.4)
+      mat(0x0d1424, 0.4, 0.3)
     )
     floor.rotation.x = -Math.PI / 2
     floor.receiveShadow = true
     scene.add(floor)
 
-    // Neon grid lines on floor
-    const gridHelper = new THREE.GridHelper(50, 25, 0x1a3a6e, 0x0d2040)
+    // Soft grid — matches slate palette
+    const gridHelper = new THREE.GridHelper(50, 25, 0x1e293b, 0x1e293b)
     gridHelper.position.y = 0.012
     scene.add(gridHelper)
 
-    // Bright crosshair grid layer (narrower, more visible)
-    const gridBright = new THREE.GridHelper(50, 10, 0x1e4080, 0x0f2050)
-    gridBright.position.y = 0.015
-    scene.add(gridBright)
-
-    // ── Ceiling ────────────────────────────────────────────────────────
+    // Ceiling
     const ceiling = new THREE.Mesh(
       new THREE.PlaneGeometry(50, 50),
-      mat(0x030609, 0.9, 0)
+      mat(0x0a1020, 0.9, 0)
     )
     ceiling.rotation.x = Math.PI / 2
     ceiling.position.y = 10
     scene.add(ceiling)
 
-    // ── Walls ──────────────────────────────────────────────────────────
-    const wallMat = mat(0x060d1a, 0.85, 0.05)
-
-    const walls = [
-      { size: [50, 10, 0.3] as [number,number,number], pos: [0, 5, -25] as [number,number,number] },
-      { size: [50, 10, 0.3] as [number,number,number], pos: [0, 5, 25]  as [number,number,number] },
-      { size: [0.3, 10, 50] as [number,number,number], pos: [25, 5, 0]  as [number,number,number] },
-      { size: [0.3, 10, 50] as [number,number,number], pos: [-25, 5, 0] as [number,number,number] },
+    // Walls
+    const wallMat = mat(0x0f1e35, 0.85, 0.05)
+    const walls: { size: [number,number,number]; pos: [number,number,number] }[] = [
+      { size: [50, 10, 0.3], pos: [0, 5, -25] },
+      { size: [50, 10, 0.3], pos: [0, 5, 25]  },
+      { size: [0.3, 10, 50], pos: [25, 5, 0]  },
+      { size: [0.3, 10, 50], pos: [-25, 5, 0] },
     ]
     walls.forEach(({ size, pos }) => {
       const w = new THREE.Mesh(new THREE.BoxGeometry(...size), wallMat)
@@ -65,13 +72,13 @@ export default function OfficeGeometry({ scene }: OfficeGeometryProps) {
       scene.add(w)
     })
 
-    // Glowing baseboard strips (blue LED)
-    const baseboardMat = mat(0x1d4ed8, 0.4, 0.2, 0.8, 0x3b82f6)
-    const baseboards = [
-      { size: [50, 0.08, 0.06] as [number,number,number], pos: [0, 0.04, -24.85] as [number,number,number] },
-      { size: [50, 0.08, 0.06] as [number,number,number], pos: [0, 0.04, 24.85]  as [number,number,number] },
-      { size: [0.06, 0.08, 50] as [number,number,number], pos: [24.85, 0.04, 0]  as [number,number,number] },
-      { size: [0.06, 0.08, 50] as [number,number,number], pos: [-24.85, 0.04, 0] as [number,number,number] },
+    // Subtle baseboard strips (slate blue, no neon)
+    const baseboardMat = mat(0x334155, 0.5, 0.2, 0.2, 0x475569)
+    const baseboards: { size: [number,number,number]; pos: [number,number,number] }[] = [
+      { size: [50, 0.06, 0.06], pos: [0, 0.03, -24.85] },
+      { size: [50, 0.06, 0.06], pos: [0, 0.03, 24.85]  },
+      { size: [0.06, 0.06, 50], pos: [24.85, 0.03, 0]  },
+      { size: [0.06, 0.06, 50], pos: [-24.85, 0.03, 0] },
     ]
     baseboards.forEach(({ size, pos }) => {
       const b = new THREE.Mesh(new THREE.BoxGeometry(...size), baseboardMat)
@@ -79,56 +86,51 @@ export default function OfficeGeometry({ scene }: OfficeGeometryProps) {
       scene.add(b)
     })
 
-    // ── Ceiling lights (LED panel strips) ─────────────────────────────
-    const ledMat = mat(0xdbeafe, 0.2, 0.1, 1.2, 0xbfdbfe)
+    // Ceiling LED panels — warm neutral (not blue neon)
+    const ledMat = mat(0xe2e8f0, 0.3, 0.1, 0.8, 0xf1f5f9)
     const ceilLightPositions = [
       [-8, -8], [-8, 0], [-8, 8],
       [0, -8],  [0, 0],  [0, 8],
       [8, -8],  [8, 0],  [8, 8],
     ]
     ceilLightPositions.forEach(([x, z]) => {
-      // LED strip panel
       const panel = new THREE.Mesh(new THREE.BoxGeometry(3, 0.04, 0.4), ledMat)
       panel.position.set(x, 9.97, z)
       scene.add(panel)
 
-      // Actual point light
-      const pl = new THREE.PointLight(0xdbeafe, 0.6, 18)
+      const pl = new THREE.PointLight(0xe2e8f0, 0.5, 16)
       pl.position.set(x, 9.8, z)
       scene.add(pl)
     })
 
-    // ── Desks ──────────────────────────────────────────────────────────
-    const deskPositions = [
-      new THREE.Vector3(-12, 0.05, 0),
-      new THREE.Vector3(-6,  0.05, -10),
-      new THREE.Vector3(0,   0.05, -15),
-      new THREE.Vector3(6,   0.05, -10),
-      new THREE.Vector3(12,  0.05, 0),
-    ]
-    const deskSurfMat   = mat(0x0f1e35, 0.2, 0.6)        // dark steel-glass
-    const deskFrameMat  = mat(0x1a2a40, 0.15, 0.85)       // polished dark metal
-    const monitorMat    = mat(0x060c18, 0.3, 0.5)
-    const screenColors  = [0x1d4ed8, 0x7c3aed, 0x0891b2, 0x059669, 0xd97706]
+    // ── Amphitheater desks ─────────────────────────────────────────────
+    const deskSurfMat  = mat(0x1e293b, 0.25, 0.5)
+    const deskFrameMat = mat(0x334155, 0.2, 0.8)
+    const monitorMat   = mat(0x0f172a, 0.3, 0.5)
+    const screenColors = [0x3b82f6, 0x8b5cf6, 0x06b6d4, 0x10b981, 0xf59e0b]
 
-    deskPositions.forEach((pos, idx) => {
-      const x = pos.x, z = pos.z
+    AMFI_POSITIONS.forEach((pos, idx) => {
+      const { x, z } = pos
 
-      // Desk surface — wide, low, sleek
-      const surface = new THREE.Mesh(new THREE.BoxGeometry(3.8, 0.06, 2.0), deskSurfMat)
+      // Desk surface
+      const surface = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.06, 1.8), deskSurfMat)
       surface.position.set(x, 0.8, z)
       surface.castShadow = true
       surface.receiveShadow = true
       scene.add(surface)
 
-      // Blue edge glow strip on desk front
-      const edgeMat = mat(0x3b82f6, 0.3, 0.2, 1.5, 0x60a5fa)
-      const edge = new THREE.Mesh(new THREE.BoxGeometry(3.8, 0.04, 0.04), edgeMat)
-      edge.position.set(x, 0.8, z + 1.02)
+      // Subtle edge strip — slate (not neon)
+      const edgeMat = mat(0x7dd3fc, 0.4, 0.2, 0.4, 0x93c5fd)
+      const edge = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.03, 0.03), edgeMat)
+      // Orient edge toward camera (positive Z direction from desk center)
+      const angleToCenter = Math.atan2(-z, -x) // direction from desk to origin
+      const edgeX = x + Math.cos(angleToCenter) * 0.9
+      const edgeZ = z + Math.sin(angleToCenter) * 0.9
+      edge.position.set(edgeX, 0.82, edgeZ)
       scene.add(edge)
 
-      // Desk legs — thin, angular
-      const legOffsets = [[-1.7, -0.9], [1.7, -0.9], [-1.7, 0.9], [1.7, 0.9]]
+      // Legs
+      const legOffsets: [number, number][] = [[-1.4, -0.8], [1.4, -0.8], [-1.4, 0.8], [1.4, 0.8]]
       legOffsets.forEach(([lx, lz]) => {
         const leg = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.8, 0.06), deskFrameMat)
         leg.position.set(x + lx, 0.4, z + lz)
@@ -136,157 +138,98 @@ export default function OfficeGeometry({ scene }: OfficeGeometryProps) {
         scene.add(leg)
       })
 
-      // Monitor — dual screen setup
-      for (let m = 0; m < 2; m++) {
-        const mx = x + (m === 0 ? -0.7 : 0.7)
-        // Screen body
-        const monitor = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.65, 0.04), monitorMat)
-        monitor.position.set(mx, 1.5, z - 0.4)
-        monitor.castShadow = true
-        scene.add(monitor)
+      // Monitor
+      const screenColor = screenColors[idx]
+      const monitor = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.75, 0.04), monitorMat)
+      monitor.position.set(x, 1.55, z - 0.3)
+      monitor.castShadow = true
+      scene.add(monitor)
 
-        // Screen glow — emissive display
-        const screenColor = screenColors[idx]
-        const screenMat = mat(screenColor, 0.1, 0, 0.9, screenColor)
-        const screen = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.58, 0.01), screenMat)
-        screen.position.set(mx, 1.5, z - 0.375)
-        scene.add(screen)
+      const screenMat = mat(screenColor, 0.1, 0, 0.7, screenColor)
+      const screen = new THREE.Mesh(new THREE.BoxGeometry(1.12, 0.68, 0.01), screenMat)
+      screen.position.set(x, 1.55, z - 0.278)
+      scene.add(screen)
 
-        // Monitor stand
-        const stand = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.35, 0.06), deskFrameMat)
-        stand.position.set(mx, 1.12, z - 0.35)
-        scene.add(stand)
+      const stand = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.3, 0.05), deskFrameMat)
+      stand.position.set(x, 1.1, z - 0.25)
+      scene.add(stand)
 
-        // Screen point light
-        const screenLight = new THREE.PointLight(screenColor, 0.8, 5)
-        screenLight.position.set(mx, 1.5, z - 0.2)
-        scene.add(screenLight)
-      }
+      const screenLight = new THREE.PointLight(screenColor, 0.5, 4)
+      screenLight.position.set(x, 1.55, z - 0.1)
+      scene.add(screenLight)
 
-      // Keyboard — flat dark slab
-      const kbMat = mat(0x0d1a2e, 0.4, 0.3)
-      const kb = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.02, 0.45), kbMat)
-      kb.position.set(x, 0.84, z + 0.3)
-      scene.add(kb)
-
-      // Overhead desk spot
-      const deskSpot = new THREE.SpotLight(0x93c5fd, 1.2, 10, Math.PI / 6, 0.4)
+      // Desk spot — soft
+      const deskSpot = new THREE.SpotLight(0xbae6fd, 0.8, 8, Math.PI / 6, 0.5)
       deskSpot.position.set(x, 4, z)
       deskSpot.target.position.set(x, 0, z)
       scene.add(deskSpot)
       scene.add(deskSpot.target)
     })
 
-    // ── CEO / Collaboration Zone (center) ──────────────────────────────
-    // Glowing floor disc
-    const ceoFloor = new THREE.Mesh(
-      new THREE.CylinderGeometry(6.5, 6.5, 0.06, 64),
-      mat(0x0c1f3f, 0.2, 0.6, 0.3, 0x1d4ed8)
+    // ── Center Operations Table ────────────────────────────────────────
+    // Solid cylinder — slate mat
+    const opsTable = new THREE.Mesh(
+      new THREE.CylinderGeometry(3.5, 3.5, 0.4, 32),
+      mat(0x1e293b, 0.2, 0.6)
     )
-    ceoFloor.position.set(0, 0.03, 5)
-    ceoFloor.receiveShadow = true
-    scene.add(ceoFloor)
+    opsTable.position.set(0, 0.2, 0)
+    opsTable.castShadow = true
+    opsTable.receiveShadow = true
+    scene.add(opsTable)
 
-    // Outer glowing ring
-    const ring = new THREE.Mesh(
-      new THREE.TorusGeometry(6.8, 0.12, 16, 128),
-      mat(0x3b82f6, 0.2, 0.3, 2.0, 0x60a5fa)
+    // Table edge ring
+    const tableEdge = new THREE.Mesh(
+      new THREE.TorusGeometry(3.5, 0.04, 8, 64),
+      mat(0x7dd3fc, 0.2, 0.3, 0.6, 0x93c5fd)
     )
-    ring.position.set(0, 0.08, 5)
-    ring.rotation.x = Math.PI / 2
-    scene.add(ring)
+    tableEdge.rotation.x = Math.PI / 2
+    tableEdge.position.set(0, 0.41, 0)
+    scene.add(tableEdge)
 
-    // Inner ring (dimmer)
-    const ring2 = new THREE.Mesh(
-      new THREE.TorusGeometry(4.5, 0.06, 16, 128),
-      mat(0x1d4ed8, 0.2, 0.3, 1.2, 0x3b82f6)
-    )
-    ring2.position.set(0, 0.06, 5)
-    ring2.rotation.x = Math.PI / 2
-    scene.add(ring2)
-
-    // Central holographic projection pillar
+    // Holographic pillar above table
     const pillar = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.12, 0.12, 2.5, 16),
-      mat(0x1e40af, 0.1, 0.8, 1.5, 0x3b82f6)
+      new THREE.CylinderGeometry(0.08, 0.08, 2.0, 12),
+      mat(0x6366f1, 0.1, 0.6, 0.8, 0x818cf8)
     )
-    pillar.position.set(0, 1.25, 5)
+    pillar.position.set(0, 1.4, 0)
     scene.add(pillar)
 
-    // CEO zone strong blue uplight
-    const ceoLight = new THREE.PointLight(0x2563eb, 3.0, 16)
-    ceoLight.position.set(0, 1.5, 5)
-    scene.add(ceoLight)
+    // Center uplight
+    const centerLight = new THREE.PointLight(0x6366f1, 1.5, 12)
+    centerLight.position.set(0, 2, 0)
+    scene.add(centerLight)
 
-    // Circular seating (abstract chairs)
-    for (let i = 0; i < 6; i++) {
-      const angle = (i / 6) * Math.PI * 2
-      const r = 5
-      const cx = Math.cos(angle) * r
-      const cz = Math.sin(angle) * r + 5
-
-      const chairMat = mat(0x0f2040, 0.3, 0.5)
-      const chair = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 0.12, 16), chairMat)
-      chair.position.set(cx, 0.45, cz)
-      scene.add(chair)
-
-      const back = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.6, 0.06), chairMat)
-      back.position.set(cx, 0.8, cz + 0.3)
-      scene.add(back)
-    }
-
-    // ── Conference table ───────────────────────────────────────────────
-    const tableMat = mat(0x0a1428, 0.15, 0.7)
-    const table = new THREE.Mesh(new THREE.CylinderGeometry(2.8, 2.8, 0.08, 48), tableMat)
-    table.position.set(0, 0.5, 5)
-    table.castShadow = true
-    table.receiveShadow = true
-    scene.add(table)
-
-    // Table edge glow
-    const tableRing = new THREE.Mesh(
-      new THREE.TorusGeometry(2.8, 0.03, 8, 64),
-      mat(0x1d4ed8, 0.2, 0.3, 1.8, 0x60a5fa)
-    )
-    tableRing.rotation.x = Math.PI / 2
-    tableRing.position.set(0, 0.55, 5)
-    scene.add(tableRing)
-
-    // ── Decorative server racks (right wall) ──────────────────────────
-    const rackMat  = mat(0x08111e, 0.2, 0.7)
-    const rackLed  = mat(0x22c55e, 0.1, 0, 2.0, 0x4ade80)
-    const rackLed2 = mat(0xf59e0b, 0.1, 0, 1.8, 0xfbbf24)
+    // ── Server racks (right wall) — slate tones ────────────────────────
+    const rackMat = mat(0x1e293b, 0.3, 0.6)
+    const ledGreen = mat(0x86efac, 0.1, 0, 1.5, 0x4ade80)
+    const ledAmber = mat(0xfcd34d, 0.1, 0, 1.2, 0xfbbf24)
 
     for (let r = 0; r < 3; r++) {
-      const rx = 24
       const rz = -12 + r * 6
-
       const rack = new THREE.Mesh(new THREE.BoxGeometry(0.8, 5, 2.0), rackMat)
-      rack.position.set(rx, 2.5, rz)
+      rack.position.set(24, 2.5, rz)
       rack.castShadow = true
       scene.add(rack)
 
-      // LED status rows
       for (let l = 0; l < 8; l++) {
-        const led = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.05, 0.04), l % 3 === 0 ? rackLed2 : rackLed)
-        led.position.set(rx - 0.4, 0.8 + l * 0.5, rz)
+        const led = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.04, 0.04), l % 3 === 0 ? ledAmber : ledGreen)
+        led.position.set(23.6, 0.8 + l * 0.5, rz)
         scene.add(led)
       }
 
-      // Rack light
-      const rl = new THREE.PointLight(0x22c55e, 0.5, 6)
-      rl.position.set(rx - 0.6, 2.5, rz)
+      const rl = new THREE.PointLight(0x4ade80, 0.4, 5)
+      rl.position.set(23.4, 2.5, rz)
       scene.add(rl)
     }
 
-    // ── Windows (left wall) with glowing exterior ──────────────────────
-    const glassMat = mat(0x1e3a5f, 0.05, 0.1, 0.3, 0x3b82f6)
+    // ── Windows (left wall) ────────────────────────────────────────────
+    const glassMat = mat(0x475569, 0.05, 0.1, 0.15, 0x7dd3fc)
     glassMat.transparent = true
-    glassMat.opacity = 0.35
+    glassMat.opacity = 0.3
 
     for (let i = 0; i < 4; i++) {
       const wz = -15 + i * 10
-      const frame = new THREE.Mesh(new THREE.BoxGeometry(0.3, 3.5, 4.0), mat(0x0d1a2e, 0.2, 0.8))
+      const frame = new THREE.Mesh(new THREE.BoxGeometry(0.3, 3.5, 4.0), mat(0x1e293b, 0.2, 0.8))
       frame.position.set(-24.85, 4, wz)
       scene.add(frame)
 
@@ -294,34 +237,131 @@ export default function OfficeGeometry({ scene }: OfficeGeometryProps) {
       glass.position.set(-24.75, 4, wz)
       scene.add(glass)
 
-      // Window glow from outside
-      const wl = new THREE.PointLight(0x60a5fa, 1.2, 12)
+      const wl = new THREE.PointLight(0x7dd3fc, 0.8, 10)
       wl.position.set(-23, 4, wz)
       scene.add(wl)
     }
 
-    // ── Suspended accent lights (ceiling rods) ─────────────────────────
-    const rodMat = mat(0x1a2a40, 0.1, 0.9)
-    const pendantColors = [0x3b82f6, 0x8b5cf6, 0x06b6d4]
-    ;[[-10, -10], [0, -12], [10, -10]].forEach(([x, z], i) => {
-      const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 4, 8), rodMat)
-      rod.position.set(x, 8, z)
-      scene.add(rod)
-
-      const pendantMat = mat(pendantColors[i], 0.2, 0.3, 2.0, pendantColors[i])
-      const pendant = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.15, 0.25, 16), pendantMat)
-      pendant.position.set(x, 6, z)
-      scene.add(pendant)
-
-      const pl = new THREE.PointLight(pendantColors[i], 1.5, 12)
-      pl.position.set(x, 5.8, z)
-      scene.add(pl)
-    })
-
     return () => {
-      // Three.js disposes on scene clear — handled by parent
+      // Scene clear handled by Office3DScene on unmount
     }
   }, [scene])
+
+  // Desk ring indices as stable string for dep comparison
+  const runningKey = useMemo(() => runningDeskIndices.slice().sort().join(','), [runningDeskIndices])
+
+  // ── Dynamic objects (desk rings, approval badge, ops ring, particles) ───────
+  useEffect(() => {
+    const objects: THREE.Object3D[] = []
+    let animId: number
+
+    // Desk rings for running jobs
+    runningDeskIndices.forEach((idx) => {
+      const pos = AMFI_POSITIONS[idx]
+      if (!pos) return
+      const ring = new THREE.Mesh(
+        new THREE.TorusGeometry(1.2, 0.08, 8, 32),
+        mat(0x3b82f6, 0.2, 0.1, 0.9, 0x60a5fa)
+      )
+      ring.rotation.x = Math.PI / 2
+      ring.position.set(pos.x, 0.85, pos.z)
+      scene.add(ring)
+      objects.push(ring)
+    })
+
+    // Approval badge on center table when pending > 0
+    if (pendingApprovalCount > 0) {
+      const badge = new THREE.Mesh(
+        new THREE.SphereGeometry(0.25, 10, 10),
+        mat(0xf59e0b, 0.2, 0.1, 1.2, 0xfbbf24)
+      )
+      badge.position.set(0, 2.8, 0)
+      scene.add(badge)
+      objects.push(badge)
+
+      const badgeLight = new THREE.PointLight(0xf59e0b, 1.0, 5)
+      badgeLight.position.set(0, 3.2, 0)
+      scene.add(badgeLight)
+      objects.push(badgeLight)
+    }
+
+    // Center ops ring — size capped at radius 4 (6+ ops would overflow table)
+    const clampedOps = Math.min(totalOps, 6)
+    const opsRadius = Math.min(clampedOps * 0.4 + 2, 4)
+    const opsColor = getOpsTableColor(hasEscalation)
+    const opsRing = new THREE.Mesh(
+      new THREE.TorusGeometry(opsRadius, 0.12, 8, 48),
+      mat(opsColor, 0.2, 0.1, 1.2, opsColor)
+    )
+    opsRing.rotation.x = Math.PI / 2
+    opsRing.position.set(0, 0.6, 0)
+    scene.add(opsRing)
+    objects.push(opsRing)
+
+    // Particle flow: center → running desks
+    const PARTICLE_COUNT_PER_FLOW = runningDeskIndices.length > 0
+      ? Math.min(40, Math.floor(200 / runningDeskIndices.length))
+      : 0
+
+    type ParticleGroup = {
+      points: THREE.Points
+      from: THREE.Vector3
+      to: THREE.Vector3
+      offsets: Float32Array
+    }
+    const particleGroups: ParticleGroup[] = []
+
+    runningDeskIndices.forEach((idx) => {
+      const deskPos = AMFI_POSITIONS[idx]
+      if (!deskPos) return
+
+      const from = new THREE.Vector3(0, 1, 0)
+      const to   = new THREE.Vector3(deskPos.x, 1, deskPos.z)
+
+      const positions = new Float32Array(PARTICLE_COUNT_PER_FLOW * 3)
+      const offsets   = new Float32Array(PARTICLE_COUNT_PER_FLOW)
+
+      for (let i = 0; i < PARTICLE_COUNT_PER_FLOW; i++) {
+        offsets[i] = Math.random()
+        const t = offsets[i]
+        positions[i * 3]     = from.x + (to.x - from.x) * t
+        positions[i * 3 + 1] = from.y + (to.y - from.y) * t + Math.sin(t * Math.PI) * 0.6
+        positions[i * 3 + 2] = from.z + (to.z - from.z) * t
+      }
+
+      const geo = new THREE.BufferGeometry()
+      geo.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+      const pts = new THREE.Points(geo, new THREE.PointsMaterial({ color: 0x7dd3fc, size: 0.12, sizeAttenuation: true }))
+      scene.add(pts)
+      objects.push(pts)
+      particleGroups.push({ points: pts, from, to, offsets })
+    })
+
+    // Animation loop for particles
+    const SPEED = 0.25
+    const animate = () => {
+      animId = requestAnimationFrame(animate)
+      particleGroups.forEach(({ points, from, to, offsets }) => {
+        const pos = points.geometry.attributes.position as THREE.BufferAttribute
+        const arr = pos.array as Float32Array
+        for (let i = 0; i < offsets.length; i++) {
+          offsets[i] = (offsets[i] + SPEED / 60) % 1
+          const t = offsets[i]
+          arr[i * 3]     = from.x + (to.x - from.x) * t
+          arr[i * 3 + 1] = from.y + (to.y - from.y) * t + Math.sin(t * Math.PI) * 0.6
+          arr[i * 3 + 2] = from.z + (to.z - from.z) * t
+        }
+        pos.needsUpdate = true
+      })
+    }
+    if (particleGroups.length > 0) animate()
+
+    return () => {
+      cancelAnimationFrame(animId)
+      objects.forEach((o) => scene.remove(o))
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scene, runningKey, pendingApprovalCount, totalOps, hasEscalation])
 
   return null
 }
