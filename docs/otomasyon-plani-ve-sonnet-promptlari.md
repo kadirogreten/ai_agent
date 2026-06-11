@@ -132,6 +132,14 @@ Bilinen sınırlar / devirler:
 1. `topic_key` dedup'ı yalnız aynı-önekli (ilk 120 karakter) içeriği süpersede eder; farklı ifade edilmiş çelişen fact'ler ayrı kayıt kalır — PR6 dogfood'da sorun çıkarırsa anlamsal dedup eklenir.
 2. DB'li supersede/limit senaryoları birim test kapsamı dışında (SupabaseWriter HttpClient sabit) — duman testiyle doğrulanır.
 
+### PR5 — Tamamlandı (2026-06-11)
+
+Teslim edilenler — Görev A: `IRiskGate` + `RiskGateAdapter` (static RiskGate'e delege) ve `IBudgetChecker` + adapter; `ToolExecutor` ctor'una opsiyonel enjeksiyon (geriye uyumlu); bütçe guard'ı (`ctx.Db/OwnerId null` kontrolü) kaldırıldı — enjekte edilen checker koşulsuz çağrılır, null toleransı adapter içinde; `ToolExecutorTests` 5 senaryo: gate reddi → blocked, R0 read gate'siz geçer, geri-alınamaz write Faz A bloğu, bütçe aşımı gate'ten önce blok, null-DB + R2 bypass → fail-closed. Görev B: `OperationsPage` (durum rozetli liste, renk kodlu event timeline, lazy event yükleme, 10 sn polling, duraklat/devam/sonlandır, yeni operasyon formu) + route + nav. Ayrıca PR3 devir 1 kapandı: `.or()` ölü fallback'i temizlendi.
+
+Review'da yakalanıp kapatılan buglar: (1) bütçe guard'ı null-DB testinde checker'ı atlıyordu — guard kaldırıldı; (2) `NewOpForm` insert'i `owner_user_id` göndermiyordu (NOT NULL + RLS WITH CHECK ihlali) — `auth.getUser()` + `owner_user_id: user.id` eklendi.
+
+> RiskGate tek-geçit kanıtı tamam: üç yürütme yolu (CLI run, worker, ceo-executor) tek `IToolExecutor` pipeline'ından geçiyor ve bypass fail-closed testle doğrulandı. Faz B'nin "enforce" ayağı ve 4. basamak soketinin yönetişim katmanı bu PR ile kapandı.
+
 ---
 
 ## 4. Sonnet'e verilecek promptlar
