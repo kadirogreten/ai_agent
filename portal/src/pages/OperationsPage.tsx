@@ -225,7 +225,10 @@ function NewOpForm({ onCreated }: { onCreated: () => void }) {
     setSaving(true)
     setError(null)
     try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('Oturum bulunamadı')
       const { error: insErr } = await supabase.from('operations').insert({
+        owner_user_id:    user.id,
         goal_text:        form.goal_text.trim(),
         domain_pack:      form.domain_pack.trim() || 'market-intel',
         max_steps:        form.max_steps,
