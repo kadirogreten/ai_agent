@@ -521,7 +521,7 @@ Sıraya girmeyen, 15 dakikalık bakım işleri:
 | **PR9** ✅ | Niyet/hizalama | Her operasyon "kimin yararına, hangi sınırlar içinde" sözleşmesi taşır ve sınırlar **enforce** edilir | Yasak araç/alan tanımlı operasyonda o araç çağrısı Blocked; sözleşmesiz operasyon açılamıyor |
 | **PR10** ✅ | Model-agnostik soket | Model seçimi DB'den; yeteneğe göre risk tavanı — yeni model deploy'suz takılır | `llm_providers` kaydıyla decide/run modeli değişiyor; düşük-tier model R2+ kararı veremiyor |
 | **PR11** ✅ | Düşmanca kanıt | Sınırların *kötü niyetli/yetenekli* modele karşı da tuttuğunu CI'da kanıtlayan eval paketi | 6 düşmanca senaryo testte; hepsi Blocked/escalate ile bitiyor; CI'da her push'ta koşuyor |
-| **PR12** | Uzun-ufuk koşum | Bellek terfisi + hedef sapma ölçümü (drift) — model akıllandıkça döngü hedeften kopmasın | Drift skoru düşük karar escalate ediliyor; operasyon bilgisi kalıcı bilgiye kontrollü terfi ediyor |
+| **PR12** ✅ | Uzun-ufuk koşum | Bellek terfisi + hedef sapma ölçümü (drift) — model akıllandıkça döngü hedeften kopmasın | Drift skoru düşük karar escalate ediliyor; operasyon bilgisi kalıcı bilgiye kontrollü terfi ediyor |
 
 Sıra gerekçesi: PR9 sınır **tanımını** getirir, PR11 o sınırların **kanıtını** — PR10 araya girer çünkü eval paketi model-agnostik arayüz üstünde yazılmalı. PR12 en sona: drift ölçümü, niyet sözleşmesine (PR9) ihtiyaç duyar.
 
@@ -711,6 +711,18 @@ PASS fact'leri facts tablosunda operation_id provenance'ıyla görünüyor; hede
 karar üreten sahte decide cevabıyla (test) drift escalate tetikleniyor; OperationsPage'de
 skor rozeti görünüyor.
 ```
+
+### PR12 — Tamamlandı (2026-06-11)
+
+Teslim edilenler: `pg_trgm` + `facts` provenance kolonları (`operation_id`, `superseded_by`, `promoted_from_memory_id`) + `find_similar_fact` RPC + GIN trgm index; `promoteMemoryFacts` — done dalında, yalnız Verifier `'pass'` (küçük harf, `runs.external_id` bağı) run'larından, FK-güvenli sırayla (istemci id → INSERT → eskiye PATCH, PR4 deseni), trigram dedup'lı terfi; drift critic — continue/retry'da facts-tier modelle 0-100 skor, eşik altı → `goal_drift` escalate, eşik üstü → `act` event'ine `drift_score`/`drift_reason`; OperationsPage sarı drift rozeti; iki policy seed (`memory.promote_similarity`, `oploop.drift_threshold`). 44/44 C# + 10/10 TS.
+
+Review'da kapatılanlar: FK sıra hatası (PR4 dersi tekrarlanmıştı), `'PASS'` büyük harf (CHECK küçük — hiç terfi olmazdı), facts RLS genişletmesi (tenant kolonu yok — herkese açardı; gereksizdi, çıkarıldı), drift'in decide yerine act event'ine yazılması. Fail-open listesine ek: critic hatasında score=100 (bilinçli — decide zaten onaylamış; eval raporunda belgeli).
+
+---
+
+## Üçüncü seri durumu (2026-06-11): PR9–PR12 tamamlandı — S4 soketi bitti
+
+Dört eksen yerinde: niyet sözleşmesi enforce ediliyor (PR9), model DB'den takılıp yeteneğine göre sınırlanıyor (PR10), sınırların düşmanca koşullarda tuttuğu CI'da her push'ta kanıtlanıyor (PR11), uzun-ufuk bellek terfisi + hedef sadakati koşumda (PR12). Bundan sonrası "yeni model + aynı soket + aynı evaller" döngüsü. Bilinçli fail-open envanteri: `BudgetChecker` RPC hatası, `ADMIN_USER_IDS` boş, critic hatası score=100 — üçü de tek kullanıcılı kurulum kararı, çok-tenant'a geçişte kapatılmalı.
 
 ### Üçüncü seri sonrası: S4'e dair dürüst durum
 

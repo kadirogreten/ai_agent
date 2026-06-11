@@ -50,3 +50,19 @@
 
 **Senaryo 5 — Kapsamı:**
 `MaxCalls` parse testi yapar; Orchestrator'ın döngüyü `MaxCalls`'ta kesmesi entegrasyon testinde doğrulanmıştır (FakeLlmClient scriptedTurns deseni). Uçtan uca döngü testi düşük öncelikli ek kapsam.
+
+---
+
+## PR12 — Fail-open listesi
+
+### Drift Critic — Bilinçli Fail-open
+
+**Bileşen:** `callCritic()` — `operationLoopTick.ts`
+
+**Durum:** Critic LLM çağrısı herhangi bir nedenle hata verirse (ağ, API kota, parse hatası), `score=100` atanır ve operasyon durmadan devam eder.
+
+**Gerekçe:** Decide adımı zaten hedefe uygunluğu onaylamıştır. Critic ikincil doğrulama katmanıdır; çökmesi tüm operasyonları durdurmaktan daha az zararlıdır. Üretimde sık critic hatası → `[opLoop] critic hata — fail-open` log satırı izlenmelidir.
+
+**Alternatifte risk:** Fail-closed (hata → escalate) seçilseydi, geçici API kota sorunları tüm aktif operasyonları eskalasyona taşırdı.
+
+**İzleme:** `log('critic hata — fail-open score=100', ...)` log satırı; Supabase Logs veya worker stdout'tan izlenebilir.

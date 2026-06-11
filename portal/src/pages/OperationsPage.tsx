@@ -222,16 +222,29 @@ function EventTimeline({ events }: { events: OpEvent[] }) {
   return (
     <ul className="divide-y divide-white/[0.04]">
       {visible.map((ev) => {
-        const action  = typeof ev.payload?.action  === 'string' ? ev.payload.action  : null
-        const reason  = typeof ev.payload?.reason  === 'string' ? ev.payload.reason  : null
-        const summary = action ?? reason ?? ev.kind
+        const action     = typeof ev.payload?.action      === 'string' ? ev.payload.action      : null
+        const reason     = typeof ev.payload?.reason      === 'string' ? ev.payload.reason      : null
+        const driftScore = typeof ev.payload?.drift_score === 'number' ? ev.payload.drift_score : null
+        const summary    = action ?? reason ?? ev.kind
+        // drift_score < 60 (eşik 40 + 20) → sarı uyarı rozeti
+        const showDriftWarn = ev.kind === 'act' && driftScore !== null && driftScore < 60
         return (
           <li key={ev.id} className="flex items-start gap-3 px-4 py-2.5">
             <Badge tone={eventBadge(ev.kind)} className="mt-0.5 shrink-0 capitalize">
               {ev.kind}
             </Badge>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-xs text-white/70">{summary}</p>
+              <div className="flex items-center gap-2">
+                <p className="truncate text-xs text-white/70">{summary}</p>
+                {showDriftWarn && (
+                  <span
+                    title={`Hedef uyum skoru: ${driftScore}/100 (eşik+20 altı)`}
+                    className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold bg-yellow-500/20 text-yellow-300 border border-yellow-500/30"
+                  >
+                    ⚠ %{driftScore}
+                  </span>
+                )}
+              </div>
               <p className="text-[11px] text-white/30">{fmtDate(ev.created_at)}</p>
             </div>
           </li>

@@ -313,6 +313,148 @@ async function escalateOp(supabase: SupabaseClient, op: Operation, reason: strin
   })
 }
 
+// ── Görev A: bellek terfisi ────────────────────────────────────────────────────
+
+/**
+ * Operasyon done olunca: kind='fact' aktif bellek kayıtlarından,
+ * source_run_id'si verifier_outcome='pass' olan run'lara ait olanlar
+ * global facts tablosuna terfi eder.
+ *
+ * FK-güvenli sıra (PR4 OperationMemoryStore deseni kopyalandı):
+ *   1. İstemcide yeni fact id üret.
+ *   2. Yeni fact INSERT (superseded_by henüz null).
+ *   3. Çelişen eski fact'a PATCH: superseded_by = yeni id.
+ *
+ * Trigram dedup: find_similar_fact RPC eşiği policy'den okunur (memory.promote_similarity=0.6).
+ */
+async function promoteMemoryFacts(supabase: SupabaseClient, op: Operation): Promise<number> {
+  const threshold = await getPolicy(supabase, null, 'memory.promote_similarity', 0.6) as number
+
+  // Aktif kind='fact' bellek kayıtları
+  const { data: memories } = await supabase
+    .from('operation_memory')
+    .select('id, content, source_run_id')
+    .eq('operation_id', op.id)
+    .eq('kind', 'fact')
+    .is('superseded_by', null)
+
+  if (!memories || memories.length === 0) return 0
+
+  let promoted = 0
+  for (const mem of memories as { id: string; content: string; source_run_id: string | null }[]) {
+    if (!mem.source_run_id) continue
+
+    // verifier_outcome kontrolü: runs.external_id = source_run_id (PR3 bağ deseni)
+    // CHECK kısıtı küçük harf: ('pass','fail','warn')
+    const { data: runsRow } = await supabase
+      .from('runs')
+      .select('verifier_outcome')
+      .eq('external_id', mem.source_run_id)
+      .maybeSingle()
+
+    if ((runsRow as { verifier_outcome: string | null } | null)?.verifier_outcome !== 'pass') continue
+
+    // Trigram dedup: benzer aktif fact var mı?
+    const { data: similarId } = await supabase
+      .rpc('find_similar_fact', {
+        p_domain_pack: op.domain_pack,
+        p_content:     mem.content,
+        p_threshold:   threshold,
+      })
+    const conflictingId = similarId as string | null
+
+    // FK-güvenli sıra: önce INSERT, sonra eski fact'a PATCH
+    const newFactId = `prom-${op.id.replace(/-/g, '')}-${mem.id.replace(/-/g, '').slice(0, 8)}-${Date.now()}`
+    const { error: insErr } = await supabase.from('facts').insert({
+      id:                      newFactId,
+      domain_pack:             op.domain_pack,
+      run_id:                  mem.source_run_id,
+      claim:                   mem.content,
+      operation_id:            op.id,
+      promoted_from_memory_id: mem.id,
+      superseded_by:           null,
+    })
+    if (insErr) {
+      log('fact terfi INSERT hatası', { mem_id: mem.id, error: insErr.message })
+      continue
+    }
+
+    // Çelişen fact varsa artık superseded
+    if (conflictingId) {
+      await supabase
+        .from('facts')
+        .update({ superseded_by: newFactId })
+        .eq('id', conflictingId)
+    }
+
+    promoted++
+    log('fact terfi edildi', { new_id: newFactId, op_id: op.id, superseded: conflictingId ?? 'none' })
+  }
+  return promoted
+}
+
+// ── Görev B: drift critic ──────────────────────────────────────────────────────
+
+const CRITIC_SYSTEM_PROMPT =
+  'Sen bir hedef-uyum critic\'isin. ' +
+  'Verilen hedef, niyet sözleşmesi ve karar incelendiğinde bu kararın hedefe ne kadar hizmet ettiğini değerlendir. ' +
+  'YALNIZCA şu JSON formatında yanıt ver, başka hiçbir şey ekleme:\n' +
+  '{"score": <0-100 tam sayı>, "reason": "<tek cümle Türkçe açıklama>"}\n' +
+  '0 = tamamen hedef dışı, 100 = mükemmel hizalamalı.'
+
+type CriticResult = { score: number; reason: string }
+
+/**
+ * Hafif critic çağrısı — is_default_for='facts' provider kullanır.
+ * Hata durumunda fail-open: score=100 döner (decide zaten onaylamış;
+ * critic çökmesi tüm operasyonları durdurmamalı — bkz. guvenlik-eval-raporu.md).
+ */
+async function callCritic(
+  supabase: SupabaseClient,
+  op: Operation,
+  action: string,
+  reason: string,
+): Promise<CriticResult> {
+  try {
+    const provider = await resolveFactsProvider(supabase)
+    const userMsg = [
+      `Hedef: ${op.goal_text}`,
+      op.intent_json
+        ? `Niyet: faydalanan=${op.intent_json.beneficiary ?? '?'}, başarı=${op.intent_json.success_criteria ?? '?'}`
+        : '',
+      `Karar: ${action}`,
+      `Gerekçe: ${reason}`,
+    ].filter(Boolean).join('\n')
+
+    const raw = await callDecideLlm(provider, CRITIC_SYSTEM_PROMPT, userMsg)
+    const cleaned = raw.replace(/```json\s*/gi, '').replace(/```/g, '').trim()
+    const obj = JSON.parse(cleaned) as Partial<CriticResult>
+    const score = typeof obj.score === 'number' && obj.score >= 0 && obj.score <= 100
+      ? Math.round(obj.score)
+      : 100
+    const criticReason = typeof obj.reason === 'string' ? obj.reason.slice(0, 200) : 'parse edilemedi'
+    return { score, reason: criticReason }
+  } catch (e) {
+    // fail-open: critic çökünce operasyonu durdurmuyoruz
+    log('critic hata — fail-open score=100', { op_id: op.id, error: (e as Error).message })
+    return { score: 100, reason: 'critic çağrısı başarısız (fail-open)' }
+  }
+}
+
+async function resolveFactsProvider(supabase: SupabaseClient): Promise<LlmProviderRow> {
+  try {
+    const { data } = await supabase
+      .from('llm_providers')
+      .select('slug,model_id,api_base,api_key_env,kind,tier,max_decision_risk')
+      .eq('enabled', true)
+      .contains('is_default_for', ['facts'])
+      .limit(1)
+    const row = (data ?? [])[0] as LlmProviderRow | undefined
+    if (row) return row
+  } catch { /* fallback */ }
+  return DECIDE_PROVIDER_FALLBACK
+}
+
 // ── KPI özeti ─────────────────────────────────────────────────────────────────
 
 async function computeKpiSummary(supabase: SupabaseClient, op: Operation) {
@@ -464,6 +606,25 @@ async function processOperation(supabase: SupabaseClient, op: Operation) {
   }
 
   if (action === 'continue' || action === 'retry') {
+    // Görev B: drift critic — karar hedefe hizmet ediyor mu?
+    // Yalnızca continue/retry'da çalışır; wait/done/escalate'te maliyet yok.
+    const driftThreshold = await getPolicy(supabase, null, 'oploop.drift_threshold', 40) as number
+    const critic = await callCritic(supabase, op, action, reason)
+    log('drift critic', { id: op.id, score: critic.score, threshold: driftThreshold })
+
+    if (critic.score < driftThreshold) {
+      // Skor eşiğin altında → karar uygulanmaz, escalate
+      await logEvent(supabase, op.id, 'escalate', {
+        reason:        'goal_drift',
+        score:         critic.score,
+        critic_reason: critic.reason,
+        drift_threshold: driftThreshold,
+        blocked_action: action,
+      })
+      await escalateOp(supabase, op, `Hedef sapması tespit edildi (skor ${critic.score} < eşik ${driftThreshold}): ${critic.reason}`)
+      return
+    }
+
     const playbook = next_playbook
       ?? obs.lastPlaybook
       ?? (op.context_json?.first_playbook as string | undefined)
@@ -523,8 +684,16 @@ async function processOperation(supabase: SupabaseClient, op: Operation) {
       .update({ step_count: op.step_count + 1, updated_at: new Date().toISOString() })
       .eq('id', op.id)
 
-    await logEvent(supabase, op.id, 'act', { action, playbook, topic, reason })
-    log('run tetiklendi', { id: op.id, action, playbook })
+    // drift_score act event payload'una yazılır (decide zaten loglandı, critic sonrası buraya)
+    await logEvent(supabase, op.id, 'act', {
+      action,
+      playbook,
+      topic,
+      reason,
+      drift_score:  critic.score,
+      drift_reason: critic.reason,
+    })
+    log('run tetiklendi', { id: op.id, action, playbook, drift_score: critic.score })
 
   } else if (action === 'wait_approval') {
     if (obs.oldestPendingAt) {
@@ -547,10 +716,22 @@ async function processOperation(supabase: SupabaseClient, op: Operation) {
       .eq('id', op.id)
     await logEvent(supabase, op.id, 'act', { action, reason })
 
+    // Görev A: PASS fact'lerini global facts tablosuna terfi et
+    let promotedFacts = 0
+    try {
+      promotedFacts = await promoteMemoryFacts(supabase, op)
+      log('bellek terfisi tamamlandı', { id: op.id, promoted_facts: promotedFacts })
+    } catch (promErr) {
+      log('bellek terfisi hatası', { id: op.id, error: (promErr as Error).message })
+    }
+
     // KPI özeti: kpi_summary event (CHECK kısıtı migration'da genişletildi)
     try {
       const kpi = await computeKpiSummary(supabase, op)
-      await logEvent(supabase, op.id, 'kpi_summary', kpi as unknown as Record<string, unknown>)
+      await logEvent(supabase, op.id, 'kpi_summary', {
+        ...(kpi as unknown as Record<string, unknown>),
+        promoted_facts: promotedFacts,
+      })
       log('KPI özeti kaydedildi', { id: op.id, total_duration_min: kpi.total_duration_min, tick_count: kpi.tick_count })
     } catch (kpiErr) {
       log('KPI hesaplama hatası', { id: op.id, error: (kpiErr as Error).message })
