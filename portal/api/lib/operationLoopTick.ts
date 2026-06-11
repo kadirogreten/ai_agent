@@ -158,12 +158,17 @@ async function observe(supabase: SupabaseClient, op: Operation) {
 
   const lastError = lastRun?.status === 'failed' ? `Run ${lastRun.id} failed` : null
 
-  // Mevcut playbook slug'larını DB'den al — LLM'e gerçek listeyi ver, slug uydurmasın
-  const { data: pbRows } = await supabase
+  // Mevcut playbook slug'larını DB'den al — LLM'e gerçek listeyi ver, slug uydurmasın.
+  // Şema gerçeği (0019): playbooks kolonları pack_id + tenant_id'dir;
+  // owner_user_id / is_public KOLONLARI YOK (canlı testte boş liste → yanlış eskalasyon bulundu).
+  // Kapsam: operasyonun paketi + system paketi; platform (tenant NULL) + kullanıcının tenant satırları.
+  const { data: pbRows, error: pbErr } = await supabase
     .from('playbooks')
     .select('slug')
-    .or('owner_user_id.eq.' + op.owner_user_id + ',is_public.eq.true')
+    .in('pack_id', [op.domain_pack, 'system'])
+    .or(`tenant_id.is.null,tenant_id.eq.${op.owner_user_id}`)
     .order('slug')
+  if (pbErr) log('playbooks sorgu hatası', { error: pbErr.message })
   const availablePlaybooks = ((pbRows ?? []) as { slug: string }[]).map((r) => r.slug)
 
   return {
