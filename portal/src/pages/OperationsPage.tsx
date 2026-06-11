@@ -642,10 +642,11 @@ export default function OperationsPage() {
   async function toggleExpand(id: string) {
     if (expandedId === id) { setExpandedId(null); return }
     setExpandedId(id)
-    if (!eventsCache[id]) {
-      const evts = await fetchEvents(id).catch(() => [])
-      setEventsCache((prev) => ({ ...prev, [id]: evts }))
-    }
+    // Her açılışta taze çek — canlı sistemde event'ler tick'lerle birikir.
+    // Eski `if (!eventsCache[id])` koşulu boş diziyi ([] truthy) cache sayıp
+    // ilk açılış 0 event'le yapıldıysa sonsuza dek "Event yok" gösteriyordu.
+    const evts = await fetchEvents(id).catch(() => [])
+    setEventsCache((prev) => ({ ...prev, [id]: evts }))
   }
 
   async function handleStatus(id: string, next: OpStatus) {
