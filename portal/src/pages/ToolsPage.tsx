@@ -34,7 +34,11 @@ type ToolInvocation = {
   risk_level: string | null
   error: string | null
   created_at: string
+  compensation_status: 'succeeded' | 'failed' | null
+  compensated_at: string | null
 }
+
+type ToolOverride = { tool_slug: string; enabled: boolean }
 
 const CATEGORY_LABELS: Record<string, string> = {
   search:        'Arama',
@@ -89,12 +93,14 @@ export default function ToolsPage() {
   const user        = useAuthStore((s) => s.user)
   const initialized = useAuthStore((s) => s.initialized)
 
-  const [tools,    setTools]    = useState<Tool[]>([])
-  const [loading,  setLoading]  = useState(false)
-  const [toggling, setToggling] = useState<string | null>(null)
-  const [err,      setErr]      = useState<string | null>(null)
-  const [q,        setQ]        = useState('')
+  const [tools,      setTools]      = useState<Tool[]>([])
+  const [loading,    setLoading]    = useState(false)
+  const [toggling,   setToggling]   = useState<string | null>(null)
+  const [deletingOv, setDeletingOv] = useState<string | null>(null)
+  const [err,        setErr]        = useState<string | null>(null)
+  const [q,          setQ]          = useState('')
   const [invocations, setInvocations] = useState<ToolInvocation[]>([])
+  const [overrides,  setOverrides]  = useState<ToolOverride[]>([])
 
   useEffect(() => { init() }, [init])
 
@@ -112,10 +118,16 @@ export default function ToolsPage() {
 
     const inv = await supabase
       .from('tool_invocations')
-      .select('id,tool_slug,status,side_effect,risk_level,error,created_at')
+      .select('id,tool_slug,status,side_effect,risk_level,error,created_at,compensation_status,compensated_at')
       .order('created_at', { ascending: false })
       .limit(20)
     if (!inv.error) setInvocations((inv.data ?? []) as ToolInvocation[])
+
+    // Kullanıcı override'larını yükle
+    const { data: ovRows } = await supabase
+      .from('tool_overrides')
+      .select('tool_slug, enabled')
+    setOverrides(ovRows as ToolOverride[] ?? [])
 
     setLoading(false)
   }, [initialized, user])
@@ -124,16 +136,48 @@ export default function ToolsPage() {
 
   async function toggleEnabled(tool: Tool) {
     setToggling(tool.id)
-    const { error } = await supabase
-      .from('tools')
-      .update({ enabled: !tool.enabled })
-      .eq('id', tool.id)
+    setErr(null)
 
-    if (error) { setErr(error.message) }
-    else {
-      setTools((prev) => prev.map((t) => t.id === tool.id ? { ...t, enabled: !t.enabled } : t))
+    if (tool.tenant_id === null) {
+      // Platform aracı: tool_overrides'a upsert (tools satırına yazmak RLS ile artık yasak)
+      // Mevcut override varsa tersine çevir; yoksa platform değerini tersine çevir.
+      const existing = overrides.find((o) => o.tool_slug === tool.slug)
+      const newEnabled = existing ? !existing.enabled : !tool.enabled
+      const { error } = await supabase
+        .from('tool_overrides')
+        .upsert({ tool_slug: tool.slug, enabled: newEnabled }, { onConflict: 'owner_user_id,tool_slug' })
+      if (error) { setErr(error.message) }
+      else {
+        setOverrides((prev) => {
+          const filtered = prev.filter((o) => o.tool_slug !== tool.slug)
+          return [...filtered, { tool_slug: tool.slug, enabled: newEnabled }]
+        })
+      }
+    } else {
+      // Kendi tenant aracı: doğrudan güncelle
+      const { error } = await supabase
+        .from('tools')
+        .update({ enabled: !tool.enabled })
+        .eq('id', tool.id)
+      if (error) { setErr(error.message) }
+      else {
+        setTools((prev) => prev.map((t) => t.id === tool.id ? { ...t, enabled: !t.enabled } : t))
+      }
     }
     setToggling(null)
+  }
+
+  async function removeOverride(slug: string) {
+    setDeletingOv(slug); setErr(null)
+    const { error } = await supabase
+      .from('tool_overrides')
+      .delete()
+      .eq('tool_slug', slug)
+    if (error) { setErr(error.message) }
+    else {
+      setOverrides((prev) => prev.filter((o) => o.tool_slug !== slug))
+    }
+    setDeletingOv(null)
   }
 
   const filtered = q.trim()
@@ -253,23 +297,39 @@ export default function ToolsPage() {
                         )}
                       </div>
 
-                      <button
-                        type="button"
-                        onClick={() => toggleEnabled(tool)}
-                        disabled={toggling === tool.id}
-                        title={tool.enabled ? 'Pasif et' : 'Aktif et'}
-                        className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus:outline-none ${
-                          tool.enabled ? 'bg-emerald-500' : 'bg-white/20'
-                        } ${toggling === tool.id ? 'opacity-50' : ''}`}
-                        aria-checked={tool.enabled}
-                        role="switch"
-                      >
-                        <span
-                          className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
-                            tool.enabled ? 'translate-x-4' : 'translate-x-0'
-                          }`}
-                        />
-                      </button>
+                      <div className="flex flex-col items-end gap-1">
+                        {/* Platform aracında override varsa rozet + "varsayılana dön" */}
+                        {tool.tenant_id === null && overrides.some((o) => o.tool_slug === tool.slug) && (
+                          <div className="flex items-center gap-1">
+                            <span className="rounded bg-blue-500/20 px-1.5 py-0.5 text-[10px] text-blue-300">kişisel ayar</span>
+                            <button
+                              onClick={() => removeOverride(tool.slug)}
+                              disabled={deletingOv === tool.slug}
+                              className="text-[10px] text-white/30 hover:text-white/60 transition"
+                              title="Varsayılana dön (override'ı sil)"
+                            >
+                              ↩ sıfırla
+                            </button>
+                          </div>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => toggleEnabled(tool)}
+                          disabled={toggling === tool.id}
+                          title={tool.enabled ? 'Pasif et' : 'Aktif et'}
+                          className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus:outline-none ${
+                            tool.enabled ? 'bg-emerald-500' : 'bg-white/20'
+                          } ${toggling === tool.id ? 'opacity-50' : ''}`}
+                          aria-checked={tool.enabled}
+                          role="switch"
+                        >
+                          <span
+                            className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                              tool.enabled ? 'translate-x-4' : 'translate-x-0'
+                            }`}
+                          />
+                        </button>
+                      </div>
                     </div>
                   )
                 })}
@@ -296,6 +356,18 @@ export default function ToolsPage() {
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   <Badge tone={INV_STATUS_TONE[iv.status] ?? 'gray'}>{iv.status}</Badge>
+                  {iv.status === 'compensated' && (
+                    <span
+                      className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                        iv.compensation_status === 'succeeded' ? 'bg-emerald-500/20 text-emerald-300' :
+                        iv.compensation_status === 'failed'    ? 'bg-red-500/20 text-red-300' :
+                        'bg-white/10 text-white/40'
+                      }`}
+                      title={iv.compensated_at ? `Telafi: ${new Date(iv.compensated_at).toLocaleString('tr-TR')}` : ''}
+                    >
+                      ↩ Telafi {iv.compensation_status ?? ''}
+                    </span>
+                  )}
                   <span className="text-xs text-white/30">{new Date(iv.created_at).toLocaleString('tr-TR')}</span>
                 </div>
               </div>

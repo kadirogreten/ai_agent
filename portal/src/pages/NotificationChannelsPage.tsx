@@ -31,11 +31,13 @@ export default function NotificationChannelsPage() {
   const user        = useAuthStore((s) => s.user)
   const initialized = useAuthStore((s) => s.initialized)
 
-  const [channels, setChannels] = useState<Channel[]>([])
-  const [loading,  setLoading]  = useState(false)
-  const [saving,   setSaving]   = useState(false)
-  const [deleting, setDeleting] = useState<string | null>(null)
-  const [err,      setErr]      = useState<string | null>(null)
+  const [channels,  setChannels]  = useState<Channel[]>([])
+  const [loading,   setLoading]   = useState(false)
+  const [saving,    setSaving]    = useState(false)
+  const [deleting,  setDeleting]  = useState<string | null>(null)
+  const [testing,   setTesting]   = useState<string | null>(null)
+  const [testMsg,   setTestMsg]   = useState<Record<string, 'ok' | 'err'>>({})
+  const [err,       setErr]       = useState<string | null>(null)
 
   const [form, setForm] = useState<NewChannel>({ type: 'slack_webhook', target: '', label: '' })
 
@@ -90,6 +92,31 @@ export default function NotificationChannelsPage() {
     if (error) setErr(error.message)
     else await load()
     setDeleting(null)
+  }
+
+  async function testChannel(id: string) {
+    setTesting(id); setErr(null)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) { setErr('Oturum bulunamadı'); setTesting(null); return }
+      const resp = await fetch('/api/notifications/test', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
+        body:    JSON.stringify({ channel_id: id }),
+      })
+      const json = await resp.json() as { ok: boolean; error?: string }
+      if (json.ok) {
+        setTestMsg((prev) => ({ ...prev, [id]: 'ok' }))
+        setTimeout(() => setTestMsg((prev) => { const n = { ...prev }; delete n[id]; return n }), 4000)
+      } else {
+        setErr(json.error ?? 'Test başarısız')
+        setTestMsg((prev) => ({ ...prev, [id]: 'err' }))
+        setTimeout(() => setTestMsg((prev) => { const n = { ...prev }; delete n[id]; return n }), 4000)
+      }
+    } catch (e) {
+      setErr((e as Error).message)
+    }
+    setTesting(null)
   }
 
   if (!initialized) return null
@@ -180,6 +207,19 @@ export default function NotificationChannelsPage() {
                 }`}
               >
                 {ch.enabled ? 'Aktif' : 'Pasif'}
+              </button>
+
+              <button
+                onClick={() => testChannel(ch.id)}
+                disabled={testing === ch.id}
+                className={`text-xs px-2 py-0.5 rounded transition ${
+                  testMsg[ch.id] === 'ok'  ? 'bg-emerald-500/20 text-emerald-300' :
+                  testMsg[ch.id] === 'err' ? 'bg-red-500/20 text-red-300' :
+                  'text-white/40 hover:text-white/70 border border-white/10'
+                }`}
+                title="Test mesajı gönder"
+              >
+                {testing === ch.id ? '…' : testMsg[ch.id] === 'ok' ? '✓ Gönderildi' : testMsg[ch.id] === 'err' ? '✗ Hata' : 'Test Gönder'}
               </button>
 
               <button

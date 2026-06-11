@@ -13,6 +13,7 @@ import { fileURLToPath } from 'url'
 import importRoutes from './routes/import.js'
 import ceoRoutes from './routes/ceo.js'
 import operationsRoutes from './routes/operations.js'
+import notificationsRoutes from './routes/notifications.js'
 
 fileURLToPath(import.meta.url)
 
@@ -29,6 +30,7 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }))
 app.use('/api/import', importRoutes)
 app.use('/api/ceo', ceoRoutes)
 app.use('/api/operations', operationsRoutes)
+app.use('/api/notifications', notificationsRoutes)
 
 /**
  * health

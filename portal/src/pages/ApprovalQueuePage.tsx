@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
+import { useSearchParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabaseClient'
 import { useAuthStore } from '@/stores/authStore'
 import { Card } from '@/components/ui/Card'
@@ -49,6 +50,10 @@ export default function ApprovalQueuePage() {
   const [acting,   setActing]   = useState<string | null>(null)
   const [notes,    setNotes]    = useState<Record<string, string>>({})
   const [err,      setErr]      = useState<string | null>(null)
+
+  const [searchParams] = useSearchParams()
+  const highlightId = searchParams.get('highlight')
+  const highlightRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => { init() }, [init])
 
@@ -169,7 +174,11 @@ export default function ApprovalQueuePage() {
           ) : (
             <div className="divide-y divide-white/[0.05]">
               {pending.map((item) => (
-                <div key={item.id} className="p-4 space-y-3">
+                <div
+                  key={item.id}
+                  ref={item.id === highlightId ? (el) => { highlightRef.current = el; if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }) } : undefined}
+                  className={`p-4 space-y-3 transition-colors ${item.id === highlightId ? 'bg-yellow-500/10 border-l-2 border-yellow-400' : ''}`}
+                >
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <div className="flex flex-wrap items-center gap-2">

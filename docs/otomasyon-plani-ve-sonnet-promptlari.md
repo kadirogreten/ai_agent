@@ -163,7 +163,7 @@ PR6 sonrası taramada tespit edilen boşluklar: politika eşikleri kodda sabit (
 | PR | Başlık | Biten tanımı |
 |---|---|---|
 | **PR7** ✅ | DB-first tamamlama: policy_settings + BudgetsPage + tools.enabled | Eşikler portaldan değişiyor (deploy'suz); bütçe UI'dan tanımlanıp doluluk göstergesiyle izleniyor; DB'de disable edilen araç executor'da reddediliyor |
-| **PR8** | Operasyon UX paketi | Operasyon kapanış KPI kartı, escalated'dan "düzelt ve devam et", bekleyen onaya tek tık + nav rozeti, pack seçici + bütçe bağlama, bildirim test butonu, compensation rozetleri |
+| **PR8** ✅ | Operasyon UX paketi | Operasyon kapanış KPI kartı, escalated'dan "düzelt ve devam et", bekleyen onaya tek tık + nav rozeti, pack seçici + bütçe bağlama, bildirim test butonu, compensation rozetleri |
 
 ### PR7 prompt'u — policy_settings + BudgetsPage + tools.enabled
 
@@ -222,6 +222,18 @@ BudgetsPage'den bütçe tanımlanıp progress görünüyor; ToolsPage'den kapat�
 Teslim edilenler: `policy_settings` (`20260611170000`, çift partial-unique index ile NULL semantiği doğru, 8 global seed); `PolicyReader.cs` + `policyReader.ts` (owner→global→kod sabiti zinciri, 5 dk cache, parse hatasında sessiz fallback); tüketiciler: RiskGate (MaxWait/Poll + doğrulama logu), Orchestrator (bellek limiti), CargoTrackTool (kargo eşikleri), operationLoopTick (24h timeout), selfReflectionTick (3 eşik); `BudgetsPage` (progress bar'lı CRUD); `PoliciesPage` (global salt-okunur + tipli override CRUD); `tools.enabled` enforcement — Runner tenant filtreli tek SELECT (platform→tenant öncelik), ToolExecutor'da Blocked + `tool.disabled` audit. 28/28 test.
 
 PR8'e zorunlu devir: ToolsPage toggle'ı platform satırını (tenant_id NULL) doğrudan güncelliyor ve `tools_update` RLS'i buna izin veriyor — bir kullanıcı platform aracını **tüm tenant'lar için** kapatabilir. PR8 madde 7'de RLS daraltma + tenant override upsert ile kapatılacak. Tek kullanıcılı kurulumda acil risk değil.
+
+### PR8 — Tamamlandı (2026-06-11)
+
+Teslim edilenler: KPI kapanış kartı (`kpi_summary` → süre/tick/insan/hata grid'i) + escalated'dan "Düzelt ve devam et" (`resumed_by_user` event'iyle); bekleyen onay rozeti (`run_requests.operation_id` bağıyla toplu sorgu) → `?highlight=` ile ApprovalQueue'da sarı border + scroll; AppShell nav rozeti (60 sn polling); NewOpForm'da domain_packs seçici + `context_json.budget_scope` bütçe bağlama; `POST /api/notifications/test` Express route'u (owner token'dan) + "Test Gönder" butonu; compensation rozetleri (plandaki RunDetailPage yerine ToolsPage'in mevcut "son araç çağrıları" görünümüne — doğru yer); PR7 devri kapandı: `tools_update` RLS daraltıldı + `tool_overrides` tablosu (review önerisi (b) yaklaşımı — `tools.slug` global UNIQUE olduğundan tenant satırı klonlamak yerine ayrı override tablosu) + Runner iki adımlı map yüklemesi (override kazanır) + ToolsPage "kişisel ayar" rozeti ve sıfırlama. 28/28 test.
+
+Review'da yakalanan kritik: ilk planda tenant override'ı `tools`'a `ON CONFLICT (slug, tenant_id)` upsert'iyle yazılacaktı — `tools.slug` global UNIQUE (0017:11) olduğu için bu yaklaşım patlardı; `tool_overrides` tablosuna çevrildi. Ayrıca test endpoint'i Vercel serverless olarak planlanmıştı — mevcut Express route desenine (app.ts) düzeltildi.
+
+---
+
+## İkinci seri durumu (2026-06-11): PR7–PR8 tamamlandı
+
+DB-first ilkesi kapandı: politika eşikleri, bütçeler, araç aktivasyonu (kişisel override dahil) artık portaldan yönetiliyor; kodda yalnız fallback sabitleri var. Kalan tek büyük iş **canlı dogfood koşusu** (Faz E / OA3 kanıtı): stok eşiği düşür → operasyon → araştırma → PO onayı (tek insan dokunuşu) → kargo → teslim → stok artışı → done + KPI. `CARGO_DEMO_SCALE=60` ile ~30 dk.
 
 ### PR8 prompt'u — Operasyon UX paketi
 

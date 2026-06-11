@@ -208,32 +208,49 @@ public static class Runner
                 opMemStore:  opMemStore
             );
 
-            // tools.enabled haritasını run başında yükle (tek SELECT; service_role bypass eder).
-            // platform araçları (tenant_id IS NULL) önce yüklenir; kullanıcı override satırı kazanır.
+            // tools.enabled haritasını run başında yükle.
+            // 1. Platform araçları (tenant_id IS NULL) → platform varsayılanı
+            // 2. tool_overrides (owner_user_id = ownerId) → kullanıcı override'ı kazanır
+            // tools_update RLS artık platform satırlarını authenticated'a kapattı (PR8 migration).
             IReadOnlyDictionary<string, bool>? toolEnabledMap = null;
             if (db is not null)
             {
                 var ownerId = Environment.GetEnvironmentVariable("RUN_OWNER_USER_ID");
                 try
                 {
-                    var filter = string.IsNullOrWhiteSpace(ownerId)
-                        ? "select=slug,enabled,tenant_id&tenant_id=is.null"
-                        : $"select=slug,enabled,tenant_id&or=(tenant_id.is.null,tenant_id.eq.{Uri.EscapeDataString(ownerId)})&order=tenant_id.nullsfirst";
-                    var json = await db.SelectAsync("tools", filter, ct);
-                    if (json.ValueKind == System.Text.Json.JsonValueKind.Array)
+                    var map = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+
+                    // 1) Platform araçları
+                    var toolsJson = await db.SelectAsync("tools", "select=slug,enabled&tenant_id=is.null", ct);
+                    if (toolsJson.ValueKind == System.Text.Json.JsonValueKind.Array)
                     {
-                        var map = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
-                        // Önce NULL (platform) satırları yükle, ardından tenant satırları üzerine yazar.
-                        foreach (var row in json.EnumerateArray())
+                        foreach (var row in toolsJson.EnumerateArray())
                         {
                             if (!row.TryGetProperty("slug", out var slugEl)) continue;
                             var slug = slugEl.GetString();
                             if (string.IsNullOrWhiteSpace(slug)) continue;
-                            var enabled = !row.TryGetProperty("enabled", out var enEl) || enEl.GetBoolean();
-                            map[slug] = enabled;
+                            map[slug] = !row.TryGetProperty("enabled", out var enEl) || enEl.GetBoolean();
                         }
-                        toolEnabledMap = map;
                     }
+
+                    // 2) Kullanıcı override'ları — platform değerinin üzerine yazar
+                    if (!string.IsNullOrWhiteSpace(ownerId))
+                    {
+                        var overridesJson = await db.SelectAsync("tool_overrides",
+                            $"select=tool_slug,enabled&owner_user_id=eq.{Uri.EscapeDataString(ownerId)}", ct);
+                        if (overridesJson.ValueKind == System.Text.Json.JsonValueKind.Array)
+                        {
+                            foreach (var row in overridesJson.EnumerateArray())
+                            {
+                                if (!row.TryGetProperty("tool_slug", out var slugEl)) continue;
+                                var slug = slugEl.GetString();
+                                if (string.IsNullOrWhiteSpace(slug)) continue;
+                                map[slug] = row.TryGetProperty("enabled", out var enEl) && enEl.GetBoolean();
+                            }
+                        }
+                    }
+
+                    toolEnabledMap = map;
                 }
                 catch (Exception ex)
                 {

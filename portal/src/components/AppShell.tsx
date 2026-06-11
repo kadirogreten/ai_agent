@@ -1,9 +1,10 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import AnomalyBanner from '@/components/AnomalyBanner'
 import { useAuthStore } from '@/stores/authStore'
+import { supabase } from '@/lib/supabaseClient'
 import { motion, AnimatePresence } from 'framer-motion'
 import { PageTransition } from '@/components/PageTransition'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   LayoutDashboard, Play, Clock, List, Briefcase, CheckSquare,
   Bot, UserCircle, BookOpen, Wrench,
@@ -14,7 +15,7 @@ import {
   Settings, Wallet,
 } from 'lucide-react'
 
-type NavItem = { to: string; label: string; icon: React.ReactNode; primary?: boolean }
+type NavItem = { to: string; label: string; icon: React.ReactNode; primary?: boolean; badge?: number }
 type NavGroup = { title: string; items: NavItem[]; defaultOpen?: boolean }
 
 const navGroups: NavGroup[] = [
@@ -78,7 +79,7 @@ const navGroups: NavGroup[] = [
   },
 ]
 
-function NavGroup({ group }: { group: NavGroup }) {
+function NavGroup({ group, pendingCount }: { group: NavGroup; pendingCount: number }) {
   const [open, setOpen] = useState(group.defaultOpen ?? true)
 
   return (
@@ -109,7 +110,12 @@ function NavGroup({ group }: { group: NavGroup }) {
             transition={{ duration: 0.2, ease: 'easeInOut' }}
             className="overflow-hidden"
           >
-            {group.items.map((item) => (
+            {group.items.map((rawItem) => {
+              // approval-queue için pendingCount badge'ini dinamik olarak ekle
+              const item: NavItem = rawItem.to === '/app/approval-queue' && pendingCount > 0
+                ? { ...rawItem, badge: pendingCount }
+                : rawItem
+              return (
               <NavLink key={item.to} to={item.to} end={item.to === '/app/run'}>
                 {({ isActive }) => (
                   <motion.div
@@ -144,10 +150,16 @@ function NavGroup({ group }: { group: NavGroup }) {
                       {item.icon}
                     </span>
                     <span className="relative z-10 font-medium">{item.label}</span>
+                    {item.badge != null && item.badge > 0 && (
+                      <span className="relative z-10 ml-auto rounded-full bg-red-500/80 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white">
+                        {item.badge}
+                      </span>
+                    )}
                   </motion.div>
                 )}
               </NavLink>
-            ))}
+              )
+            })}
           </motion.div>
         )}
       </AnimatePresence>
@@ -159,8 +171,24 @@ export default function AppShell() {
   const user = useAuthStore((s) => s.user)
   const signOut = useAuthStore((s) => s.signOut)
   const navigate = useNavigate()
-  const [importing, setImporting] = useState(false)
-  const [importMsg, setImportMsg] = useState<string | null>(null)
+  const [importing,    setImporting]    = useState(false)
+  const [importMsg,    setImportMsg]    = useState<string | null>(null)
+  const [pendingCount, setPendingCount] = useState(0)
+
+  // Onay kuyruğu nav badge — 60sn polling
+  useEffect(() => {
+    if (!user) return
+    async function poll() {
+      const { count } = await supabase
+        .from('approval_queue')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'pending')
+      if (count !== null) setPendingCount(count)
+    }
+    poll()
+    const interval = setInterval(poll, 60_000)
+    return () => clearInterval(interval)
+  }, [user])
   async function runImport() {
     const session = useAuthStore.getState().session
     if (!session?.access_token) {
@@ -220,7 +248,7 @@ export default function AppShell() {
         {/* Nav */}
         <nav className="flex-1 overflow-y-auto py-2 scrollbar-none">
           {navGroups.map((group, i) => (
-            <NavGroup key={i} group={group} />
+            <NavGroup key={i} group={group} pendingCount={pendingCount} />
           ))}
         </nav>
 
