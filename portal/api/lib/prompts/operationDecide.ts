@@ -76,6 +76,15 @@ export function parseDecideResponse(raw: string): DecideResponse | null {
   }
 }
 
+export interface IntentJson {
+  beneficiary:      string
+  success_criteria: string
+  forbidden_tools?: string[]
+  forbidden_topics?: string[]
+  max_total_spend?: number
+  expires_at?:      string
+}
+
 /** OBSERVE gözlem verisini user mesajına dönüştürür. */
 export function buildDecideUserMessage(obs: {
   goalText:            string
@@ -89,9 +98,25 @@ export function buildDecideUserMessage(obs: {
   lastError:           string | null
   lastResultSummary:   string | null
   availablePlaybooks:  string[]
+  intent?:             IntentJson | null
 }): string {
   return [
     `## Operasyon hedefi\n${obs.goalText}`,
+
+    obs.intent ? [
+      `## Intent sözleşmesi`,
+      `Yararlanıcı: ${obs.intent.beneficiary}`,
+      `Başarı kriteri: ${obs.intent.success_criteria}`,
+      obs.intent.forbidden_tools?.length
+        ? `Yasak araçlar: ${obs.intent.forbidden_tools.join(', ')}`
+        : null,
+      obs.intent.forbidden_topics?.length
+        ? `Yasak konular: ${obs.intent.forbidden_topics.join(', ')}`
+        : null,
+      obs.intent.expires_at
+        ? `Vade: ${obs.intent.expires_at}`
+        : null,
+    ].filter(Boolean).join('\n') : null,
 
     `## Mevcut playbook'lar (YALNIZCA bu slug'ları kullan)\n${obs.availablePlaybooks.join(', ') || '(boş)'}`,
 

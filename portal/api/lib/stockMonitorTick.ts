@@ -116,6 +116,11 @@ export async function tick() {
             current_stock_at_trigger: Number(r.current_stock),
             first_playbook:           'tedarik-arastirma',
           },
+          intent_json: {
+            beneficiary:      'system/stock-monitor',
+            success_criteria: `${r.product} stok seviyesini hedef eşiğin (${target}) üzerine çıkar`,
+            forbidden_tools:  [],
+          },
         })
         .select('id')
         .single()

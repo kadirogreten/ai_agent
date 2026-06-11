@@ -13,6 +13,15 @@ import { Target } from 'lucide-react'
 type OpStatus = 'active' | 'paused' | 'escalated' | 'done' | 'failed'
 type EventKind = 'observe' | 'decide' | 'act' | 'escalate' | 'kpi_summary'
 
+type IntentJson = {
+  beneficiary:      string
+  success_criteria: string
+  forbidden_tools?: string[]
+  forbidden_topics?: string[]
+  max_total_spend?: number
+  expires_at?:      string
+}
+
 type Operation = {
   id:               string
   goal_text:        string
@@ -24,6 +33,7 @@ type Operation = {
   cooldown_minutes: number
   last_tick_at:     string | null
   escalation_reason: string | null
+  intent_json:      IntentJson | null
   created_at:       string
   updated_at:       string
 }
@@ -93,7 +103,7 @@ function fmtDate(s: string | null): string {
 async function fetchOps(): Promise<Operation[]> {
   const { data, error } = await supabase
     .from('operations')
-    .select('id, goal_text, domain_pack, status, risk, step_count, max_steps, cooldown_minutes, last_tick_at, escalation_reason, created_at, updated_at')
+    .select('id, goal_text, domain_pack, status, risk, step_count, max_steps, cooldown_minutes, last_tick_at, escalation_reason, intent_json, created_at, updated_at')
     .order('created_at', { ascending: false })
     .limit(50)
   if (error) throw error
@@ -335,6 +345,24 @@ function OpRow({
             )}
           </div>
 
+          {/* Intent kartı — intent_json varsa göster */}
+          {op.intent_json && (
+            <div className="mx-4 mb-3 rounded border border-white/[0.08] bg-white/[0.03] p-3 space-y-1">
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-white/30">Intent Sözleşmesi</p>
+              <p className="text-xs text-white/70"><span className="text-white/40">Yararlanıcı:</span> {op.intent_json.beneficiary}</p>
+              <p className="text-xs text-white/70"><span className="text-white/40">Başarı kriteri:</span> {op.intent_json.success_criteria}</p>
+              {op.intent_json.forbidden_tools?.length ? (
+                <p className="text-xs text-white/70"><span className="text-white/40">Yasak araçlar:</span> {op.intent_json.forbidden_tools.join(', ')}</p>
+              ) : null}
+              {op.intent_json.max_total_spend != null && (
+                <p className="text-xs text-white/70"><span className="text-white/40">Harcama tavanı:</span> ${op.intent_json.max_total_spend}</p>
+              )}
+              {op.intent_json.expires_at && (
+                <p className="text-xs text-white/70"><span className="text-white/40">Vade:</span> {new Date(op.intent_json.expires_at).toLocaleString('tr-TR')}</p>
+              )}
+            </div>
+          )}
+
           {/* KPI kartı — done veya escalated + kpi_summary event varsa */}
           {kpi && (op.status === 'done' || op.status === 'escalated' || op.status === 'failed') && (
             <KpiCard kpi={kpi} />
@@ -361,6 +389,10 @@ const EMPTY_FORM = {
   max_steps:        10,
   cooldown_minutes: 30,
   budget_scope:     '',
+  // intent alanları
+  intent_beneficiary:      '',
+  intent_success_criteria: '',
+  intent_expires_at:       '',
 }
 
 function NewOpForm({ onCreated }: { onCreated: () => void }) {
@@ -390,28 +422,41 @@ function NewOpForm({ onCreated }: { onCreated: () => void }) {
   async function submit(e: React.FormEvent) {
     e.preventDefault()
     if (!form.goal_text.trim() || !form.domain_pack) return
+    if (!form.intent_beneficiary.trim() || !form.intent_success_criteria.trim()) {
+      setError('Intent yararlanıcı ve başarı kriteri zorunlu')
+      return
+    }
     setSaving(true)
     setError(null)
     try {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) throw new Error('Oturum bulunamadı')
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) throw new Error('Oturum bulunamadı')
 
-      const contextJson = form.budget_scope
-        ? { budget_scope: form.budget_scope }
-        : undefined
+      const contextJson = form.budget_scope ? { budget_scope: form.budget_scope } : undefined
+      const intentJson: IntentJson = {
+        beneficiary:      form.intent_beneficiary.trim(),
+        success_criteria: form.intent_success_criteria.trim(),
+        ...(form.intent_expires_at ? { expires_at: new Date(form.intent_expires_at).toISOString() } : {}),
+      }
 
-      const { error: insErr } = await supabase.from('operations').insert({
-        owner_user_id:    user.id,
-        goal_text:        form.goal_text.trim(),
-        domain_pack:      form.domain_pack,
-        max_steps:        form.max_steps,
-        cooldown_minutes: form.cooldown_minutes,
-        status:           'active',
-        step_count:       0,
-        risk:             'R1',
-        ...(contextJson ? { context_json: contextJson } : {}),
+      const resp = await fetch('/api/operations', {
+        method:  'POST',
+        headers: {
+          'Content-Type':  'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          goal_text:        form.goal_text.trim(),
+          domain_pack:      form.domain_pack,
+          max_steps:        form.max_steps,
+          cooldown_minutes: form.cooldown_minutes,
+          risk:             'R1',
+          intent_json:      intentJson,
+          ...(contextJson ? { context_json: contextJson } : {}),
+        }),
       })
-      if (insErr) throw insErr
+      const json = await resp.json() as { error?: string }
+      if (!resp.ok) throw new Error(json.error ?? 'Operasyon oluşturulamadı')
       setForm(EMPTY_FORM)
       setOpen(false)
       onCreated()
@@ -492,9 +537,41 @@ function NewOpForm({ onCreated }: { onCreated: () => void }) {
             </select>
           </div>
         )}
+        {/* PR9 Intent sözleşmesi */}
+        <div className="rounded border border-white/[0.08] bg-white/[0.02] p-3 space-y-3">
+          <p className="text-xs font-semibold text-white/50">Intent Sözleşmesi</p>
+          <div>
+            <label className="mb-1 block text-xs text-white/50">Yararlanıcı *</label>
+            <input
+              className="w-full rounded bg-white/[0.06] px-3 py-2 text-sm text-white/90 placeholder-white/20 focus:outline-none focus:ring-1 focus:ring-white/20"
+              placeholder="ör. tedarik-ekibi, ceo@firma.com"
+              value={form.intent_beneficiary}
+              onChange={(e) => setForm((f) => ({ ...f, intent_beneficiary: e.target.value }))}
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-white/50">Başarı kriteri *</label>
+            <input
+              className="w-full rounded bg-white/[0.06] px-3 py-2 text-sm text-white/90 placeholder-white/20 focus:outline-none focus:ring-1 focus:ring-white/20"
+              placeholder="ör. 3 tedarikçi teklifi alınmış"
+              value={form.intent_success_criteria}
+              onChange={(e) => setForm((f) => ({ ...f, intent_success_criteria: e.target.value }))}
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-white/50">Vade tarihi (opsiyonel)</label>
+            <input
+              type="datetime-local"
+              className="w-full rounded bg-white/[0.06] px-3 py-2 text-sm text-white/90 focus:outline-none focus:ring-1 focus:ring-white/20"
+              value={form.intent_expires_at}
+              onChange={(e) => setForm((f) => ({ ...f, intent_expires_at: e.target.value }))}
+            />
+          </div>
+        </div>
+
         {error && <p className="text-xs text-red-400">{error}</p>}
         <div className="flex gap-2">
-          <Button type="submit" size="sm" disabled={saving || !form.domain_pack}>
+          <Button type="submit" size="sm" disabled={saving || !form.domain_pack || !form.intent_beneficiary || !form.intent_success_criteria}>
             {saving ? 'Kaydediliyor…' : 'Oluştur'}
           </Button>
           <Button type="button" size="sm" variant="secondary" onClick={() => setOpen(false)}>

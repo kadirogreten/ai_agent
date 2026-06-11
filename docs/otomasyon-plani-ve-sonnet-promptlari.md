@@ -518,7 +518,7 @@ Sıraya girmeyen, 15 dakikalık bakım işleri:
 
 | PR | Eksen | Tek cümle | Biten tanımı |
 |---|---|---|---|
-| **PR9** | Niyet/hizalama | Her operasyon "kimin yararına, hangi sınırlar içinde" sözleşmesi taşır ve sınırlar **enforce** edilir | Yasak araç/alan tanımlı operasyonda o araç çağrısı Blocked; sözleşmesiz operasyon açılamıyor |
+| **PR9** ✅ | Niyet/hizalama | Her operasyon "kimin yararına, hangi sınırlar içinde" sözleşmesi taşır ve sınırlar **enforce** edilir | Yasak araç/alan tanımlı operasyonda o araç çağrısı Blocked; sözleşmesiz operasyon açılamıyor |
 | **PR10** | Model-agnostik soket | Model seçimi DB'den; yeteneğe göre risk tavanı — yeni model deploy'suz takılır | `llm_providers` kaydıyla decide/run modeli değişiyor; düşük-tier model R2+ kararı veremiyor |
 | **PR11** | Düşmanca kanıt | Sınırların *kötü niyetli/yetenekli* modele karşı da tuttuğunu CI'da kanıtlayan eval paketi | 6 düşmanca senaryo testte; hepsi Blocked/escalate ile bitiyor; CI'da her push'ta koşuyor |
 | **PR12** | Uzun-ufuk koşum | Bellek terfisi + hedef sapma ölçümü (drift) — model akıllandıkça döngü hedeften kopmasın | Drift skoru düşük karar escalate ediliyor; operasyon bilgisi kalıcı bilgiye kontrollü terfi ediyor |
@@ -565,6 +565,14 @@ yeşil; forbidden_tools=['purchase_order'] operasyonunda PO çağrısı Blocked 
 tool.forbidden_by_intent; intent'siz POST /api/operations 400 dönüyor; süresi geçen operasyon
 ilk tick'te kapanıyor.
 ```
+
+### PR9 — Tamamlandı (2026-06-11)
+
+Teslim edilenler: `operations.intent_json` (nullable — eski operasyonlar kısıtsız, geriye uyumlu) + **şema DB'de** (`intent.contract_schema` policy seed'i; API route `required[]` listesini bu kayıttan dinamik okur — dosyadan şema yönetimi review'da reddedildi); enforcement üç katman: ToolExecutor 1c adımı (`tool.forbidden_by_intent` Blocked) + tek-çağrı harcama tavanı (`intent.spend_exceeded`), tick'te `expires_at` → done + bildirim, run_request insert'inde forbidden araç filtresi (savunma derinliği); worker intent'i **çalıştırma anında DB'den taze okur** (`RUN_INTENT_JSON` env — snapshot sürüklenmesi yok); decide prompt'una intent enjeksiyonu; stockMonitor otomatik operasyonlara varsayılan intent; NewOpForm intent bölümü + detayda intent kartı. 30/30 test.
+
+Review'da düzeltilenler: şema dosyadan → policy_settings; `max_total_spend` plandan sessizce düşmüştü → tek-çağrı tavanı eklendi (kümülatif takip bilinçli ertelendi); intent'in `answers_json`'a kopyalanması → taze DB okuması; `intent_expired` bildirimsizdi → notifyChannels eklendi; `run_requests.tools` kolonu yok sanılıyordu (0029'da var) → insert filtresi eklendi.
+
+Devir: kümülatif operasyon harcaması takibi (tek-çağrı tavanı var, toplam yok) — PR12 veya ihtiyaç anında.
 
 ### PR10 prompt'u — Model-agnostik soket + yetenek katmanları
 
@@ -687,3 +695,177 @@ Bu dört PR bittiğinde repo, S4 için yapabileceği her şeyi yapmış olur: ni
 3. **Tetikleyici sinyaller:** (a) aylık LLM faturasında tek bir dar görevin baskınlaşması, (b) veri gizliliği/yerellik gereksinimi, (c) aynı dar görevde frontier modelin bariz israf olması. Bu sinyaller gelmeden fine-tune yatırımı erken optimizasyondur.
 
 **S5 ile ilişkisi:** Yok denecek kadar az. S5 frontier yarışının sonucu; bu projenin S5 hazırlığı, S4 soketinin aynısı — denetlenebilir, geri alınabilir, sınırlanabilir koşum + eval paketi. Kendi dar modellerin katkısı yalnız işletme ekonomisidir, basamak atlamak değildir.
+
+---
+
+## Dördüncü seri: Sektör bağımsızlığı (PR13–PR16)
+
+**Tez:** "Her sektörde her iş" üç el-yapımı katmanın otomatikleşmesiyle mümkün olur: eylem (araçlar elle kodlanıyor), bilgi (sektör paketleri elle yazılıyor), süreç (playbook'lar elle kuruluyor). Üçü de sırayla otomatikleşir; dördüncü PR insan onay darboğazını ölçekler.
+
+| PR | Katman | Tek cümle | Biten tanımı |
+|---|---|---|---|
+| **PR13** | Eylem | MCP istemcisi — herhangi bir MCP sunucusu, kod yazmadan, yönetişim hattının içinden araç olur | Registry'ye eklenen bir MCP aracı playbook adımından çağrılıyor; RiskGate/bütçe/audit aynen işliyor |
+| **PR14** | Bilgi | Sector Factory — "X sektörüne gir" bir operasyon hedefi; sistem paketi üretir, test eder, onaya getirir | Tek operasyonla yeni sektör paketi taslak→test→onay→yayın döngüsünden geçiyor |
+| **PR15** | Süreç | Playbook sentezi — prosedürü insan değil sistem kurar; başarılılar kütüphaneye terfi eder | Hedeften sentezlenen playbook dogfood'da PASS alıp draft'tan aktife terfi ediyor |
+| **PR16** | İnsan ölçeği | Öğrenen delegasyon — onay geçmişinden oto-onay teklifi üretir; karar insanda kalır | 50+ tutarlı onaylı sınıf için sistem delegasyon teklifi çıkarıyor; kabul edilince o sınıf oto-onaya iniyor |
+
+Sıra gerekçesi: MCP önce — Factory'nin üreteceği her paket ancak bağlanacak araç varsa işe yarar. PR15, PR14'ün draft/terfi altyapısını yeniden kullanır. PR16 bağımsız ama en değerlisini en son: delegasyon ancak yeterli onay geçmişi birikince anlamlı.
+
+### PR13 prompt'u — MCP istemcisi (evrensel araç katmanı)
+
+```
+Repo: ai_agent. Bağlam: docs/faz-a-tool-invocation-tasarim.md (tasarım zaten "HTTP API veya MCP"
+diyor), src/AgentArmy.Cli/Tools/ (ITool, ToolExecutor, ToolContracts), supabase/migrations/
+0017_tool_registry.sql + 0027_tool_invocation.sql (tools sözleşme kolonları),
+src/AgentArmy.Cli/Infra/HttpClientPool.cs.
+
+KURAL: Migration öncesi gerçek kolon/CHECK doğrulaması. tools.slug global UNIQUE — yeni satırlar
+buna uyar.
+
+Görev: MCP (Model Context Protocol) istemcisi — registry'deki bir MCP sunucusunun araçları,
+elle C# yazmadan ITool olarak yürütülür.
+
+1. Migration: mcp_servers(id, owner_user_id NULL=platform, slug UNIQUE, display_name,
+   transport TEXT CHECK ('stdio','http'), endpoint TEXT — http URL veya komut satırı,
+   auth_env TEXT — anahtarın env değişken ADI, enabled, created_at). RLS: platform SELECT
+   herkese, yazma service_role; owner satırları owner'a. tools tablosuna mcp_server_id UUID
+   NULL ve mcp_tool_name TEXT NULL kolonları (NULL = yerleşik C# aracı).
+2. C# McpClient (Infra/): http transport öncelikli (stdio sonraki PR). JSON-RPC 2.0:
+   initialize → tools/list → tools/call. Timeout policy_settings'ten (mcp.call_timeout_seconds=60).
+3. C# McpProxyTool : ITool — ctor'da tools satırı + mcp_servers kaydı; Descriptor'ı DB
+   sözleşme kolonlarından kurar (input_schema, side_effect, reversible, min_risk DB'den —
+   MCP tanımından OTOMATİK güven YOK: her MCP aracı registry'ye eklenirken insan sözleşme
+   alanlarını doldurur, varsayılan en kısıtlayıcı: side_effect='external', reversible=false
+   → Faz A kuralı gereği çalıştırılamaz; insan bilinçli gevşetir). InvokeAsync → McpClient.
+4. ToolExecutor: CreateDefault'a ek CreateWithDbAsync(db, ownerId) — tools WHERE
+   mcp_server_id IS NOT NULL satırlarından McpProxyTool'lar üretip katalogla birleştirir.
+   Runner bunu kullanır (db varsa). Mevcut izin/RiskGate/bütçe/audit/compensation hattı
+   DEĞİŞMEZ — McpProxyTool sıradan bir ITool.
+5. Senkronizasyon komutu: CLI `mcp-sync --server <slug>` → tools/list çekip tools tablosuna
+   taslak satırlar ekler (enabled=false, sözleşme alanları en kısıtlayıcı varsayılanla);
+   portal ToolsPage'de insan gözden geçirip enable eder.
+6. Portal: ToolsPage'e "MCP" rozeti + sunucu bilgisi; Ayarlar > MCP Sunucuları CRUD
+   (Express route, service_role yazma, owner token'dan).
+7. Test: sahte JSON-RPC cevapları dönen FakeHttpHandler ile McpClient testleri;
+   McpProxyTool'un Blocked yolları (disabled, sözleşme kısıtı) ToolExecutorTests desenine eklenir.
+
+Önce kısa plan, onaydan sonra kod. Bitti kriteri: build+testler yeşil; mcp-sync ile eklenen
+sahte/yerel bir MCP aracı playbook adımından çağrılıyor; tool_invocations + audit kaydı
+yerleşik araçlarla aynı; sözleşmesi doldurulmamış MCP aracı Faz A kuralıyla reddediliyor.
+```
+
+### PR14 prompt'u — Sector Factory (sektör paketini sistem üretir)
+
+```
+Repo: ai_agent. Bağlam: portal/src/pages/SectorBuilderPage.tsx + PackDraftReviewPage.tsx
+(mevcut ~%55 akış), src/AgentArmy.Cli/Domain/DomainPackDraftWriter.cs, supabase/migrations/
+0019_domain_packs.sql (domain_pack_drafts + merge RPC), 0020_domain_pack_architect.sql,
+operationLoopTick.ts + operationDecide.ts (PR3/PR6 faz deseni), docs/proje-durumu-2026-05.md
+(F tablosu — bilinen engeller).
+
+Görev: Sector Discovery'yi kapalı döngü operasyona bağla — "X sektörüne gir" tek hedefiyle
+taslak→test→değerlendirme→onay→yayın.
+
+1. Yeni operasyon türü: operations.context_json.kind='sector_factory', hedef sektör adı +
+   örnek iş tanımları. stockMonitor benzeri ayrı tetikleyici YOK — portal NewOpForm'dan
+   "Sektör Fabrikası" şablonuyla açılır (form'a şablon seçici: normal / sektör fabrikası).
+2. Faz playbook'ları (DB seed, PR6 alt-playbook deseni — kolonlar: slug, pack_id='system',
+   tenant_id NULL, name, steps {id,agent,goal,output}):
+   a. sector-arastirma: sektörün iş akışları, roller, araç ihtiyaçları (web grounding).
+   b. sector-paket-taslak: DOMAIN_PACK_ARCHITECT ajanıyla pack.json + personas + playbooks
+      taslağı → domain_pack_drafts'a yazılır (mevcut DomainPackDraftWriter yolu).
+   c. sector-paket-test: taslaktaki bir playbook'u dry-run + 1 gerçek run ile koş;
+      Verifier rubric puanı + eksik araç listesi (MCP registry'de karşılığı var mı — PR13)
+      rapor edilir.
+3. operationDecide.ts'e sector_factory faz kuralları: araştırma→taslak→test→
+   (test PASS) wait_approval [insan PackDraftReviewPage'de merge eder] → done;
+   (test FAIL) taslağa düzeltme turu (max 2; sonra escalate).
+4. Onay köprüsü: test PASS olunca approval_queue'ya 'pack.publish' özetli kayıt (R2) +
+   bildirim; PackDraftReviewPage linki action_detail'de. Merge mevcut RPC ile insan
+   tarafından yapılır — otomatik yayın YOK.
+5. KPI: kpi_summary'ye sektör fabrikası alanları (taslak tur sayısı, test PASS oranı,
+   eksik araç sayısı).
+6. F tablosundaki bilinen engelleri (F3 env/JSON kalitesi, F4 çift yol) bu akışta tek yola
+   indir: draft yazımı YALNIZ CLI DomainPackDraftWriter üzerinden.
+
+Önce kısa plan, onaydan sonra kod. Bitti kriteri: build+testler+portal build yeşil;
+"kuaför salonları sektörüne gir" hedefli operasyon uçtan uca: taslak oluştu, test koştu,
+onay kuyruğuna düştü, merge sonrası yeni pack ile bir playbook çalıştı; operasyon done +
+KPI'da tur sayısı görünüyor.
+```
+
+### PR15 prompt'u — Playbook sentezi + terfi
+
+```
+Repo: ai_agent. Bağlam: src/AgentArmy.Cli/Cli/CeoPlanner.cs + CeoExecutor.cs,
+portal/api/lib/selfReflectionTick.ts, supabase/migrations/0019_domain_packs.sql
+(playbooks.version + domain_pack_drafts), PR14 draft/test/terfi akışı.
+
+Görev: hedeften playbook sentezi — prosedürü sistem kurar, başarılılar terfi eder.
+
+1. Migration: playbooks tablosuna status TEXT CHECK ('draft','active','retired')
+   DEFAULT 'active' (mevcut satırlar active kalır — DEFAULT bunu sağlar, UPDATE gerekmez)
+   ve synthesis_meta JSONB NULL (kaynak hedef, sentez tarihi, deneme sayısı, PASS oranı).
+2. CLI `synthesize-playbook --domainPack X --goal "..."`: CeoPlanner'ı yeniden kullanan
+   sentezleyici — eldeki ajan kataloğu + pack araçları + (PR13) MCP araçlarından
+   {id,agent,goal,output} adımlarıyla playbook JSON'u üretir; status='draft' olarak
+   playbooks'a yazar (slug: sentez-<hash>). Araç çağıran adımlara yalnız CanUseTools
+   ajanlar atanır (mevcut kural).
+3. Deneme + terfi: draft playbook normal run ile koşulabilir (PlaybookLoader draft'ları
+   yalnız açıkça slug verilince yükler; listelerde gizli). selfReflectionTick'e terfi kuralı:
+   draft playbook son N=3 run'da Verifier PASS oranı ≥ policy (playbook.promote_pass_rate=1.0)
+   ise approval_queue'ya 'playbook.promote' kaydı (R1) → onaylanınca status='active' +
+   audit 'playbook.promoted'. FAIL oranı eşik üstündeyse status='retired' + audit.
+4. operationLoopTick decide'a: hedefe uyan aktif playbook yoksa ve operasyon
+   context_json.allow_synthesis=true ise yeni aksiyon 'synthesize' — run_requests yerine
+   synthesize-playbook çağrısı kuyruklanır (mode='synthesize' run_request; worker CLI'yı
+   bu komutla çalıştırır), sonraki tick'te draft denenir.
+5. Portal: PlaybooksPage'e status rozetleri (draft sarı / active yeşil / retired gri) +
+   synthesis_meta tooltip; draft'ı elle terfi/emekli etme butonları (RLS: kendi tenant).
+
+Önce kısa plan, onaydan sonra kod. Bitti kriteri: build+testler yeşil;
+synthesize-playbook bir hedeften geçerli draft üretiyor (şema validasyonu: required
+alanlar + ajan adları katalogdan); 3 PASS run sonrası terfi teklifi onay kuyruğunda;
+onayla status='active' oluyor ve normal listede görünüyor.
+```
+
+### PR16 prompt'u — Öğrenen delegasyon (onay ölçekleme)
+
+```
+Repo: ai_agent. Bağlam: supabase/migrations/0013_approval_queue.sql + 0015_approval_enforcement.sql
++ 20260609140000_decide_approval.sql, src/AgentArmy.Cli/Cli/RiskGate.cs,
+portal/src/pages/ApprovalQueuePage.tsx, policy_settings (PR7), notifyChannels.ts.
+
+Görev: onay geçmişinden delegasyon teklifi — sistem önerir, insan karar verir, sınır daralabilir.
+
+1. Migration: delegation_rules(id, owner_user_id, action_class TEXT — ör.
+   'tool:purchase_order', scope_json JSONB — {max_amount, allowed_packs}, granted_risk TEXT
+   CHECK (R0-R1) — delegasyon en fazla R1'e indirir, R2/R3 kalıcı insan onayı gerektirir
+   (güvenlik tavanı), source TEXT CHECK ('suggested','manual'), enabled, created_at,
+   revoked_at). RLS owner. approval_queue'ya delegation_rule_id UUID NULL (oto-onayın izi).
+2. Öneri üretici: portal/api/lib/delegationSuggestTick.ts (haftalık cron workflow) —
+   son 90 günde aynı action_class'ta ≥ policy (delegation.min_history=50) onay ve
+   0 red varsa, scope'u geçmişten çıkar (ör. onaylanan max tutarın %80'i) ve
+   approval_queue'ya 'delegation.suggest' kaydı (R2 — teklifin KENDİSİ insan onaylı) +
+   bildirim. Reddedilirse 90 gün cooldown (policy).
+3. Enforcement: RiskGate.GateAsync R2/R3 yoluna girmeden önce delegation_rules kontrolü —
+   eşleşen aktif kural varsa ve scope_json sınırları (tutar vb.) sağlanıyorsa risk
+   granted_risk'e indirgenir (oto-onay), approval_queue'ya delegation_rule_id'li
+   'auto_approved' kaydı yine yazılır (görünmez onay YOK — audit izi tam). Sınır
+   aşılırsa normal kuyruk.
+4. Güvenlik frenleri: (a) delegasyonlu oto-onay sayısı policy tavanı
+   (delegation.max_auto_per_day=20) — aşınca o gün normal kuyruğa döner;
+   (b) delegasyonlu bir eylem sonradan compensate edilirse kural otomatik askıya alınır
+   (enabled=false + bildirim + audit 'delegation.suspended').
+5. Portal: Ayarlar > Delegasyonlar — kural listesi (kapsam, kullanım sayacı, askı durumu),
+   iptal butonu; ApprovalQueuePage'de oto-onaylı kayıtlara "delegasyonla onaylandı" rozeti.
+
+Önce kısa plan, onaydan sonra kod. Bitti kriteri: build+testler yeşil; testte 50 sahte
+onay geçmişiyle suggest tick teklif üretiyor; teklif onaylanınca scope içi PO oto-onaylanıp
+delegation_rule_id'li kayıt düşüyor; scope dışı (tutar üstü) PO normal kuyruğa gidiyor;
+compensate sonrası kural askıya alınıyor.
+```
+
+### Dördüncü seri sonrası: sektör bağımsızlığının tanımı
+
+Dört PR bittiğinde "yeni sektöre girmek" şu hale gelir: bir operasyon hedefi yaz ("X sektörüne gir") → sistem sektörü araştırır, paketi sentezler, eksik araçları MCP registry'den önerir, kendi üstünde test eder, onayına getirir; sen merge edersin → ilk gerçek işler koşar, playbook'lar kullandıkça kendini eler/terfi eder, onay yükün delegasyon teklifleriyle zamanla düşer. El yapımı hiçbir katman kalmaz; insan rolü üretim değil **yönetim** olur. Piramit diliyle: S3'ün "genişlik" ekseni de otomatikleşmiş olur — S4 beklenirken sistem yatayda kendi kendine büyür.

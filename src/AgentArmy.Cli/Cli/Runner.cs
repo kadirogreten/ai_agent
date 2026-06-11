@@ -258,16 +258,51 @@ public static class Runner
                 }
             }
 
+            // PR9: RUN_INTENT_JSON env'inden intent sözleşmesini parse et.
+            IReadOnlySet<string>? intentForbiddenTools = null;
+            decimal? intentSpendCap = null;
+            var intentJsonRaw = Environment.GetEnvironmentVariable("RUN_INTENT_JSON");
+            if (!string.IsNullOrWhiteSpace(intentJsonRaw))
+            {
+                try
+                {
+                    using var intentDoc = System.Text.Json.JsonDocument.Parse(intentJsonRaw);
+                    var root = intentDoc.RootElement;
+
+                    if (root.TryGetProperty("forbidden_tools", out var ft) &&
+                        ft.ValueKind == System.Text.Json.JsonValueKind.Array)
+                    {
+                        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                        foreach (var item in ft.EnumerateArray())
+                            if (item.ValueKind == System.Text.Json.JsonValueKind.String)
+                                set.Add(item.GetString()!);
+                        intentForbiddenTools = set;
+                    }
+
+                    if (root.TryGetProperty("max_total_spend", out var mts) &&
+                        mts.ValueKind == System.Text.Json.JsonValueKind.Number)
+                    {
+                        intentSpendCap = mts.GetDecimal();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"[Runner] RUN_INTENT_JSON parse hatası: {ex.Message}");
+                }
+            }
+
             var contract = BuildContract(exec, playbook);
             var ctx = new RunContext
             {
-                RunId          = runId,
-                RunDir         = runDir,  // images için
-                Contract       = contract,
-                Playbook       = playbook,
-                SelectedAgents = selectedAgents,
-                Db             = db,
-                ToolEnabledMap = toolEnabledMap
+                RunId                = runId,
+                RunDir               = runDir,  // images için
+                Contract             = contract,
+                Playbook             = playbook,
+                SelectedAgents       = selectedAgents,
+                Db                   = db,
+                ToolEnabledMap       = toolEnabledMap,
+                IntentForbiddenTools = intentForbiddenTools,
+                IntentSpendCap       = intentSpendCap,
             };
 
             await orchestrator.RunAsync(ctx, ct);

@@ -501,6 +501,21 @@ async function processOne(supabase: ReturnType<typeof getSupabaseAdmin>, job: Ru
       log('Using selected agents', { selected_agents: job.selected_agents })
     }
 
+    // PR9: intent_json'ı çalıştırma anında DB'den taze oku (snapshot sürüklenmesini önler).
+    // Worker operation_id → operations.intent_json → RUN_INTENT_JSON env. CLI bu env'i okur.
+    let runIntentJson: string | undefined
+    if (job.operation_id) {
+      const { data: opRow } = await supabase
+        .from('operations')
+        .select('intent_json')
+        .eq('id', job.operation_id)
+        .maybeSingle()
+      const intentJson = (opRow as { intent_json: unknown } | null)?.intent_json
+      if (intentJson != null) {
+        runIntentJson = JSON.stringify(intentJson)
+      }
+    }
+
     log('Running dotnet', { args: ['dotnet', ...dotnetArgs] })
     const started = Date.now()
 
@@ -516,6 +531,8 @@ async function processOne(supabase: ReturnType<typeof getSupabaseAdmin>, job: Ru
       RUN_REQUEST_ID:              job.id,
       // Operasyon belleği: OperationMemoryStore bu id'yi kullanır.
       RUN_OPERATION_ID:            job.operation_id ?? undefined,
+      // PR9: operasyonun taze intent sözleşmesi (forbidden_tools, spend cap vb.)
+      RUN_INTENT_JSON:             runIntentJson,
       DOTNET_CLI_TELEMETRY_OPTOUT: '1',
       DOTNET_NOLOGO:               '1',
     }, repoRoot)

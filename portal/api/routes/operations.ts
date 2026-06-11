@@ -1,5 +1,6 @@
 import { Router, type Request, type Response } from 'express'
 import { getSupabaseAdmin } from '../lib/supabaseAdmin.js'
+import { getPolicy } from '../lib/policyReader.js'
 
 const router = Router()
 
@@ -25,17 +26,35 @@ router.post('/', async (req: Request, res: Response) => {
     const { supabase, user } = await getAuthedUser(req)
     const body = req.body as Record<string, unknown>
 
-    const goal_text       = typeof body.goal_text === 'string' ? body.goal_text.trim() : null
-    const domain_pack     = typeof body.domain_pack === 'string' ? body.domain_pack.trim() : null
-    const persona         = typeof body.persona === 'string' ? body.persona.trim() : null
-    const model           = typeof body.model === 'string' ? body.model.trim() : null
-    const risk            = typeof body.risk === 'string' ? body.risk : 'R1'
-    const max_steps       = typeof body.max_steps === 'number' ? body.max_steps : 10
+    const goal_text        = typeof body.goal_text === 'string' ? body.goal_text.trim() : null
+    const domain_pack      = typeof body.domain_pack === 'string' ? body.domain_pack.trim() : null
+    const persona          = typeof body.persona === 'string' ? body.persona.trim() : null
+    const model            = typeof body.model === 'string' ? body.model.trim() : null
+    const risk             = typeof body.risk === 'string' ? body.risk : 'R1'
+    const max_steps        = typeof body.max_steps === 'number' ? body.max_steps : 10
     const cooldown_minutes = typeof body.cooldown_minutes === 'number' ? body.cooldown_minutes : 30
+    const intent_json      = (body.intent_json != null && typeof body.intent_json === 'object')
+      ? body.intent_json as Record<string, unknown>
+      : null
 
     if (!goal_text)   return res.status(400).json({ error: 'goal_text zorunlu' })
     if (!domain_pack) return res.status(400).json({ error: 'domain_pack zorunlu' })
     if (!['R0','R1','R2','R3'].includes(risk)) return res.status(400).json({ error: 'Geçersiz risk seviyesi' })
+
+    // PR9: intent sözleşmesini policy_settings'teki şemadan oku; required alanları dinamik kontrol et.
+    const schema = await getPolicy<{ required?: string[] }>(
+      supabase, null, 'intent.contract_schema', { required: ['beneficiary', 'success_criteria'] }
+    )
+    const requiredFields = schema?.required ?? ['beneficiary', 'success_criteria']
+    const missingField = requiredFields.find(
+      (f) => !intent_json || intent_json[f] == null || intent_json[f] === ''
+    )
+    if (missingField) {
+      return res.status(400).json({
+        error: `intent_json.${missingField} zorunlu`,
+        required: requiredFields,
+      })
+    }
 
     const { data, error } = await supabase
       .from('operations')
@@ -48,6 +67,7 @@ router.post('/', async (req: Request, res: Response) => {
         risk,
         max_steps,
         cooldown_minutes,
+        intent_json,
         status:     'active',
         step_count: 0,
       })

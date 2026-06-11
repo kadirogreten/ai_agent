@@ -17,6 +17,7 @@ import {
   DECIDE_SYSTEM_PROMPT,
   parseDecideResponse,
   buildDecideUserMessage,
+  type IntentJson,
 } from './prompts/operationDecide.js'
 import { notifyChannels } from './notifyChannels.js'
 import { getPolicy } from './policyReader.js'
@@ -72,6 +73,7 @@ type Operation = {
   cooldown_minutes: number
   last_tick_at:     string | null
   context_json:     Record<string, unknown> | null
+  intent_json:      IntentJson | null
   created_at:       string
 }
 
@@ -194,6 +196,7 @@ async function decide(op: Operation, obs: Awaited<ReturnType<typeof observe>>) {
     lastError:           obs.lastError,
     lastResultSummary:   obs.lastResultSummary,
     availablePlaybooks:  obs.availablePlaybooks,
+    intent:              op.intent_json,
   })
 
   const model  = op.model ?? 'gpt-4.1'
@@ -351,6 +354,34 @@ async function processOperation(supabase: SupabaseClient, op: Operation) {
   const { action, next_playbook, next_topic, reason } = decideResp
 
   // ── ACT ───────────────────────────────────────────────────────────────────
+
+  // PR9: intent expires_at kontrolü — vade dolmuş operasyon ilk tick'te kapanır
+  if (op.intent_json?.expires_at) {
+    const expiresAt = new Date(op.intent_json.expires_at)
+    if (!isNaN(expiresAt.getTime()) && expiresAt < new Date()) {
+      await supabase
+        .from('operations')
+        .update({ status: 'done', updated_at: new Date().toISOString() })
+        .eq('id', op.id)
+      await logEvent(supabase, op.id, 'act', {
+        action:  'intent_expired',
+        reason:  `expires_at geçti: ${op.intent_json.expires_at}`,
+      })
+      await notifyChannels({
+        ownerId: op.owner_user_id,
+        subject: `[AgentArmy] Operasyon süresi doldu: ${op.goal_text.slice(0, 60)}`,
+        message: [
+          `Operasyon intent vadesi geçtiği için otomatik kapatıldı.`,
+          `Hedef: ${op.goal_text}`,
+          `Vade: ${op.intent_json.expires_at}`,
+          `ID: ${op.id}`,
+        ].join('\n'),
+      })
+      log('operasyon intent_expired ile kapatıldı', { id: op.id, expires_at: op.intent_json.expires_at })
+      return
+    }
+  }
+
   if (action === 'continue' || action === 'retry') {
     const playbook = next_playbook
       ?? obs.lastPlaybook
@@ -366,6 +397,23 @@ async function processOperation(supabase: SupabaseClient, op: Operation) {
           reorder_quantity:      op.context_json.reorder_quantity,
         }
       : {}
+
+    // PR9 savunma derinliği: forbidden araçları run_requests.tools'tan filtrele.
+    // Worker bu listeyi --tools arg olarak CLI'a iletir; CLI ToolExecutor da kontrol eder.
+    let toolsField: string | undefined
+    const forbidden = op.intent_json?.forbidden_tools ?? []
+    if (forbidden.length > 0) {
+      const { data: platformTools } = await supabase
+        .from('tools')
+        .select('slug')
+        .is('tenant_id', null)
+        .eq('enabled', true)
+      const allSlugs = ((platformTools ?? []) as { slug: string }[]).map((t) => t.slug)
+      const allowed  = allSlugs.filter((s) => !forbidden.includes(s))
+      toolsField = allowed.length > 0
+        ? `tools: ${allowed.join(', ')}; max_calls: 30`
+        : 'tools: _none'
+    }
 
     const { error: insErr } = await supabase.from('run_requests').insert({
       owner_user_id:   op.owner_user_id,
@@ -384,6 +432,7 @@ async function processOperation(supabase: SupabaseClient, op: Operation) {
       allow_high_risk: false,
       status:          'pending',
       operation_id:    op.id,
+      ...(toolsField !== undefined ? { tools: toolsField } : {}),
     })
 
     if (insErr) { log('run_request insert hatası', { id: op.id, error: insErr.message }); return }
@@ -441,7 +490,7 @@ export async function tick() {
 
   const { data: ops, error } = await supabase
     .from('operations')
-    .select('id, owner_user_id, goal_text, domain_pack, persona, model, risk, status, max_steps, step_count, cooldown_minutes, last_tick_at, context_json, created_at')
+    .select('id, owner_user_id, goal_text, domain_pack, persona, model, risk, status, max_steps, step_count, cooldown_minutes, last_tick_at, context_json, intent_json, created_at')
     .eq('status', 'active')
     .order('last_tick_at', { ascending: true, nullsFirst: true })
     .limit(20)

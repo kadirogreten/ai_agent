@@ -217,6 +217,77 @@ public sealed class ToolExecutorTests
     }
 
     /// <summary>
+    /// (f) IntentForbiddenTools listesindeki araç çağrısı → Blocked, hata "intent sözleşmesinde yasak" içerir.
+    /// Fake slug kullanılır — gerçek katalog adlarına bağımlılık yok.
+    /// </summary>
+    [Fact]
+    public async Task IntentForbiddenTool_BlockedBeforePermissions()
+    {
+        var tool = new FakeTool("fake_blocked_tool", ToolSideEffect.Read, reversible: true);
+        var exec = TestHelpers.MakeExecutor(tool);
+        var ctx  = new RunContext
+        {
+            RunId    = "test-run-intent",
+            RunDir   = string.Empty,
+            Contract = new TaskContract(
+                Persona: "test", Goal: "test", Topic: "test",
+                Deliverables: "test", Scope: string.Empty, OutOfScope: string.Empty,
+                QualityCriteria: string.Empty, Risk: "R1",
+                ToolPermissions: "tools: *",
+                Deadline: string.Empty),
+            Playbook = new Playbook
+            {
+                Id            = "test-pb",
+                Title         = "Test",
+                DefaultPersona = "default",
+                Steps         = new System.Collections.Generic.List<PlaybookStep>(),
+            },
+            Db = null,
+            IntentForbiddenTools = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "fake_blocked_tool" },
+        };
+
+        var result = await exec.ExecuteAsync(tool.Slug, TestHelpers.EmptyArgs(), AgentsCatalog.All["Researcher"], ctx, CancellationToken.None);
+
+        Assert.False(result.Ok);
+        Assert.Contains("intent sözleşmesinde yasak", result.Error);
+    }
+
+    /// <summary>
+    /// (g) IntentForbiddenTools = null → araç çalışır (null intent geriye uyumlu).
+    /// Bitti kriteri: eski operasyonlar (intent_json yok) bozulmaz.
+    /// </summary>
+    [Fact]
+    public async Task NullIntentForbiddenTools_ToolRunsNormally()
+    {
+        var tool = new FakeTool("fake_any_tool", ToolSideEffect.Read, reversible: true);
+        var exec = TestHelpers.MakeExecutor(tool);
+        var ctx  = new RunContext
+        {
+            RunId    = "test-run-no-intent",
+            RunDir   = string.Empty,
+            Contract = new TaskContract(
+                Persona: "test", Goal: "test", Topic: "test",
+                Deliverables: "test", Scope: string.Empty, OutOfScope: string.Empty,
+                QualityCriteria: string.Empty, Risk: "R0",
+                ToolPermissions: "tools: *",
+                Deadline: string.Empty),
+            Playbook = new Playbook
+            {
+                Id            = "test-pb",
+                Title         = "Test",
+                DefaultPersona = "default",
+                Steps         = new System.Collections.Generic.List<PlaybookStep>(),
+            },
+            Db = null,
+            IntentForbiddenTools = null,   // intent yok → kısıt yok
+        };
+
+        var result = await exec.ExecuteAsync(tool.Slug, TestHelpers.EmptyArgs(), AgentsCatalog.All["Researcher"], ctx, CancellationToken.None);
+
+        Assert.True(result.Ok);
+    }
+
+    /// <summary>
     /// (e) R2+ araç + "no-db bypass" → highRisk && bypassed → fail-closed.
     /// FakeTool MinRisk=R2 + TaskContract.Risk=R2; OwnerId env var'ına bağımlılık yok.
     /// "Üç yol (CLI/worker/CEO) aynı IToolExecutor'dan geçer" — bu tek test yeterli.

@@ -109,6 +109,35 @@ public sealed class ToolExecutor : IToolExecutor
                 ToolInvocationStatus.Blocked, ct);
         }
 
+        // 1c) PR9 intent forbidden_tools kontrolü.
+        if (ctx.IntentForbiddenTools is not null && ctx.IntentForbiddenTools.Contains(slug))
+        {
+            if (ctx.Db is not null && ctx.OwnerId is not null)
+            {
+                try
+                {
+                    await ctx.Db.CallRpcAsync("append_audit_log", new
+                    {
+                        p_owner_user_id = ctx.OwnerId,
+                        p_actor_type    = "agent",
+                        p_actor_id      = agent.Id,
+                        p_action        = "tool.forbidden_by_intent",
+                        p_resource_type = "tool",
+                        p_risk_level    = effRisk,
+                        p_severity      = "warn",
+                        p_detail        = new { slug, reason = "Tool is forbidden by operation intent contract." },
+                    }, ct);
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"[ToolExecutor] tool.forbidden_by_intent audit yazılamadı: {ex.Message}");
+                }
+            }
+            return await FinishAsync(ctx, slug, agent.Id, args, sideEffect, effRisk, null,
+                ToolResult.Failure(slug, $"Araç '{slug}' operasyon intent sözleşmesinde yasak."),
+                ToolInvocationStatus.Blocked, ct);
+        }
+
         // 2) İzin (görev sözleşmesi). agent_tools DB kesişimi sonraki PR'da eklenecek.
         var perms = ToolPermissions.Parse(ctx.Contract.ToolPermissions);
         if (!perms.IsToolAllowed(slug))
@@ -126,6 +155,34 @@ public sealed class ToolExecutor : IToolExecutor
         if (desc.SideEffect.HasSideEffect())
         {
             var amount = BudgetChecker.ExtractAmount(args);
+
+            // PR9: intent spend cap (tek çağrı tutarı tavanı). Kümülatif takip ertelendi.
+            if (ctx.IntentSpendCap.HasValue && amount > ctx.IntentSpendCap.Value)
+            {
+                var capFailResult = ToolResult.Failure(slug, $"Araç çağrısı tutarı ({amount:C2}) intent tavanını ({ctx.IntentSpendCap.Value:C2}) aşıyor.");
+                try
+                {
+                    if (ctx.Db is not null && ctx.OwnerId is not null)
+                        await ctx.Db.CallRpcAsync("append_audit_log", new
+                        {
+                            p_owner_user_id = ctx.OwnerId,
+                            p_actor_type    = "agent",
+                            p_actor_id      = agent.Id,
+                            p_action        = "intent.spend_exceeded",
+                            p_resource_type = "tool",
+                            p_risk_level    = effRisk,
+                            p_severity      = "warn",
+                            p_detail        = new { slug, amount, cap = ctx.IntentSpendCap.Value },
+                        }, ct);
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"[ToolExecutor] intent.spend_exceeded audit yazılamadı: {ex.Message}");
+                }
+                return await FinishAsync(ctx, slug, agent.Id, args, sideEffect, effRisk, null,
+                    capFailResult, ToolInvocationStatus.Blocked, ct);
+            }
+
             var budgetResult = await _budget.ConsumeAsync(ctx.Db, ctx.OwnerId, slug, amount, ct);
             if (!budgetResult.Allowed)
             {

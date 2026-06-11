@@ -19,6 +19,18 @@ public sealed class RunContext
     /// </summary>
     public IReadOnlyDictionary<string, bool>? ToolEnabledMap { get; init; }
 
+    /// <summary>
+    /// PR9: RUN_INTENT_JSON env'inden parse edilen yasak araç slug seti.
+    /// null → kısıt yok (eski operasyonlar veya intent_json'sız run'lar geriye uyumlu çalışır).
+    /// </summary>
+    public IReadOnlySet<string>? IntentForbiddenTools { get; init; }
+
+    /// <summary>
+    /// PR9: intent_json.max_total_spend'ten gelen tek çağrı harcama tavanı (USD).
+    /// null → tavan yok. Kümülatif operasyon harcama takibi bilinçli ertelendi.
+    /// </summary>
+    public decimal? IntentSpendCap { get; init; }
+
     /// <summary>RUN_OWNER_USER_ID env var'dan okunur; run_outputs ve run_events'e eklenir.</summary>
     public string? OwnerId => Environment.GetEnvironmentVariable("RUN_OWNER_USER_ID");
 
