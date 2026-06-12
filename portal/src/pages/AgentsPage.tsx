@@ -7,7 +7,7 @@ import { useAuthStore } from '@/stores/authStore'
 import { listAgents, type AgentRole, type AgentRow } from '@/lib/agents'
 import { listPersonas, type PersonaRow } from '@/lib/personas'
 import { motion, useMotionValue, useTransform, AnimatePresence } from 'framer-motion'
-import { LayoutGrid, List, Plus, X, Monitor, Cpu, Globe, Database, Pen, Shield, Wrench, FlaskConical, Code2 } from 'lucide-react'
+import { LayoutGrid, List, Plus, X, Monitor, Cpu, Globe, Database, Pen, Shield, Wrench, FlaskConical, Code2, Crown, Boxes } from 'lucide-react'
 
 // ─── Sabitler ────────────────────────────────────────────────────────────────
 
@@ -21,6 +21,8 @@ const ROLE_LABELS: Record<AgentRole, string> = {
   contrarian:   'Contrarian',
   design:       'Tasarım',
   code:         'Kod',
+  architecture: 'Mimari',
+  ceo:          'CEO / Yönetim',
 }
 
 const ROLE_ICONS: Record<AgentRole, React.ReactNode> = {
@@ -33,6 +35,8 @@ const ROLE_ICONS: Record<AgentRole, React.ReactNode> = {
   contrarian:   <X size={14} />,
   design:       <Monitor size={14} />,
   code:         <Code2 size={14} />,
+  architecture: <Boxes size={14} />,
+  ceo:          <Crown size={14} />,
 }
 
 const RISK_LIGHT: Record<string, string> = {
@@ -52,6 +56,8 @@ const ROLE_COLORS: Record<AgentRole, string> = {
   contrarian:   '#f87171',
   design:       '#e879f9',
   code:         '#4ade80',
+  architecture: '#2dd4bf',
+  ceo:          '#facc15',
 }
 
 // ─── 3D Masa Kartı ────────────────────────────────────────────────────────────
