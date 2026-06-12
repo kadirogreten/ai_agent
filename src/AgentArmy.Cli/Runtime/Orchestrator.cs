@@ -224,7 +224,7 @@ public sealed class Orchestrator
             }, ct);
 
             var (output, stepTokensIn, stepTokensOut, stepModel) =
-                await RunStepCompletionAsync(llm, system, user, agent, ctx, ct);
+                await RunStepCompletionAsync(llm, system, user, agent, ctx, step.PrimaryTool, ct);
 
             totalTokensIn  += stepTokensIn;
             totalTokensOut += stepTokensOut;
@@ -337,16 +337,25 @@ public sealed class Orchestrator
     /// Token ve model toplamlarını da döndürür. Faz A — Tool Invocation (PR4).
     /// </summary>
     private async Task<(string Text, int TokensIn, int TokensOut, string Model)> RunStepCompletionAsync(
-        ILlmClient llm, string system, string user, Agent agent, RunContext ctx, CancellationToken ct)
+        ILlmClient llm, string system, string user, Agent agent, RunContext ctx, string? primaryTool, CancellationToken ct)
     {
         var toolset = (_toolExecutor is not null && agent.Behaviors.CanUseTools)
             ? _toolExecutor.AvailableFor(agent, ctx.Contract)
             : (IReadOnlyList<ToolDescriptor>)Array.Empty<ToolDescriptor>();
 
+        // primaryTool varsa araç listesi yalnız o araçla kısıtlanır — savuşturma kapanır.
+        if (!string.IsNullOrWhiteSpace(primaryTool))
+        {
+            var only = toolset.FirstOrDefault(t => t.Slug.Equals(primaryTool, StringComparison.OrdinalIgnoreCase));
+            toolset = only is not null
+                ? new[] { only }
+                : (IReadOnlyList<ToolDescriptor>)Array.Empty<ToolDescriptor>();
+        }
+
         // Teşhis: bu adımda kaç araç sunuldu? (ajan + CanUseTools + görev izni kesişimi)
         Console.Error.WriteLine(
             $"[Orchestrator] step agent={agent.Id} canUseTools={agent.Behaviors.CanUseTools} " +
-            $"toolExecutor={(_toolExecutor is not null)} offeredTools={toolset.Count}" +
+            $"primaryTool={primaryTool ?? "-"} offeredTools={toolset.Count}" +
             (toolset.Count > 0 ? $" [{string.Join(",", toolset.Select(t => t.Slug))}]" : ""));
 
         // Araç yoksa mevcut davranış birebir korunur (geriye uyumlu).
@@ -365,7 +374,9 @@ public sealed class Orchestrator
         {
             for (var round = 0; round < maxCalls; round++)
             {
-                var turn = await llm.CompleteWithToolsAsync(system, user, toolset, exchanges, ct);
+                // İlk turda primaryTool varsa spesifik araç zorlanır; sonraki turlar serbest.
+                var forceTool = (round == 0 && !string.IsNullOrWhiteSpace(primaryTool)) ? primaryTool : null;
+                var turn = await llm.CompleteWithToolsAsync(system, user, toolset, exchanges, forceTool, ct);
                 tin += turn.TokensIn; tout += turn.TokensOut; model = turn.Model;
 
                 if (!turn.HasToolCalls)
@@ -380,7 +391,7 @@ public sealed class Orchestrator
             }
 
             // Çağrı bütçesi (max_calls) doldu → araçsız son tur ile modeli nihai metne zorla.
-            var final = await llm.CompleteWithToolsAsync(system, user, Array.Empty<ToolDescriptor>(), exchanges, ct);
+            var final = await llm.CompleteWithToolsAsync(system, user, Array.Empty<ToolDescriptor>(), exchanges, null, ct);
             tin += final.TokensIn; tout += final.TokensOut; model = final.Model;
             return (final.Text ?? string.Empty, tin, tout, model);
         }

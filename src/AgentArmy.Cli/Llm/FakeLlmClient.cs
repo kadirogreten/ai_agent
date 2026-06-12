@@ -33,6 +33,7 @@ public sealed class FakeLlmClient : ILlmClient
         string userPrompt,
         IReadOnlyList<ToolDescriptor> tools,
         IReadOnlyList<ToolExchange> priorExchanges,
+        string? primaryTool,
         CancellationToken cancellationToken)
     {
         // 1) Senaryolu turlar — testlerin tam, deterministik kontrolü.
@@ -44,11 +45,13 @@ public sealed class FakeLlmClient : ILlmClient
             return Task.FromResult(turn);
         }
 
-        // 2) Varsayılan heuristik: ilk turda ilk aracı çağır (döngüyü uçtan uca test etmek için)...
+        // 2) Varsayılan heuristik: ilk turda primaryTool (varsa) veya ilk aracı çağır.
         if (tools.Count > 0 && priorExchanges.Count == 0)
         {
-            var first = tools[0];
-            var call  = new ToolCall(first.Slug, EmptyArgs(), "call_fake_1");
+            var target = !string.IsNullOrWhiteSpace(primaryTool)
+                ? tools.FirstOrDefault(t => t.Slug.Equals(primaryTool, StringComparison.OrdinalIgnoreCase)) ?? tools[0]
+                : tools[0];
+            var call = new ToolCall(target.Slug, EmptyArgs(), "call_fake_1");
             return Task.FromResult(new LlmTurn(null, new[] { call }, "fake", 0, 0));
         }
 

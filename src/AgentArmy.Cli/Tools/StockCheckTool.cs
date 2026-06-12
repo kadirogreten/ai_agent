@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace AgentArmy.Cli;
 
@@ -72,9 +73,16 @@ public sealed class StockCheckTool : ITool
 
         const string select = "select=product,sku,current_stock,threshold,target_stock,warehouse,source";
 
-        // Önce birebir, bulunamazsa büyük/küçük harf duyarsız (ilike) eşleşme dene.
-        var row = await FindRowAsync(ctx, owner!, $"product=eq.{Uri.EscapeDataString(product)}", select, ct)
-               ?? await FindRowAsync(ctx, owner!, $"product=ilike.{Uri.EscapeDataString(product)}", select, ct);
+        // Eşleşme sırası (R6 dogfood fix):
+        // (a) args.product içindeki SKU deseni [A-Z]{2,}-\d+ → sku=eq.{sku}
+        // (b) tam ad eşleşmesi product=eq.{product}
+        // (c) büyük/küçük harf duyarsız ILIKE — tek sonuç yeterliyse kabul et.
+        var skuMatch = SkuRegex.Match(product);
+        JsonElement? row = null;
+        if (skuMatch.Success)
+            row = await FindRowAsync(ctx, owner!, $"sku=eq.{Uri.EscapeDataString(skuMatch.Value)}", select, ct);
+        row ??= await FindRowAsync(ctx, owner!, $"product=eq.{Uri.EscapeDataString(product)}", select, ct);
+        row ??= await FindRowAsync(ctx, owner!, $"product=ilike.{Uri.EscapeDataString("%" + product + "%")}", select, ct);
 
         if (row is null)
             return ToolResult.Failure(Slug,
@@ -108,6 +116,9 @@ public sealed class StockCheckTool : ITool
     }
 
     // ── Yardımcılar ──────────────────────────────────────────────────────────
+
+    // SKU deseni: 2+ büyük harf + tire + 1+ rakam (örn. KK-001, ABCD-12)
+    private static readonly Regex SkuRegex = new(@"[A-Z]{2,}-\d+", RegexOptions.Compiled);
 
     private static async Task<JsonElement?> FindRowAsync(
         RunContext ctx, string owner, string productFilter, string select, CancellationToken ct)

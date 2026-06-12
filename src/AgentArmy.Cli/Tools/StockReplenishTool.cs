@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace AgentArmy.Cli;
 
@@ -65,9 +66,21 @@ public sealed class StockReplenishTool : ITool, ICompensable
             !qEl.TryGetInt32(out var quantity) || quantity < 1)
             return ToolResult.Failure(Slug, "Zorunlu 'quantity' argümanı (>=1 tamsayı) eksik/geçersiz.");
 
-        var product        = pEl.GetString()!.Trim();
+        var productRaw     = pEl.GetString()!.Trim();
         var orderId        = args.TryGetProperty("order_id",        out var oEl) && oEl.ValueKind == JsonValueKind.String ? oEl.GetString() : null;
         var trackingNumber = args.TryGetProperty("tracking_number", out var tEl) && tEl.ValueKind == JsonValueKind.String ? tEl.GetString() : null;
+
+        // Ürün eşleşmesi (R6): SKU deseni → canonical product adı çöz, yoksa ILIKE ile devam.
+        var product = productRaw;
+        if (ctx.Db is not null && !string.IsNullOrWhiteSpace(ctx.OwnerId))
+        {
+            var skuMatch = SkuRegex.Match(productRaw);
+            if (skuMatch.Success)
+            {
+                var resolved = await ResolveProductNameAsync(ctx, ctx.OwnerId!, skuMatch.Value, ct);
+                if (resolved is not null) product = resolved;
+            }
+        }
 
         var stockUpdated = false;
         if (ctx.Db is not null && !string.IsNullOrWhiteSpace(ctx.OwnerId))
@@ -149,6 +162,32 @@ public sealed class StockReplenishTool : ITool, ICompensable
         }
 
         return CompensationResult.Success($"Null-DB: stok geri alma atlandı (product={product} qty={quantity})");
+    }
+
+    // ── Yardımcılar ──────────────────────────────────────────────────────────
+
+    private static readonly Regex SkuRegex = new(@"[A-Z]{2,}-\d+", RegexOptions.Compiled);
+
+    /// <summary>SKU ile stock_levels'tan canonical product adını çözer; bulunamazsa null.</summary>
+    private static async Task<string?> ResolveProductNameAsync(
+        RunContext ctx, string owner, string sku, CancellationToken ct)
+    {
+        try
+        {
+            var query = $"owner_user_id=eq.{Uri.EscapeDataString(owner)}&sku=eq.{Uri.EscapeDataString(sku)}&select=product&limit=1";
+            var res = await ctx.Db!.SelectAsync("stock_levels", query, ct);
+            if (res.ValueKind == JsonValueKind.Array && res.GetArrayLength() > 0)
+            {
+                var row = res[0];
+                if (row.TryGetProperty("product", out var p) && p.ValueKind == JsonValueKind.String)
+                    return p.GetString();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[stock_replenish] SKU çözümleme hatası ({sku}): {ex.Message}");
+        }
+        return null;
     }
 
     private static JsonElement Schema(string json)

@@ -25,11 +25,15 @@ public interface ILlmClient
     /// böylece araç desteklemeyen istemciler (örn. FakeLlmClient eski davranış) kırılmaz.
     /// Araç destekleyen istemciler (OpenAiResponsesClient) bunu override eder.
     /// </summary>
+    /// <param name="primaryTool">
+    /// Null olmadığında ilk turda bu araç zorla çağrılır; araç listesi de bu araçla kısıtlanır.
+    /// </param>
     async Task<LlmTurn> CompleteWithToolsAsync(
         string systemPrompt,
         string userPrompt,
         IReadOnlyList<ToolDescriptor> tools,
         IReadOnlyList<ToolExchange> priorExchanges,
+        string? primaryTool,
         CancellationToken cancellationToken)
     {
         var result = await CompleteAsync(systemPrompt, userPrompt, cancellationToken);

@@ -55,19 +55,36 @@ public sealed class AnthropicMessagesClient : ILlmClient
         string userPrompt,
         IReadOnlyList<ToolDescriptor> tools,
         IReadOnlyList<ToolExchange> priorExchanges,
+        string? primaryTool,
         CancellationToken cancellationToken)
     {
         var messages = BuildMessages(userPrompt, priorExchanges);
         var toolDefs = BuildToolDefs(tools);
 
-        var payload = new
-        {
-            model      = _model,
-            max_tokens = DefaultMaxTokens,
-            system     = systemPrompt,
-            messages,
-            tools      = toolDefs,
-        };
+        // tool_choice: ilk turda primaryTool varsa spesifik araç, yoksa null (Anthropic'te
+        // tool_choice olmadan model araç çağırabilir; "required" olmadan "auto" varsayılan).
+        object? toolChoice = null;
+        if (priorExchanges.Count == 0 && !string.IsNullOrWhiteSpace(primaryTool))
+            toolChoice = new Dictionary<string, object?> { ["type"] = "tool", ["name"] = primaryTool };
+
+        var payload = toolChoice is not null
+            ? (object)new
+            {
+                model      = _model,
+                max_tokens = DefaultMaxTokens,
+                system     = systemPrompt,
+                messages,
+                tools      = toolDefs,
+                tool_choice = toolChoice,
+            }
+            : new
+            {
+                model      = _model,
+                max_tokens = DefaultMaxTokens,
+                system     = systemPrompt,
+                messages,
+                tools      = toolDefs,
+            };
 
         var (root, tokensIn, tokensOut) = await PostAsync(payload, cancellationToken);
 

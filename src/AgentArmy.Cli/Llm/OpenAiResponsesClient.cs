@@ -86,6 +86,7 @@ public sealed class OpenAiResponsesClient : ILlmClient
         string userPrompt,
         IReadOnlyList<ToolDescriptor> tools,
         IReadOnlyList<ToolExchange> priorExchanges,
+        string? primaryTool,
         CancellationToken cancellationToken)
     {
         // input: system + user + önceki (function_call / function_call_output) çiftleri
@@ -116,12 +117,17 @@ public sealed class OpenAiResponsesClient : ILlmClient
 
         var toolDefs = BuildFunctionTools(tools);
 
-        // Deterministik araç çağrısı: araç-yetkili adımın İLK turunda (henüz çağrı yapılmamışken)
-        // ve gerçek bir fonksiyon aracı varsa, modeli bir araç çağırmaya ZORLA ("required").
-        // Böylece Operator metinle "anlatıp" geçemez. Araç çalıştıktan sonra (priorExchanges dolu)
-        // serbest bırakılır ki sonucu yorumlayıp adımı bitirebilsin.
-        var hasFunctionTool = tools is { Count: > 0 };
-        var toolChoice = hasFunctionTool && priorExchanges.Count == 0 ? "required" : null;
+        // tool_choice mantığı (ilk tur = priorExchanges boş):
+        // • primaryTool varsa → {"type":"function","name":"<slug>"} ile o araç ZORİLE çağrılır.
+        // • primaryTool yoksa, araç listesi doluysa → "required" (herhangi bir araç).
+        // • Sonraki turlar (priorExchanges dolu) → null (model nihai metni üretebilsin).
+        object? toolChoice = null;
+        if (priorExchanges.Count == 0 && tools is { Count: > 0 })
+        {
+            toolChoice = !string.IsNullOrWhiteSpace(primaryTool)
+                ? (object)new Dictionary<string, object?> { ["type"] = "function", ["name"] = primaryTool }
+                : "required";
+        }
 
         var payload  = BuildPayload(input.ToArray(), tools: toolDefs, includeTemperature: true, toolChoice: toolChoice);
         var respText = await PostWithFallbackAsync(payload, cancellationToken);
@@ -252,7 +258,7 @@ public sealed class OpenAiResponsesClient : ILlmClient
         return empty.RootElement.Clone();
     }
 
-    private Dictionary<string, object?> BuildPayload(object input, object[]? tools, bool includeTemperature, string? toolChoice = null)
+    private Dictionary<string, object?> BuildPayload(object input, object[]? tools, bool includeTemperature, object? toolChoice = null)
     {
         var payload = new Dictionary<string, object?>
         {

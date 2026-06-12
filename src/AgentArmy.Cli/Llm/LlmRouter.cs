@@ -64,17 +64,18 @@ public sealed class LlmRouter : ILlmClient
         string userPrompt,
         IReadOnlyList<ToolDescriptor> tools,
         IReadOnlyList<ToolExchange> priorExchanges,
+        string? primaryTool,
         CancellationToken cancellationToken)
     {
         try
         {
-            return await _primary.CompleteWithToolsAsync(systemPrompt, userPrompt, tools, priorExchanges, cancellationToken);
+            return await _primary.CompleteWithToolsAsync(systemPrompt, userPrompt, tools, priorExchanges, primaryTool, cancellationToken);
         }
         catch (InvalidOperationException ex) when (_fallback is not null && IsRetryableError(ex.Message))
         {
             Console.Error.WriteLine(
                 $"[LlmRouter] {_primaryModel} failed ({TruncateMsg(ex.Message)}), falling back…");
-            return await _fallback.CompleteWithToolsAsync(systemPrompt, userPrompt, tools, priorExchanges, cancellationToken);
+            return await _fallback.CompleteWithToolsAsync(systemPrompt, userPrompt, tools, priorExchanges, primaryTool, cancellationToken);
         }
     }
 

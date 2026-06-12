@@ -37,6 +37,13 @@ public sealed class PlaybookStep
     /// Blok aksiyonu önlediği için bu adıma ait hiçbir compensation tetiklenmez.
     /// </summary>
     [JsonPropertyName("blockOnVerifierFail")] public bool BlockOnVerifierFail { get; init; }
+
+    /// <summary>
+    /// İlk turda bu araç zorla çağrılır (tool_choice = specific function).
+    /// Adımın araç listesi de yalnız bu araçla kısıtlanır — model başka araç çağıramaz.
+    /// Boş veya null ise mevcut davranış (required) korunur.
+    /// </summary>
+    [JsonPropertyName("primaryTool")] public string? PrimaryTool { get; init; }
 }
 
 public sealed class ImageSpec
