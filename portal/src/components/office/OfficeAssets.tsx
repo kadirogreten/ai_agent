@@ -59,8 +59,8 @@ function createDetailedDesk(parent: THREE.Object3D) {
   createPedestal(parent, -1.7, 0.475, 0, frameMat)
   createPedestal(parent, 1.7, 0.475, 0, frameMat)
 
-  // Monitor faces local -z (toward center after group rotation)
-  createMonitorSetup(parent, 1.3, -1.5, frameMat)
+  // Monitor centered on desk, local z=-0.3 (back of desk, screen faces +z toward agent)
+  createMonitorSetup(parent, 0, -0.3, frameMat)
   createKeyboardAndMouse(parent, -0.7, -1.2)
   createDetailedLamp(parent, 0.9, -1.6, 1.4)
   createPenHolder(parent, -1.4, -1.2)

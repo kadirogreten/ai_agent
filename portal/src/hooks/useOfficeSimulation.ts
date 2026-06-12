@@ -18,6 +18,7 @@ export interface AgentPosition {
   targetPosition: THREE.Vector3
   deskPosition: THREE.Vector3    // home
   isMoving: boolean
+  deskAngle: number             // polar angle of assigned amphitheater slot (0 for CEO)
   mesh?: THREE.Group
   positionHistory: THREE.Vector3[]
   trailMesh?: THREE.Line
@@ -275,35 +276,51 @@ export function useOfficeSimulation({
   useEffect(() => {
     if (!scene) return
 
-    const amphi = getAmphibDeskPositions(5)
+    // R6: single source of truth — amphi list built from actual non-CEO count
+    const rawList = dbAgents.length > 0
+      ? dbAgents.slice(0, 16).map((dbA) => ({
+          agentId: dbA.id,
+          name:    dbA.name ?? 'Agent',
+          code:    dbA.code ?? '',
+          role:    dbA.role ?? 'executor',
+        }))
+      : [
+          { agentId: 'demo-1', name: 'Research Bot', code: 'rb-001', role: 'researcher' },
+          { agentId: 'demo-2', name: 'Analysis Bot', code: 'ab-001', role: 'analyst' },
+          { agentId: 'demo-3', name: 'Writing Bot',  code: 'wb-001', role: 'writer' },
+          { agentId: 'demo-4', name: 'Edit Bot',     code: 'eb-001', role: 'editor' },
+          { agentId: 'demo-5', name: 'Plan Bot',     code: 'pb-001', role: 'planner' },
+        ]
+
+    const nonCeoCount = rawList.filter((a) => {
+      const r = a.role?.toLowerCase()
+      return r !== 'ceo' && a.code?.toUpperCase() !== 'CEO' && a.name?.toUpperCase() !== 'CEO'
+    }).length
+
+    const amphi = getAmphibDeskPositions(Math.max(1, nonCeoCount))
     let amphibIdx = 0
 
-    const agentsToInit: AgentPosition[] = (
-      dbAgents.length > 0
-        // R5.2: slice(0,8) sınırı kaldırıldı — KPI 11 gösterirken sahne/panel 8'de
-        // kalıyordu (CEO dahil 3 ajan hiç çizilmiyordu). Masa sayısı zaten
-        // deskCount=nonCeo ile eşleşiyor; güvenlik tavanı 16.
-        ? dbAgents.slice(0, 16).map((dbA) => ({
-            agentId: dbA.id,
-            name:    dbA.name   ?? 'Agent',
-            code:    dbA.code   ?? '',
-            role:    dbA.role   ?? 'executor',
-          }))
-        : [
-            { agentId: 'demo-1', name: 'Research Bot', code: 'rb-001', role: 'researcher' },
-            { agentId: 'demo-2', name: 'Analysis Bot', code: 'ab-001', role: 'analyst' },
-            { agentId: 'demo-3', name: 'Writing Bot',  code: 'wb-001', role: 'writer' },
-            { agentId: 'demo-4', name: 'Edit Bot',     code: 'eb-001', role: 'editor' },
-            { agentId: 'demo-5', name: 'Plan Bot',     code: 'pb-001', role: 'planner' },
-          ]
-    ).map((a) => {
-      // R5.2: rol seçenekleri arasında 'ceo' yok (form kısıtı) — kod/ad ile de tanı.
+    const agentsToInit: AgentPosition[] = rawList.map((a) => {
       const isCeo = a.role?.toLowerCase() === 'ceo' || a.code?.toUpperCase() === 'CEO' || a.name?.toUpperCase() === 'CEO'
-      const deskPos = isCeo
-        ? CEO_DESK_POS.clone()
-        : new THREE.Vector3(amphi[amphibIdx]?.x ?? 0, 2, amphi[amphibIdx]?.z ?? 0)
 
-      if (!isCeo) amphibIdx = Math.min(amphibIdx + 1, amphi.length - 1)
+      // R6: figure sits at desk-local (0, 0, +0.9) → world = desk_pos + rotated offset
+      // rotation.y = -π/2 - angle; local (0,0,0.9) in world:
+      //   x += 0.9 * sin(ry) = 0.9 * (-cos(angle))
+      //   z += 0.9 * cos(ry) = 0.9 * (-sin(angle))
+      // which is simply 0.9 units closer to center than the desk.
+      let deskPos: THREE.Vector3
+      let deskAngle = 0
+      if (isCeo) {
+        deskPos = CEO_DESK_POS.clone()
+      } else {
+        const slot = amphi[Math.min(amphibIdx, amphi.length - 1)]
+        deskAngle = slot.angle
+        const ry = -Math.PI / 2 - deskAngle
+        const figX = slot.x + 0.9 * Math.sin(ry)   // = slot.x - 0.9*cos(angle)
+        const figZ = slot.z + 0.9 * Math.cos(ry)   // = slot.z - 0.9*sin(angle)
+        deskPos = new THREE.Vector3(figX, 0.9, figZ)
+        amphibIdx++
+      }
 
       return {
         agentId:         a.agentId,
@@ -311,6 +328,7 @@ export function useOfficeSimulation({
         code:            a.code,
         role:            a.role,
         isCeo,
+        deskAngle,
         position:        deskPos.clone(),
         targetPosition:  deskPos.clone(),
         deskPosition:    deskPos.clone(),
@@ -328,11 +346,11 @@ export function useOfficeSimulation({
 
     agentsToInit.forEach((agent) => {
       const { head, screen } = createAgentMesh(agent, scene)
-      agent.headMesh  = head
+      agent.headMesh   = head
       agent.screenMesh = screen ?? undefined
-      // CEO faces room (+z): default rotation.y=0 works; ensure it's set
-      if (agent.isCeo && agent.mesh) {
-        agent.mesh.rotation.y = 0
+      if (agent.mesh) {
+        // CEO faces room (+z); non-CEO faces same direction as desk (local +Z → center)
+        agent.mesh.rotation.y = agent.isCeo ? 0 : -Math.PI / 2 - (agent as AgentPosition & { deskAngle: number }).deskAngle
       }
       agentsRef.current.set(agent.agentId, agent)
     })
@@ -606,16 +624,11 @@ export function useOfficeSimulation({
     updateAgentStatus(agentId, 'running')
   }
 
-  const returnAgentToDesk = (agentId: string, deskIndex: number) => {
-    const amphi = getAmphibDeskPositions(5)
+  const returnAgentToDesk = (agentId: string, _deskIndex?: number) => {
     const agent = agentsRef.current.get(agentId)
     if (!agent) return
-    if (agent.isCeo) {
-      moveAgentTo(agentId, CEO_DESK_POS)
-    } else if (deskIndex < amphi.length) {
-      const { x, z } = amphi[deskIndex]
-      moveAgentTo(agentId, new THREE.Vector3(x, 2, z))
-    }
+    // R6: deskPosition is the authoritative seated position set at init
+    moveAgentTo(agentId, agent.deskPosition.clone())
     updateAgentStatus(agentId, 'idle')
   }
 

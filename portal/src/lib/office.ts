@@ -45,12 +45,6 @@ export function getAmphibDeskPositions(count: number): { x: number; z: number; a
   ]
 }
 
-export function calculateAgentPositions(agentCount: number): THREE.Vector3[] {
-  if (agentCount < 1) return []
-  if (agentCount === 1) return [new THREE.Vector3(0, 2, 0)]
-  return getAmphibDeskPositions(agentCount).map(({ x, z }) => new THREE.Vector3(x, 2, z))
-}
-
 // Ring color for agent desk based on job status
 export function getAgentRingColor(status: string): number {
   if (status === 'running') return 0x3b82f6
