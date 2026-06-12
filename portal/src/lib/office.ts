@@ -20,16 +20,26 @@ export const ROLE_LABELS: Record<string, string> = {
   default: 'Agent',
 }
 
-// Amphitheater desk positions — radius 10, 200°→340° arc facing +Z camera
+// Amphitheater desk positions — two-row: inner r=10 (up to 6), outer r=14 (7+)
+// Arc: 200°→340° facing +Z camera
 export function getAmphibDeskPositions(count: number): { x: number; z: number }[] {
-  if (count < 2) return [{ x: 0, z: 0 }]
-  const radius = 10
+  if (count < 1) return [{ x: 0, z: 0 }]
   const startRad = (200 * Math.PI) / 180
   const sweepRad = (140 * Math.PI) / 180
-  return Array.from({ length: count }, (_, i) => {
-    const angle = startRad + i * (sweepRad / (count - 1))
-    return { x: Math.cos(angle) * radius, z: Math.sin(angle) * radius }
-  })
+
+  const INNER_MAX = 6
+  const innerCount = Math.min(count, INNER_MAX)
+  const outerCount = count - innerCount
+
+  const row = (n: number, r: number) =>
+    Array.from({ length: n }, (_, i) => {
+      const angle = n === 1
+        ? startRad + sweepRad / 2
+        : startRad + i * (sweepRad / (n - 1))
+      return { x: Math.cos(angle) * r, z: Math.sin(angle) * r }
+    })
+
+  return [...row(innerCount, 10), ...row(outerCount, 14)]
 }
 
 // Calculate amphitheater positions for agent avatars (y=2 = standing height)

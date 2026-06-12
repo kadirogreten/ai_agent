@@ -152,6 +152,8 @@ export default function OfficePage() {
 
   const activeJobs    = jobs.filter((j) => j.status === 'running').length
   const completedJobs = jobs.filter((j) => j.status === 'success' || j.status === 'completed').length
+  const nonCeoAgents  = agents.filter((a) => a.role?.toLowerCase() !== 'ceo')
+  const deskCount     = nonCeoAgents.length || 5
 
   // Desk indices with running jobs (maps agent position in list → desk index)
   const runningDeskIndices = agents
@@ -171,12 +173,13 @@ export default function OfficePage() {
             <>
               <OfficeGeometry
                 scene={scene}
+                deskCount={deskCount}
                 runningDeskIndices={runningDeskIndices}
                 pendingApprovalCount={pendingApprovalCount}
                 totalOps={operations.length}
                 hasEscalation={hasEscalation}
               />
-              <OfficeAssets scene={scene} />
+              <OfficeAssets scene={scene} deskCount={deskCount} />
             </>
           )}
         </Office3DScene>

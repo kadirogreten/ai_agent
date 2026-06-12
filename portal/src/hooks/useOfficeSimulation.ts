@@ -51,7 +51,9 @@ const ROLE_COLORS: Record<string, number> = {
   default:    0x6366f1,
 }
 
-const CEO_DESK_POS   = new THREE.Vector3(14, 2, -10)
+// CEO sits at chair (y≈0.9 = group base, chair seat rel.y=-0.35 → world 0.55 ≈ chair at 0.46)
+// z=-10.6 puts figure behind desk facing room (+z = rotation.y 0)
+const CEO_DESK_POS   = new THREE.Vector3(14, 0.9, -10.6)
 const COFFEE_POS     = new THREE.Vector3(-16, 2, -12)
 const WALK_SPEED     = 3.5    // units/sec
 const MAX_WALKERS    = 2
@@ -63,36 +65,37 @@ function hexToRgb(hex: number) {
 }
 
 function createNameLabel(name: string, role: string, roleColor: number): THREE.Sprite {
-  const W = 256, H = 68
+  const W = 256, H = 96
   const canvas = document.createElement('canvas')
   canvas.width = W; canvas.height = H
   const ctx = canvas.getContext('2d')!
   const { r, g, b } = hexToRgb(roleColor)
 
-  ctx.fillStyle = 'rgba(15,23,42,0.82)'
+  ctx.fillStyle = 'rgba(15,23,42,0.95)'
   ctx.beginPath()
-  try { ctx.roundRect(2, 2, W - 4, H - 4, 7) } catch { ctx.rect(2, 2, W - 4, H - 4) }
+  try { ctx.roundRect(2, 2, W - 4, H - 4, 9) } catch { ctx.rect(2, 2, W - 4, H - 4) }
   ctx.fill()
 
   ctx.strokeStyle = `rgb(${r},${g},${b})`
-  ctx.lineWidth = 2
+  ctx.lineWidth = 3
   ctx.beginPath()
-  try { ctx.roundRect(2, 2, W - 4, H - 4, 7) } catch { ctx.rect(2, 2, W - 4, H - 4) }
+  try { ctx.roundRect(2, 2, W - 4, H - 4, 9) } catch { ctx.rect(2, 2, W - 4, H - 4) }
   ctx.stroke()
 
   ctx.fillStyle = '#ffffff'
-  ctx.font = 'bold 22px sans-serif'
+  ctx.font = 'bold 30px sans-serif'
   ctx.textAlign = 'center'
-  ctx.fillText(name.slice(0, 18), W / 2, 30)
+  ctx.fillText(name.slice(0, 14), W / 2, 40)
 
-  ctx.fillStyle = `rgba(${r},${g},${b},0.9)`
-  ctx.font = '16px sans-serif'
-  ctx.fillText(role, W / 2, 52)
+  ctx.fillStyle = '#94a3b8'
+  ctx.font = '20px sans-serif'
+  ctx.fillText(role, W / 2, 68)
 
   const tex = new THREE.CanvasTexture(canvas)
-  const mat = new THREE.SpriteMaterial({ map: tex, sizeAttenuation: true, transparent: true })
+  // sizeAttenuation: false → fixed screen size; readable at any distance
+  const mat = new THREE.SpriteMaterial({ map: tex, sizeAttenuation: false, transparent: true })
   const spr = new THREE.Sprite(mat)
-  spr.scale.set(2.2, 0.58, 1)
+  spr.scale.set(1.7, 0.45, 1)
   return spr
 }
 
@@ -218,15 +221,15 @@ function createAgentMesh(
   roleLight.position.y = 0.9
   group.add(roleLight)
 
-  // Name label sprite
+  // Name label sprite — positioned above head
   const label = createNameLabel(agent.name, agent.role ?? 'agent', roleColor)
-  label.position.set(0, 1.42, 0)
+  label.position.set(0, 1.55, 0)
   group.add(label)
   agent.labelSprite = label
 
   // Speech bubble sprite
   const bubble = createSpeechBubble()
-  bubble.position.set(0, 1.65, 0)
+  bubble.position.set(0, 1.85, 0)
   group.add(bubble)
   agent.bubbleSprite = bubble
 
@@ -318,6 +321,10 @@ export function useOfficeSimulation({
       const { head, screen } = createAgentMesh(agent, scene)
       agent.headMesh  = head
       agent.screenMesh = screen ?? undefined
+      // CEO faces room (+z): default rotation.y=0 works; ensure it's set
+      if (agent.isCeo && agent.mesh) {
+        agent.mesh.rotation.y = 0
+      }
       agentsRef.current.set(agent.agentId, agent)
     })
 

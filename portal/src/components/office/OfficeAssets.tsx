@@ -4,13 +4,12 @@ import { getAmphibDeskPositions } from '@/lib/office'
 
 interface OfficeAssetsProps {
   scene: THREE.Scene
+  deskCount?: number
 }
 
-const DESK_POSITIONS = getAmphibDeskPositions(5)
-
-export default function OfficeAssets({ scene }: OfficeAssetsProps) {
+export default function OfficeAssets({ scene, deskCount = 5 }: OfficeAssetsProps) {
   useEffect(() => {
-    const deskPositions = DESK_POSITIONS
+    const deskPositions = getAmphibDeskPositions(Math.max(1, deskCount))
 
     deskPositions.forEach((pos) => {
       createDetailedDesk(scene, pos.x, pos.z)
@@ -21,7 +20,8 @@ export default function OfficeAssets({ scene }: OfficeAssetsProps) {
     return () => {
       // Cleanup handled by scene
     }
-  }, [scene])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scene, deskCount])
 
   return null
 }
