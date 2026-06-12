@@ -1,13 +1,14 @@
 import { useEffect, useRef } from 'react'
 import * as THREE from 'three'
-import { useOfficeCamera } from '@/hooks/useOfficeCamera'
+import { useOfficeCamera, type OfficeCameraControls } from '@/hooks/useOfficeCamera'
 
 interface Office3DSceneProps {
   onSceneReady?: (scene: THREE.Scene, camera: THREE.Camera, renderer: THREE.WebGLRenderer) => void
+  onCameraControls?: (controls: OfficeCameraControls) => void
   children?: React.ReactNode
 }
 
-export default function Office3DScene({ onSceneReady, children }: Office3DSceneProps) {
+export default function Office3DScene({ onSceneReady, onCameraControls, children }: Office3DSceneProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const sceneRef     = useRef<THREE.Scene | null>(null)
   const cameraRef    = useRef<THREE.PerspectiveCamera | null>(null)
@@ -97,7 +98,12 @@ export default function Office3DScene({ onSceneReady, children }: Office3DSceneP
     }
   }, [onSceneReady])
 
-  useOfficeCamera({ camera: cameraRef.current, renderer: containerRef.current })
+  const cameraControls = useOfficeCamera({ camera: cameraRef.current, renderer: containerRef.current })
+
+  // Kararlı kimlikli kontrol API'sini bir kez yukarı bildir (zoom butonları için).
+  useEffect(() => {
+    onCameraControls?.(cameraControls)
+  }, [onCameraControls, cameraControls])
 
   return (
     <div ref={containerRef} className="w-full h-full">

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useAuthStore } from '@/stores/authStore'
 import Office3DScene from '@/components/Office3DScene'
+import type { OfficeCameraControls } from '@/hooks/useOfficeCamera'
 import OfficeGeometry from '@/components/office/OfficeGeometry'
 import OfficeAssets from '@/components/office/OfficeAssets'
 import { useOfficeSimulation } from '@/hooks/useOfficeSimulation'
@@ -62,6 +63,7 @@ export default function OfficePage() {
   const [stepEvents,           setStepEvents]          = useState<StepEvent[]>([])
   const [err,                  setErr]                 = useState<string | null>(null)
   const [panel,                setPanel]               = useState<'agents' | 'jobs' | 'ops'>('agents')
+  const [camControls,          setCamControls]         = useState<OfficeCameraControls | null>(null)
 
   const { agents: officeAgents, moveAgentToCeoZone, returnAgentToDesk, updateAgentStatus } =
     useOfficeSimulation({ scene, dbAgents: agents, stepEvents })
@@ -152,7 +154,10 @@ export default function OfficePage() {
 
   const activeJobs    = jobs.filter((j) => j.status === 'running').length
   const completedJobs = jobs.filter((j) => j.status === 'success' || j.status === 'completed').length
-  const nonCeoAgents  = agents.filter((a) => a.role?.toLowerCase() !== 'ceo')
+  // R5.2: CEO tespiti rol + kod + ad üzerinden (rol seçeneklerinde 'ceo' yok — form kısıtı)
+  const isCeoAgent    = (a: Agent) =>
+    a.role?.toLowerCase() === 'ceo' || a.code?.toUpperCase() === 'CEO' || a.name?.toUpperCase() === 'CEO'
+  const nonCeoAgents  = agents.filter((a) => !isCeoAgent(a))
   const deskCount     = nonCeoAgents.length || 5
 
   // Desk indices with running jobs (maps agent position in list → desk index)
@@ -168,7 +173,7 @@ export default function OfficePage() {
 
       {/* ── 3D Canvas (full bleed) ─────────────────────────────────── */}
       <div className="absolute inset-0">
-        <Office3DScene onSceneReady={setScene}>
+        <Office3DScene onSceneReady={setScene} onCameraControls={setCamControls}>
           {scene && (
             <>
               <OfficeGeometry
@@ -238,6 +243,26 @@ export default function OfficePage() {
           </motion.div>
         ))}
       </div>
+
+      {/* ── Zoom kontrolleri (sağ-alt) ─────────────────────────────── */}
+      {camControls && (
+        <div className="absolute bottom-5 right-72 flex flex-col gap-1.5">
+          {[
+            { label: '+', title: 'Yakınlaş (tekerlek yukarı)', onClick: camControls.zoomIn },
+            { label: '−', title: 'Uzaklaş (tekerlek aşağı)',   onClick: camControls.zoomOut },
+            { label: '⟳', title: 'Görünümü sıfırla (R)',       onClick: camControls.resetView },
+          ].map((b) => (
+            <button
+              key={b.label}
+              title={b.title}
+              onClick={b.onClick}
+              className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/[0.08] bg-black/50 text-lg font-bold text-white/80 backdrop-blur-md transition hover:bg-white/10 hover:text-white"
+            >
+              {b.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* ── Right panel (agents / jobs) ────────────────────────────── */}
       <motion.div

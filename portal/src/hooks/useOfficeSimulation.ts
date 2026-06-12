@@ -92,10 +92,12 @@ function createNameLabel(name: string, role: string, roleColor: number): THREE.S
   ctx.fillText(role, W / 2, 68)
 
   const tex = new THREE.CanvasTexture(canvas)
-  // sizeAttenuation: false → fixed screen size; readable at any distance
-  const mat = new THREE.SpriteMaterial({ map: tex, sizeAttenuation: false, transparent: true })
+  // R5.2: sizeAttenuation TRUE — false modunda scale ekran-uzayı birimine döner ve
+  // (1.7, 0.45) dev ekran kaplamasına yol açar (canlıda sahneyi yuttu).
+  // Okunabilirlik dünya ölçüsünü büyütüp kontrastı artırarak sağlanır.
+  const mat = new THREE.SpriteMaterial({ map: tex, sizeAttenuation: true, transparent: true })
   const spr = new THREE.Sprite(mat)
-  spr.scale.set(1.7, 0.45, 1)
+  spr.scale.set(1.9, 0.7, 1)
   return spr
 }
 
@@ -275,7 +277,10 @@ export function useOfficeSimulation({
 
     const agentsToInit: AgentPosition[] = (
       dbAgents.length > 0
-        ? dbAgents.slice(0, 8).map((dbA) => ({
+        // R5.2: slice(0,8) sınırı kaldırıldı — KPI 11 gösterirken sahne/panel 8'de
+        // kalıyordu (CEO dahil 3 ajan hiç çizilmiyordu). Masa sayısı zaten
+        // deskCount=nonCeo ile eşleşiyor; güvenlik tavanı 16.
+        ? dbAgents.slice(0, 16).map((dbA) => ({
             agentId: dbA.id,
             name:    dbA.name   ?? 'Agent',
             code:    dbA.code   ?? '',
@@ -289,7 +294,8 @@ export function useOfficeSimulation({
             { agentId: 'demo-5', name: 'Plan Bot',     code: 'pb-001', role: 'planner' },
           ]
     ).map((a) => {
-      const isCeo = a.role?.toLowerCase() === 'ceo'
+      // R5.2: rol seçenekleri arasında 'ceo' yok (form kısıtı) — kod/ad ile de tanı.
+      const isCeo = a.role?.toLowerCase() === 'ceo' || a.code?.toUpperCase() === 'CEO' || a.name?.toUpperCase() === 'CEO'
       const deskPos = isCeo
         ? CEO_DESK_POS.clone()
         : new THREE.Vector3(amphi[amphibIdx]?.x ?? 0, 2, amphi[amphibIdx]?.z ?? 0)

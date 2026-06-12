@@ -12,7 +12,13 @@ interface UseOfficeCameraProps {
   renderer: HTMLElement | null
 }
 
-export function useOfficeCamera({ camera, renderer }: UseOfficeCameraProps) {
+export interface OfficeCameraControls {
+  zoomIn: () => void
+  zoomOut: () => void
+  resetView: () => void
+}
+
+export function useOfficeCamera({ camera, renderer }: UseOfficeCameraProps): OfficeCameraControls {
   const cameraStateRef = useRef<CameraState>({
     position: { x: 0, y: 14, z: 18 },
     target: { x: 0, y: 1, z: -4 },
@@ -20,9 +26,43 @@ export function useOfficeCamera({ camera, renderer }: UseOfficeCameraProps) {
   })
 
   const mouseRef = useRef({ x: 0, y: 0, isDragging: false })
+  // Zoom/reset fonksiyonları effect içinde camera'ya bağlanır; dışarıya ref üzerinden sunulur.
+  const controlsRef = useRef<OfficeCameraControls>({ zoomIn: () => {}, zoomOut: () => {}, resetView: () => {} })
 
   useEffect(() => {
     if (!camera || !renderer) return
+
+    // R5.2: mesafe-tabanlı zoom — eski "distance / kümülatif zoom" matematiği hem
+    // yönü ters çeviriyor hem sıçramalı davranıyordu. factor > 1 = uzaklaş.
+    const applyZoom = (factor: number) => {
+      const state = cameraStateRef.current
+      const dx = state.position.x - state.target.x
+      const dy = state.position.y - state.target.y
+      const dz = state.position.z - state.target.z
+      const distance = Math.sqrt(dx * dx + dy * dy + dz * dz)
+      const newDistance = Math.max(7, Math.min(42, distance * factor))
+      const s = newDistance / distance
+      state.position.x = state.target.x + dx * s
+      state.position.y = state.target.y + dy * s
+      state.position.z = state.target.z + dz * s
+      camera.position.set(state.position.x, state.position.y, state.position.z)
+      camera.lookAt(state.target.x, state.target.y, state.target.z)
+    }
+
+    const resetView = () => {
+      const state = cameraStateRef.current
+      state.position = { x: 0, y: 14, z: 18 }
+      state.target = { x: 0, y: 1, z: -4 }
+      state.zoom = 1
+      camera.position.set(state.position.x, state.position.y, state.position.z)
+      camera.lookAt(state.target.x, state.target.y, state.target.z)
+    }
+
+    controlsRef.current = {
+      zoomIn:  () => applyZoom(0.85),
+      zoomOut: () => applyZoom(1.18),
+      resetView,
+    }
 
     // Handle mouse movement for camera rotation
     const onMouseMove = (event: MouseEvent) => {
@@ -65,30 +105,10 @@ export function useOfficeCamera({ camera, renderer }: UseOfficeCameraProps) {
       mouseRef.current.isDragging = false
     }
 
-    // Handle zoom with mouse wheel
+    // Tekerlek: yukarı = yaklaş, aşağı = uzaklaş (R5.2 — yön düzeltildi)
     const onMouseWheel = (event: WheelEvent) => {
       event.preventDefault()
-
-      const state = cameraStateRef.current
-      const zoomSpeed = 0.1
-      const minZoom = 0.5
-      const maxZoom = 3
-
-      state.zoom = Math.max(minZoom, Math.min(maxZoom, state.zoom + (event.deltaY > 0 ? zoomSpeed : -zoomSpeed)))
-
-      const dx = state.position.x - state.target.x
-      const dy = state.position.y - state.target.y
-      const dz = state.position.z - state.target.z
-      const distance = Math.sqrt(dx * dx + dy * dy + dz * dz)
-
-      const newDistance = distance / state.zoom
-
-      state.position.x = state.target.x + (dx / distance) * newDistance
-      state.position.y = state.target.y + (dy / distance) * newDistance
-      state.position.z = state.target.z + (dz / distance) * newDistance
-
-      camera.position.set(state.position.x, state.position.y, state.position.z)
-      camera.lookAt(state.target.x, state.target.y, state.target.z)
+      applyZoom(event.deltaY > 0 ? 1.1 : 0.9)
     }
 
     // Handle keyboard for camera pan
@@ -145,4 +165,13 @@ export function useOfficeCamera({ camera, renderer }: UseOfficeCameraProps) {
       document.removeEventListener('keydown', onKeyDown)
     }
   }, [camera, renderer])
+
+  // Kararlı kimlikli API: delegeler controlsRef üzerinden hep güncel implementasyonu çağırır.
+  // (Kararlı nesne — parent useEffect bağımlılığında döngü yaratmaz.)
+  const apiRef = useRef<OfficeCameraControls>({
+    zoomIn:    () => controlsRef.current.zoomIn(),
+    zoomOut:   () => controlsRef.current.zoomOut(),
+    resetView: () => controlsRef.current.resetView(),
+  })
+  return apiRef.current
 }
