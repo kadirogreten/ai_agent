@@ -212,7 +212,7 @@ export default function OfficeGeometry({
     }
 
     // ── FLOOR LAMP — front-left corner (dik, y-ekseninde) ────────────────
-    const flX = -15, flZ = 9
+    const flX = -16, flZ = -9 // R4.3: ön köşede geniş açı perspektifi direği devrik gösteriyordu; arka köşede dik okunur
     const lampMat = mat(0x475569, 0.3, 0.6)
 
     // Base disc on floor
@@ -242,9 +242,10 @@ export default function OfficeGeometry({
 
     // ── BOOKSHELVES — back wall flanks ────────────────────────────────────
     const shelfWood = mat(0x6b4f3a, 0.7, 0.05)
+    // Sağ kitaplık x=15 → CEO odası içinde kalıyordu; sol duvara taşındı
     const shelfPositions = [
       { x: -15, z: BACK_Z + 0.65 },
-      { x:  15, z: BACK_Z + 0.65 },
+      { x: -12, z: BACK_Z + 0.65 },
     ]
     const bookColors = [0xef4444, 0x3b82f6, 0x10b981, 0xf59e0b, 0x8b5cf6, 0xec4899]
 
@@ -282,8 +283,8 @@ export default function OfficeGeometry({
       }
     })
 
-    // ── COFFEE CORNER — right back ────────────────────────────────────────
-    const ccX = 13.5, ccZ = -11
+    // ── COFFEE CORNER — left back (CEO odası alanından taşındı) ─────────
+    const ccX = -16, ccZ = -12
     const woodMat = mat(0x6b4f3a, 0.7, 0.05)
 
     const counter = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.9, 0.7), woodMat)
@@ -322,10 +323,11 @@ export default function OfficeGeometry({
     const potMat  = mat(0xa16207, 0.7, 0)
     const leafMat = mat(0x4a7c59, 0.6, 0)
 
+    // Sağ bitki x=10 CEO odasının önünde — ortak alana kaydırıldı
     const plantPositions = [
       { x: -10, z: BACK_Z + 1.2 },
       { x:   0, z: BACK_Z + 1.2 },
-      { x:  10, z: BACK_Z + 1.2 },
+      { x:   5, z:  -3 },          // ortak alanda
     ]
     plantPositions.forEach(({ x, z }) => {
       const pot = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.28, 0.4, 14), potMat)
@@ -429,6 +431,137 @@ export default function OfficeGeometry({
       screenLight.position.set(x, 1.55, z - 0.1)
       scene.add(screenLight)
     })
+
+    // ── SMALL MEETING TABLE + STOOLS — ortak alan (-11, 0, -8) ──────────
+    const mtX = -11, mtZ = -8
+    const mtTable = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.75, 0.75, 0.06, 24),
+      mat(0x6b4f3a, 0.7, 0.05)
+    )
+    mtTable.position.set(mtX, 0.72, mtZ)
+    scene.add(mtTable)
+
+    for (let s = 0; s < 3; s++) {
+      const sa = (s / 3) * Math.PI * 2
+      const stool = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.22, 0.22, 0.4, 12),
+        mat(0x334155, 0.6, 0.1)
+      )
+      stool.position.set(mtX + Math.cos(sa) * 1.2, 0.2, mtZ + Math.sin(sa) * 1.2)
+      scene.add(stool)
+      // Stool top pad
+      const pad = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.23, 0.23, 0.06, 12),
+        mat(0x475569, 0.7, 0)
+      )
+      pad.position.set(mtX + Math.cos(sa) * 1.2, 0.42, mtZ + Math.sin(sa) * 1.2)
+      scene.add(pad)
+    }
+
+    // ── CEO ROOM — sağ-arka köşe x∈[8,18] z∈[-14,-6] ───────────────────
+    const CEO_X0 = 8, CEO_Z0 = -6    // sol-ön köşe
+    const GLASS_H = 4
+
+    const glassMat = new THREE.MeshPhysicalMaterial({
+      color: 0xbfdbfe,
+      transparent: true,
+      opacity: 0.13,
+      roughness: 0.05,
+      metalness: 0.0,
+    })
+    const frameMat2 = mat(0x475569, 0.4, 0.3)
+
+    // Sol cam bölme (x=8, z=-14 → z=-6, tam boy)
+    const leftGlass = new THREE.Mesh(new THREE.BoxGeometry(0.06, GLASS_H, 8), glassMat)
+    leftGlass.position.set(CEO_X0, GLASS_H / 2, (BACK_Z + CEO_Z0) / 2)  // z mid: -10
+    scene.add(leftGlass)
+
+    // Ön cam bölme (z=-6, x=10 → x=18, kapı boşluğu x=8-10 → yok)
+    const frontGlass = new THREE.Mesh(new THREE.BoxGeometry(8, GLASS_H, 0.06), glassMat)
+    frontGlass.position.set(14, GLASS_H / 2, CEO_Z0)  // x mid of 10..18 = 14
+    scene.add(frontGlass)
+
+    // Dikme — sol-ön köşe
+    const post1 = new THREE.Mesh(new THREE.BoxGeometry(0.1, GLASS_H, 0.1), frameMat2)
+    post1.position.set(CEO_X0, GLASS_H / 2, CEO_Z0)
+    scene.add(post1)
+
+    // Dikme — kapı kenarı (x=10, z=-6)
+    const post2 = new THREE.Mesh(new THREE.BoxGeometry(0.1, GLASS_H, 0.1), frameMat2)
+    post2.position.set(10, GLASS_H / 2, CEO_Z0)
+    scene.add(post2)
+
+    // Üst ray — sol bölme
+    const topRail1 = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.1, 8), frameMat2)
+    topRail1.position.set(CEO_X0, GLASS_H, (BACK_Z + CEO_Z0) / 2)
+    scene.add(topRail1)
+
+    // Üst ray — ön bölme
+    const topRail2 = new THREE.Mesh(new THREE.BoxGeometry(8, 0.1, 0.06), frameMat2)
+    topRail2.position.set(14, GLASS_H, CEO_Z0)
+    scene.add(topRail2)
+
+    // CEO halısı
+    const ceoFloor = new THREE.Mesh(
+      new THREE.PlaneGeometry(8.5, 7),
+      mat(0x1e3a5f, 0.9, 0)
+    )
+    ceoFloor.rotation.x = -Math.PI / 2
+    ceoFloor.position.set(13.5, 0.006, -10)
+    scene.add(ceoFloor)
+
+    // Yönetici masası
+    const ceoDesk = new THREE.Mesh(
+      new THREE.BoxGeometry(3.6, 0.08, 1.8),
+      mat(0x5d4a37, 0.5, 0.1)
+    )
+    ceoDesk.position.set(14, 0.8, -10)
+    ceoDesk.castShadow = true
+    scene.add(ceoDesk)
+
+    // Masa bacakları
+    ;[[-1.6,-0.8],[1.6,-0.8],[-1.6,0.8],[1.6,0.8]].forEach(([lx, lz]) => {
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.8, 0.07), mat(0x3b2a1a, 0.4, 0.2))
+      leg.position.set(14 + lx, 0.4, -10 + lz)
+      scene.add(leg)
+    })
+
+    // Arkalıklı koltuk
+    const seat = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.38, 0.12, 16), mat(0x1e293b, 0.6, 0.1))
+    seat.position.set(14, 0.46, -9.0)
+    scene.add(seat)
+    const back = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.7, 0.08), mat(0x1e293b, 0.6, 0.1))
+    back.position.set(14, 0.82, -8.65)
+    scene.add(back)
+
+    // CEO monitörü
+    const ceoMonitor = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.85, 0.04), mat(0x0f172a, 0.3, 0.5))
+    ceoMonitor.position.set(14, 1.5, -10.55)
+    scene.add(ceoMonitor)
+    const ceoScreen = new THREE.Mesh(new THREE.BoxGeometry(1.32, 0.78, 0.01), mat(0x6366f1, 0.1, 0, 0.7, 0x818cf8))
+    ceoScreen.position.set(14, 1.5, -10.528)
+    scene.add(ceoScreen)
+
+    // CEO masa lambası (sarkıt)
+    const ceoLampLen = 3.2
+    const ceoCable = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, ceoLampLen, 8), mat(0x1e293b, 0.5, 0.4))
+    ceoCable.position.set(14, CEIL_Y - ceoLampLen / 2, -10)
+    scene.add(ceoCable)
+    const ceoShade = new THREE.Mesh(new THREE.ConeGeometry(0.32, 0.28, 16, 1, true), mat(0xfff4e0, 0.4, 0.05, 0.8, 0xfff4e0))
+    ceoShade.position.set(14, CEIL_Y - ceoLampLen - 0.14, -10)
+    ceoShade.rotation.x = Math.PI
+    scene.add(ceoShade)
+    const ceoLight = new THREE.PointLight(0xffedd5, 0.9, 7)
+    ceoLight.position.set(14, CEIL_Y - ceoLampLen - 0.35, -10)
+    scene.add(ceoLight)
+
+    // CEO odasına küçük tablo (arka duvar iç yüzü)
+    const ceoFrame = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.1, 0.06), mat(0x475569, 0.5, 0.2))
+    ceoFrame.position.set(14, 3.0, BACK_Z + 0.12)
+    scene.add(ceoFrame)
+    const ceoPainting = new THREE.Mesh(new THREE.PlaneGeometry(1.45, 0.98), new THREE.MeshBasicMaterial({ color: 0x4338ca }))
+    ceoPainting.position.set(14, 3.0, BACK_Z + 0.16)
+    scene.add(ceoPainting)
 
     // ── CENTER OPERATIONS TABLE ───────────────────────────────────────────
     const opsTable = new THREE.Mesh(

@@ -13,6 +13,7 @@ type Agent     = { id: string; name: string | null; code: string | null; role: s
 type Run       = { id: string; status: string; created_at: string }
 type Job       = { id: string; agent_id: string | null; status: string; created_at: string }
 type Operation = { id: string; goal_text: string; status: string; step_count: number; max_steps: number }
+export type StepEvent = { agentId: string; createdAt: string }
 
 async function fetchPendingApprovalCount(userId: string): Promise<number> {
   const { data } = await supabase
@@ -52,19 +53,47 @@ export default function OfficePage() {
   const user        = useAuthStore((s) => s.user)
   const initialized = useAuthStore((s) => s.initialized)
 
-  const [scene,              setScene]             = useState<THREE.Scene | null>(null)
-  const [agents,             setAgents]            = useState<Agent[]>([])
-  const [runs,               setRuns]              = useState<Run[]>([])
-  const [jobs,               setJobs]              = useState<Job[]>([])
-  const [operations,         setOperations]        = useState<Operation[]>([])
+  const [scene,                setScene]               = useState<THREE.Scene | null>(null)
+  const [agents,               setAgents]              = useState<Agent[]>([])
+  const [runs,                 setRuns]                = useState<Run[]>([])
+  const [jobs,                 setJobs]                = useState<Job[]>([])
+  const [operations,           setOperations]          = useState<Operation[]>([])
   const [pendingApprovalCount, setPendingApprovalCount] = useState(0)
-  const [err,                setErr]               = useState<string | null>(null)
-  const [panel,              setPanel]             = useState<'agents' | 'jobs' | 'ops'>('agents')
+  const [stepEvents,           setStepEvents]          = useState<StepEvent[]>([])
+  const [err,                  setErr]                 = useState<string | null>(null)
+  const [panel,                setPanel]               = useState<'agents' | 'jobs' | 'ops'>('agents')
 
   const { agents: officeAgents, moveAgentToCeoZone, returnAgentToDesk, updateAgentStatus } =
-    useOfficeSimulation({ scene, dbAgents: agents })
+    useOfficeSimulation({ scene, dbAgents: agents, stepEvents })
 
   useEffect(() => { init() }, [init])
+
+  // run_events polling — step_start events last 15 min, yalnız initialized iken
+  useEffect(() => {
+    if (!initialized || !user) return
+    const poll = async () => {
+      const cutoff = new Date(Date.now() - 15 * 60 * 1000).toISOString()
+      const { data } = await supabase
+        .from('run_events')
+        .select('payload, created_at')
+        .eq('event_type', 'step_start')
+        .gt('created_at', cutoff)
+        .eq('owner_user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(30)
+      if (data && data.length > 0) {
+        setStepEvents(
+          (data as Array<{ payload: Record<string, string>; created_at: string }>).map((e) => ({
+            agentId:   e.payload.agent ?? '',
+            createdAt: e.created_at,
+          }))
+        )
+      }
+    }
+    poll()
+    const id = setInterval(poll, 10_000)
+    return () => clearInterval(id)
+  }, [initialized, user])
 
   // Job-driven agent animation
   useEffect(() => {
