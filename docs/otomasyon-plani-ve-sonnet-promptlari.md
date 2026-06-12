@@ -501,6 +501,21 @@ Sıraya girmeyen, 15 dakikalık bakım işleri:
 
 ---
 
+## 3D Ofis serisi (R1–R6 + rol kataloğu) — tamamlandı (2026-06-12)
+
+"Süs sahnesi"nden gerçek verilerle yaşayan operasyon merkezine altı turda gelindi; her tur canlı ekran görüntüsüyle doğrulandı:
+
+| Tur | İş | Kritik ders |
+|---|---|---|
+| R1 | Yapı: amfi düzeni, merkez operasyon masası, durum halkaları, Ops sekmesi, veri bağlama | Şema uydurma yine yakalandı (`operations.title`/'running' — gerçek: `goal_text`/'active') |
+| R2 | Işık parametreleri (exposure, sis, hemisphere) | Parametre artışı yetmedi — koyu materyal + koyu zemin pozlamayla kurtulmuyor |
+| R3 | Kök neden: slate-900 zaten siyah → slate-800 + duvar/pencere kalıntılarının kaldırılması (açık platform) | "Beyaz yüzen barlar" = karanlık duvarın görünmez olup parlak öğelerinin boşlukta kalması |
+| R4/R4.1/R4.2 | Gerçek iç mekân: oda + sarkıt lambalar + sahte pencereler + mobilya; montaj düzeltmeleri | Cam, çerçeve kutusunun İÇİNDE kalmıştı (z-sıralama); `ConeGeometry` zaten doğru yönde doğar — `rotation.x=π` ters huni yapar |
+| R5/R5.1/R5.2 | Yaşayan ofis: CEO odası, isim etiketleri, `run_events`'e bağlı davranış makinesi (çalışma/yürüme/konuşma), zoom kontrolleri | `sizeAttenuation:false`'ta sprite scale EKRAN-uzayı birimidir — dünya ölçüsü verilirse sahneyi yutar. `runs.status='running'` satırı hiç yazılmıyor — canlı koşu sinyali `run_requests` + zaman-bazlı `run_events` |
+| R6 | Figür-masa hizalama + monitör standardı + rol kataloğunun DB'ye taşınması (`agent_roles` + FK; statik haritalar silindi) | **Tek kaynak kuralı:** iki ayrı fonksiyon aynı düzeni tarif edemez — masa transform'u tek listeden, figürler ondan türer |
+
+Kalıcı kazanımlar: roller artık DB'den (yeni rol = SQL satırı, deploy yok; `coordination`/`ceo` eklendi, kod→rol eşleme migration'ı mevcut ajanları doldurdu); sahne dashboard'un 3D karşılığı (koşan job = masa halkası + parçacık + bob, adım devri = ajanlar arası yürüyüş + balon, onay = rozet, eskalasyon = kırmızı merkez halka); CEO ajanı portalden oluşturuldu ve kendi odasında.
+
 ## 6. Sonnet ile çalışma taktikleri (özet)
 
 - **Oturum başına tek PR.** Bağlam şişince kalite düşer.
@@ -509,6 +524,9 @@ Sıraya girmeyen, 15 dakikalık bakım işleri:
 - Her PR sonrası: `dotnet build` + `dotnet test` + `npm run build --prefix portal` + kısa manuel duman testi.
 - Migration yazdırırken mevcut adlandırma düzenini (tarih damgalı) ve RLS desenini örnek göster; Sonnet'e "yeni desen icat etme, 0027 ve 20260609* dosyalarını örnek al" de.
 - PR3 ve PR6'da decide-LLM prompt'larını ayrı dosyada tut (`prompts/` veya DB) ki ayar yapmak kod değişikliği gerektirmesin.
+- **Şema doğrulama refleksi:** Sonnet kolon/değer uydurma hatasını 5+ kez yaptı (playbooks kolonları, tools kategorisi, operations status/title, runs 'running'). Her migration/sorgu prompt'una "önce gerçek kolonları ve CHECK kısıtlarını migration dosyalarından doğrula" satırı eklenmeli — eklenince hata oranı belirgin düştü.
+- **Tek kaynak kuralı (3D/UI):** Aynı düzeni iki ayrı fonksiyon/sabit tarif etmesin — masa pozisyonları vs figür pozisyonları ayrışması gibi sessiz uyumsuzluklar üretir. Düzen tek listeden türesin.
+- **Three.js tuzakları:** `sizeAttenuation:false`'ta sprite scale ekran-uzayıdır; `ConeGeometry` tepe-yukarı doğar (çevirme!); statik renk/etiket haritaları yerine DB kataloğu (`agent_roles` deseni).
 
 ---
 

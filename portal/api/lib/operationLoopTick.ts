@@ -645,11 +645,28 @@ async function processOperation(supabase: SupabaseClient, op: Operation) {
         }
       : {}
 
-    // PR9 savunma derinliği: forbidden araçları run_requests.tools'tan filtrele.
-    // Worker bu listeyi --tools arg olarak CLI'a iletir; CLI ToolExecutor da kontrol eder.
+    // Araç izinleri (dogfood düzeltmesi): seçilen playbook'un required_tools'u esastır.
+    // ESKİ HATA: tools yalnız intent forbidden'ı varsa kuruluyordu; required_tools hiç
+    // verilmiyordu → Operator adımları araç İZNİSİZ kalıp metinle "rol yapıyordu"
+    // (canlı turda yakalandı: purchase_order çağrılmadan "sipariş onaya iletildi" raporu).
     let toolsField: string | undefined
     const forbidden = op.intent_json?.forbidden_tools ?? []
-    if (forbidden.length > 0) {
+    const { data: pbRows2 } = await supabase
+      .from('playbooks')
+      .select('required_tools, tenant_id')
+      .eq('slug', playbook)
+      .or(`tenant_id.is.null,tenant_id.eq.${op.owner_user_id}`)
+      .limit(2)
+    const pbPick = ((pbRows2 ?? []) as { required_tools: string[] | null; tenant_id: string | null }[])
+      .sort((a, b) => (a.tenant_id ? -1 : 0) - (b.tenant_id ? -1 : 0))[0] // tenant satırı öncelikli
+    const required = (pbPick?.required_tools ?? []) as string[]
+    if (required.length > 0) {
+      const allowed = required.filter((s) => !forbidden.includes(s))
+      toolsField = allowed.length > 0
+        ? `tools: ${allowed.join(', ')}; max_calls: 30`
+        : 'tools: _none'
+    } else if (forbidden.length > 0) {
+      // Playbook araç tanımlamıyor ama intent yasakları var → savunma derinliği (eski yol)
       const { data: platformTools } = await supabase
         .from('tools')
         .select('slug')
