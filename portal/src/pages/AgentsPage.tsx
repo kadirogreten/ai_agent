@@ -4,40 +4,13 @@ import { Card } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
 import { useAuthStore } from '@/stores/authStore'
-import { listAgents, type AgentRole, type AgentRow } from '@/lib/agents'
+import { listAgents, type AgentRow } from '@/lib/agents'
 import { listPersonas, type PersonaRow } from '@/lib/personas'
+import { fetchAgentRoles, getRoleMeta, type AgentRoleMeta } from '@/lib/roles'
 import { motion, useMotionValue, useTransform, AnimatePresence } from 'framer-motion'
-import { LayoutGrid, List, Plus, X, Monitor, Cpu, Globe, Database, Pen, Shield, Wrench, FlaskConical, Code2, Crown, Boxes } from 'lucide-react'
+import { LayoutGrid, List, Plus, X, Monitor, Cpu, Globe, Database, Pen, Shield, Wrench, FlaskConical, Code2, Crown, Boxes, Bot } from 'lucide-react'
 
 // ─── Sabitler ────────────────────────────────────────────────────────────────
-
-const ROLE_LABELS: Record<AgentRole, string> = {
-  research:     'Araştırma',
-  analysis:     'Analiz',
-  writing:      'Yazım',
-  editing:      'Editör',
-  verification: 'Denetçi',
-  operation:    'Operatör',
-  contrarian:   'Contrarian',
-  design:       'Tasarım',
-  code:         'Kod',
-  architecture: 'Mimari',
-  ceo:          'CEO / Yönetim',
-}
-
-const ROLE_ICONS: Record<AgentRole, React.ReactNode> = {
-  research:     <Globe size={14} />,
-  analysis:     <FlaskConical size={14} />,
-  writing:      <Pen size={14} />,
-  editing:      <Pen size={14} />,
-  verification: <Shield size={14} />,
-  operation:    <Wrench size={14} />,
-  contrarian:   <X size={14} />,
-  design:       <Monitor size={14} />,
-  code:         <Code2 size={14} />,
-  architecture: <Boxes size={14} />,
-  ceo:          <Crown size={14} />,
-}
 
 const RISK_LIGHT: Record<string, string> = {
   R0: '#34d399',
@@ -46,18 +19,19 @@ const RISK_LIGHT: Record<string, string> = {
   R3: '#f87171',
 }
 
-const ROLE_COLORS: Record<AgentRole, string> = {
-  research:     '#818cf8',
-  analysis:     '#a78bfa',
-  writing:      '#f472b6',
-  editing:      '#fb923c',
-  verification: '#34d399',
-  operation:    '#60a5fa',
-  contrarian:   '#f87171',
-  design:       '#e879f9',
-  code:         '#4ade80',
-  architecture: '#2dd4bf',
-  ceo:          '#facc15',
+// Controlled icon map — import * yasak (bundle şişer); yeni ikon = buraya satır ekle.
+const ICON_MAP: Record<string, React.ReactNode> = {
+  Globe:        <Globe size={14} />,
+  FlaskConical: <FlaskConical size={14} />,
+  Pen:          <Pen size={14} />,
+  Shield:       <Shield size={14} />,
+  Wrench:       <Wrench size={14} />,
+  X:            <X size={14} />,
+  Monitor:      <Monitor size={14} />,
+  Code2:        <Code2 size={14} />,
+  Crown:        <Crown size={14} />,
+  Boxes:        <Boxes size={14} />,
+  Bot:          <Bot size={14} />,
 }
 
 // ─── 3D Masa Kartı ────────────────────────────────────────────────────────────
@@ -67,11 +41,13 @@ function DeskCard({
   personas,
   isSelected,
   onSelect,
+  roles,
 }: {
   agent: AgentRow
   personas: PersonaRow[]
   isSelected: boolean
   onSelect: () => void
+  roles: AgentRoleMeta[]
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const x = useMotionValue(0)
@@ -88,7 +64,8 @@ function DeskCard({
   function onMouseLeave() { x.set(0); y.set(0) }
 
   const riskColor = RISK_LIGHT[agent.risk_ceiling] ?? '#60a5fa'
-  const roleColor = agent.role ? ROLE_COLORS[agent.role] : '#60a5fa'
+  const roleMeta  = getRoleMeta(agent.role, roles)
+  const roleColor = roleMeta.color
   const activeBehaviors = Object.entries(agent.behaviors ?? {}).filter(([, v]) => v).map(([k]) => k)
 
   return (
@@ -166,8 +143,8 @@ function DeskCard({
             >
               <span className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium"
                 style={{ background: `${roleColor}18`, color: roleColor, border: `1px solid ${roleColor}30` }}>
-                {agent.role ? ROLE_ICONS[agent.role] : <Monitor size={13} />}
-                {agent.role ? ROLE_LABELS[agent.role] : '—'}
+                {ICON_MAP[roleMeta.icon] ?? <Bot size={14} />}
+                {roleMeta.label || '—'}
               </span>
               <span className="rounded px-1.5 py-0.5 font-mono text-[10px]"
                 style={{ background: `${riskColor}15`, color: riskColor, border: `1px solid ${riskColor}25` }}>
@@ -236,8 +213,8 @@ function DeskCard({
 
 // ─── Persona Panel ────────────────────────────────────────────────────────────
 
-function PersonaPanel({ agent, personas, onClose }: { agent: AgentRow; personas: PersonaRow[]; onClose: () => void }) {
-  const roleColor = agent.role ? ROLE_COLORS[agent.role] : '#60a5fa'
+function PersonaPanel({ agent, personas, onClose, roles }: { agent: AgentRow; personas: PersonaRow[]; onClose: () => void; roles: AgentRoleMeta[] }) {
+  const roleColor = getRoleMeta(agent.role, roles).color
 
   return (
     <motion.div
@@ -332,6 +309,7 @@ export default function AgentsPage() {
 
   const [agents,   setAgents]   = useState<AgentRow[]>([])
   const [personas, setPersonas] = useState<PersonaRow[]>([])
+  const [roles,    setRoles]    = useState<AgentRoleMeta[]>([])
   const [q,        setQ]        = useState('')
   const [loading,  setLoading]  = useState(false)
   const [err,      setErr]      = useState<string | null>(null)
@@ -339,6 +317,7 @@ export default function AgentsPage() {
   const [selected, setSelected] = useState<string | null>(null)
 
   useEffect(() => { init() }, [init])
+  useEffect(() => { fetchAgentRoles().then(setRoles) }, [])
 
   const canQuery = initialized && !!user
 
@@ -370,7 +349,7 @@ export default function AgentsPage() {
 
   function personasForAgent(agent: AgentRow): PersonaRow[] {
     if (!agent.role) return []
-    const roleKw = (ROLE_LABELS[agent.role] ?? agent.role ?? '').toLowerCase()
+    const roleKw = (getRoleMeta(agent.role, roles).label || agent.role).toLowerCase()
     return personas.filter((p) => {
       const desc = (p.role_description ?? '').toLowerCase()
       const name = (p.name ?? '').toLowerCase()
@@ -494,6 +473,7 @@ export default function AgentsPage() {
                           personas={personasForAgent(agent)}
                           isSelected={selected === agent.id}
                           onSelect={() => setSelected(selected === agent.id ? null : agent.id)}
+                          roles={roles}
                         />
                       </motion.div>
                     ))}
@@ -507,6 +487,7 @@ export default function AgentsPage() {
                         agent={selectedAgent}
                         personas={personasForAgent(selectedAgent)}
                         onClose={() => setSelected(null)}
+                        roles={roles}
                       />
                     )}
                   </AnimatePresence>
@@ -557,8 +538,8 @@ export default function AgentsPage() {
                         <td className="px-4 py-2">
                           {a.role && (
                             <span className="inline-flex items-center gap-1 rounded border border-white/10 bg-white/5 px-1.5 py-0.5 text-xs text-white/60">
-                              {ROLE_ICONS[a.role]}
-                              {ROLE_LABELS[a.role]}
+                              {ICON_MAP[getRoleMeta(a.role, roles).icon] ?? <Bot size={14} />}
+                              {getRoleMeta(a.role, roles).label}
                             </span>
                           )}
                         </td>

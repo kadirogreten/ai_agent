@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { getAmphibDeskPositions } from '@/lib/office'
+import { fetchAgentRoles, cssHexToThree, type AgentRoleMeta } from '@/lib/roles'
 import type { StepEvent } from '@/pages/OfficePage'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -40,15 +41,17 @@ export interface AgentPosition {
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
-const ROLE_COLORS: Record<string, number> = {
-  researcher: 0x3b82f6,
-  analyst:    0x8b5cf6,
-  writer:     0xec4899,
-  editor:     0x10b981,
-  planner:    0xf59e0b,
-  executor:   0xef4444,
-  ceo:        0x6366f1,
-  default:    0x6366f1,
+// Rol renkleri DB'den; bilinmeyen slug için indigo fallback
+const FALLBACK_THREE_COLOR = 0x6366f1
+
+let _rolesMeta: AgentRoleMeta[] = []
+fetchAgentRoles().then((r) => { _rolesMeta = r })
+
+function getRoleColor(slug: string | null | undefined): number {
+  if (!slug) return FALLBACK_THREE_COLOR
+  const found = _rolesMeta.find((r) => r.slug === slug.toLowerCase())
+  if (found) return cssHexToThree(found.color)
+  return FALLBACK_THREE_COLOR
 }
 
 // CEO sits at chair (y≈0.9 = group base, chair seat rel.y=-0.35 → world 0.55 ≈ chair at 0.46)
@@ -151,7 +154,7 @@ function createAgentMesh(
   const group = new THREE.Group()
   group.position.copy(agent.position)
 
-  const roleColor  = ROLE_COLORS[agent.role?.toLowerCase()] ?? ROLE_COLORS.default
+  const roleColor  = getRoleColor(agent.role)
   const bodyMat = new THREE.MeshStandardMaterial({
     color:            0x1e293b,
     emissive:         new THREE.Color(roleColor),
@@ -472,7 +475,7 @@ export function useOfficeSimulation({
               if (agent.trailMesh) scene.remove(agent.trailMesh)
               const geo = new THREE.BufferGeometry()
               geo.setFromPoints(agent.positionHistory)
-              const roleColor = ROLE_COLORS[agent.role?.toLowerCase()] ?? ROLE_COLORS.default
+              const roleColor = getRoleColor(agent.role)
               const trail = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: roleColor, transparent: true, opacity: 0.5 }))
               scene.add(trail)
               agent.trailMesh = trail

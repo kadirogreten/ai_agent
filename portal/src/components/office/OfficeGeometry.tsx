@@ -102,22 +102,9 @@ export default function OfficeGeometry({
       sill.position.set(wx, windowY - 1.85, BACK_Z + 0.28)
     })
 
-    // ── PENDANT LAMPS — desk (inner row: PointLight; outer row: visual only) ──
+    // ── PENDANT LAMPS — desk (inside deskGroup below) ──
     const cableLen = 3.2
     const lampY    = CEIL_Y - cableLen
-
-    AMFI_POSITIONS.forEach((pos, idx) => {
-      const { x, z } = pos
-      const cable = add(new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, cableLen, 8), mat(0x1e293b, 0.5, 0.4)))
-      cable.position.set(x, CEIL_Y - cableLen / 2, z)
-      const shade = add(new THREE.Mesh(new THREE.ConeGeometry(0.32, 0.28, 16, 1, true), mat(0xfff4e0, 0.4, 0.05, 0.8, 0xfff4e0)))
-      shade.position.set(x, lampY - 0.14, z)
-      // Only inner ring (first 6) gets a PointLight to keep light budget reasonable
-      if (idx < 6) {
-        const pl = add(new THREE.PointLight(0xffedd5, 0.8, 6))
-        pl.position.set(x, lampY - 0.35, z)
-      }
-    })
 
     // ── PENDANT LAMPS — ops table (3 × 120°) ─────────────────────────────
     const opsPendantR = 1.4
@@ -250,41 +237,69 @@ export default function OfficeGeometry({
       })
     })
 
-    // ── AMPHITHEATER DESKS ────────────────────────────────────────────────
+    // ── AMPHITHEATER DESKS — each as a Group rotated toward center ─────────
+    // rotation.y = -π/2 - angle → local +Z points toward origin (agent faces center)
     const deskSurfMat  = mat(0x1e293b, 0.25, 0.5)
     const deskFrameMat = mat(0x334155, 0.2, 0.8)
     const monitorMat   = mat(0x0f172a, 0.3, 0.5)
     const screenPalette = [0x3b82f6, 0x8b5cf6, 0x06b6d4, 0x10b981, 0xf59e0b, 0xec4899, 0xef4444, 0xf97316, 0x84cc16, 0x22d3ee, 0xa78bfa]
 
     AMFI_POSITIONS.forEach((pos, idx) => {
-      const { x, z } = pos
-      const surface = add(new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.06, 1.8), deskSurfMat))
-      surface.position.set(x, 0.8, z)
+      const { x, z, angle } = pos
+      const deskGroup = new THREE.Group()
+      deskGroup.position.set(x, 0, z)
+      deskGroup.rotation.y = -Math.PI / 2 - angle   // local +Z → toward center
+      group.add(deskGroup)
+
+      // All positions below are local (group origin = desk center on floor)
+      const surface = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.06, 1.8), deskSurfMat)
+      surface.position.set(0, 0.8, 0)
       surface.castShadow = true
       surface.receiveShadow = true
+      deskGroup.add(surface)
 
-      const angleToCenter = Math.atan2(-z, -x)
-      const edgeX = x + Math.cos(angleToCenter) * 0.9
-      const edgeZ = z + Math.sin(angleToCenter) * 0.9
-      const edge = add(new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.03, 0.03), mat(0x7dd3fc, 0.4, 0.2, 0.4, 0x93c5fd)))
-      edge.position.set(edgeX, 0.82, edgeZ)
+      // Edge strip: local -z = toward center after rotation
+      const edge = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.03, 0.03), mat(0x7dd3fc, 0.4, 0.2, 0.4, 0x93c5fd))
+      edge.position.set(0, 0.82, -0.9)
+      deskGroup.add(edge)
 
       ;[[-1.4, -0.8], [1.4, -0.8], [-1.4, 0.8], [1.4, 0.8]].forEach(([lx, lz]) => {
-        const leg = add(new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.8, 0.06), deskFrameMat))
-        leg.position.set(x + lx, 0.4, z + lz)
+        const leg = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.8, 0.06), deskFrameMat)
+        leg.position.set(lx, 0.4, lz)
         leg.castShadow = true
+        deskGroup.add(leg)
       })
 
       const screenColor = screenPalette[idx % screenPalette.length]
-      const monitor = add(new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.75, 0.04), monitorMat))
-      monitor.position.set(x, 1.55, z - 0.3)
+      const monitor = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.75, 0.04), monitorMat)
+      monitor.position.set(0, 1.55, -0.3)
       monitor.castShadow = true
-      const screen = add(new THREE.Mesh(new THREE.BoxGeometry(1.12, 0.68, 0.01), mat(screenColor, 0.1, 0, 0.7, screenColor)))
-      screen.position.set(x, 1.55, z - 0.278)
-      const stand = add(new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.3, 0.05), deskFrameMat))
-      stand.position.set(x, 1.1, z - 0.25)
-      const screenLight = add(new THREE.PointLight(screenColor, 0.4, 3))
-      screenLight.position.set(x, 1.55, z - 0.1)
+      deskGroup.add(monitor)
+
+      const screen = new THREE.Mesh(new THREE.BoxGeometry(1.12, 0.68, 0.01), mat(screenColor, 0.1, 0, 0.7, screenColor))
+      screen.position.set(0, 1.55, -0.278)
+      deskGroup.add(screen)
+
+      const stand = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.3, 0.05), deskFrameMat)
+      stand.position.set(0, 1.1, -0.25)
+      deskGroup.add(stand)
+
+      const screenLight = new THREE.PointLight(screenColor, 0.4, 3)
+      screenLight.position.set(0, 1.55, -0.1)
+      deskGroup.add(screenLight)
+
+      // Pendant lamp — directly above desk center (local XZ=0,0 → world position = desk XZ)
+      if (idx < 6) {  // inner row only (budget)
+        const cable = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, cableLen, 8), mat(0x1e293b, 0.5, 0.4))
+        cable.position.set(0, CEIL_Y - cableLen / 2, 0)
+        deskGroup.add(cable)
+        const shade = new THREE.Mesh(new THREE.ConeGeometry(0.32, 0.28, 16, 1, true), mat(0xfff4e0, 0.4, 0.05, 0.8, 0xfff4e0))
+        shade.position.set(0, lampY - 0.14, 0)
+        deskGroup.add(shade)
+        const pl = new THREE.PointLight(0xffedd5, 0.8, 6)
+        pl.position.set(0, lampY - 0.35, 0)
+        deskGroup.add(pl)
+      }
     })
 
     // ── CEO ROOM — sağ-arka köşe x∈[8,18] z∈[-14,-6] ───────────────────

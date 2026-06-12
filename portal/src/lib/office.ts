@@ -1,48 +1,50 @@
 import * as THREE from 'three'
 
-export const ROLE_COLORS: Record<string, number> = {
-  researcher: 0x3b82f6,     // blue
-  analyst: 0x8b5cf6,        // purple
-  writer: 0xec4899,         // pink
-  editor: 0x10b981,         // emerald
-  planner: 0xf59e0b,        // amber
-  executor: 0xef4444,       // red
-  default: 0x6366f1,        // indigo
-}
+// Amphitheater desk positions — two-row arc wrapping three sides of the ops table.
+// Arc: 130°→410° (280° sweep) — ön-merkez 80° boşluk = kamera koridoru + ops görüş hattı.
+// Inner r=8 (ilk 6 masa), outer eliptic xR=12.5/zR=10 (kalanlar, oda sınırı içinde).
+// Outer sıra iç sıraya yarım adım offset → masalar arasına "nesting" yapar.
+// Her pozisyon { x, z, angle } döndürür — angle desk rotation hesabında kullanılır:
+//   deskGroup.rotation.y = -π/2 - angle  → local +Z merkeze bakar (ajan merkeze dönük).
+export function getAmphibDeskPositions(count: number): { x: number; z: number; angle: number }[] {
+  if (count < 1) return [{ x: 0, z: 0, angle: 0 }]
 
-export const ROLE_LABELS: Record<string, string> = {
-  researcher: 'Researcher',
-  analyst: 'Analyst',
-  writer: 'Writer',
-  editor: 'Editor',
-  planner: 'Planner',
-  executor: 'Executor',
-  default: 'Agent',
-}
-
-// Amphitheater desk positions — two-row: inner r=10 (up to 6), outer r=14 (7+)
-// Arc: 200°→340° facing +Z camera
-export function getAmphibDeskPositions(count: number): { x: number; z: number }[] {
-  if (count < 1) return [{ x: 0, z: 0 }]
-  const startRad = (200 * Math.PI) / 180
-  const sweepRad = (140 * Math.PI) / 180
+  const startRad = (130 * Math.PI) / 180
+  const sweepRad = (280 * Math.PI) / 180
 
   const INNER_MAX = 6
+  const INNER_R   = 8
+  const OUTER_XR  = 12.5  // eliptic x-radius — stays in room (±18)
+  const OUTER_ZR  = 10    // eliptic z-radius — stays in room (±14, with 1 unit clearance)
+
   const innerCount = Math.min(count, INNER_MAX)
   const outerCount = count - innerCount
 
-  const row = (n: number, r: number) =>
-    Array.from({ length: n }, (_, i) => {
+  const makeRow = (
+    n: number,
+    xR: number,
+    zR: number,
+    offset = 0,
+  ): { x: number; z: number; angle: number }[] => {
+    if (n === 0) return []
+    return Array.from({ length: n }, (_, i) => {
       const angle = n === 1
-        ? startRad + sweepRad / 2
-        : startRad + i * (sweepRad / (n - 1))
-      return { x: Math.cos(angle) * r, z: Math.sin(angle) * r }
+        ? startRad + sweepRad / 2 + offset
+        : startRad + offset + i * (sweepRad / (n - 1))
+      return { x: Math.cos(angle) * xR, z: Math.sin(angle) * zR, angle }
     })
+  }
 
-  return [...row(innerCount, 10), ...row(outerCount, 14)]
+  // Outer sıra: iç sıra adımının yarısı kadar ötelenir → iç masaların arasına nestler
+  const innerStep  = innerCount > 1 ? sweepRad / (innerCount - 1) : sweepRad
+  const outerOffset = innerStep / 2
+
+  return [
+    ...makeRow(innerCount, INNER_R, INNER_R),
+    ...makeRow(outerCount, OUTER_XR, OUTER_ZR, outerOffset),
+  ]
 }
 
-// Calculate amphitheater positions for agent avatars (y=2 = standing height)
 export function calculateAgentPositions(agentCount: number): THREE.Vector3[] {
   if (agentCount < 1) return []
   if (agentCount === 1) return [new THREE.Vector3(0, 2, 0)]

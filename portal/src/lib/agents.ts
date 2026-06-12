@@ -1,17 +1,8 @@
 import { supabase } from '@/lib/supabaseClient'
 
-export type AgentRole =
-  | 'research'
-  | 'analysis'
-  | 'writing'
-  | 'editing'
-  | 'verification'
-  | 'operation'
-  | 'contrarian'
-  | 'design'
-  | 'code'
-  | 'architecture'
-  | 'ceo'
+// AgentRole artık DB agent_roles.slug FK'siyle garantilendiğinden
+// tip union değil string. Yeni rol eklemek = yeni DB satırı; deploy gereksiz.
+export type AgentRole = string
 
 export type RiskCeiling = 'R0' | 'R1' | 'R2' | 'R3'
 export type CostClass = 'low' | 'medium' | 'high'

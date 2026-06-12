@@ -15,22 +15,7 @@ import {
   type RiskCeiling,
   type UpsertAgentInput,
 } from '@/lib/agents'
-
-// ─── Sabitler ────────────────────────────────────────────────────────────────
-
-const ROLE_OPTIONS: { value: AgentRole; label: string; desc: string }[] = [
-  { value: 'ceo', label: 'CEO / Yönetim', desc: 'Hedef bölme, delegasyon, eskalasyon yönetimi' },
-  { value: 'research', label: 'Araştırma', desc: 'Kaynak tarar, not çıkarır' },
-  { value: 'analysis', label: 'Analiz', desc: 'İddiaları test eder, tutarlılık kontrolü' },
-  { value: 'writing', label: 'Yazım', desc: 'Rapor / metin üretir' },
-  { value: 'editing', label: 'Editör', desc: 'Dil, ton, format standardı' },
-  { value: 'verification', label: 'Denetçi', desc: 'Kaynak doğrulama, risk etiketleme' },
-  { value: 'operation', label: 'Operatör', desc: 'Araç çağırır, otomasyon yapar' },
-  { value: 'contrarian', label: 'Contrarian', desc: '"Bu neden yanlış olabilir?" raporu' },
-  { value: 'design', label: 'Tasarım', desc: 'UI/UX, görsel tasarım görevleri' },
-  { value: 'code', label: 'Kod', desc: 'Yazılım geliştirme, teknik analiz' },
-  { value: 'architecture', label: 'Mimari', desc: 'Domain pack / sistem iskeleti tasarımı' },
-]
+import { fetchAgentRoles, type AgentRoleMeta } from '@/lib/roles'
 
 const RISK_OPTIONS: { value: RiskCeiling; label: string; color: string }[] = [
   { value: 'R0', label: 'R0 — Zararsız', color: 'text-emerald-300' },
@@ -162,6 +147,7 @@ export default function AgentUpsertPage({ mode }: { mode: 'new' | 'edit' }) {
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  const [roleOptions, setRoleOptions] = useState<AgentRoleMeta[]>([])
 
   // temel alanlar
   const [name, setName] = useState('')
@@ -178,6 +164,7 @@ export default function AgentUpsertPage({ mode }: { mode: 'new' | 'edit' }) {
   const [tenantOverridable, setTenantOverridable] = useState(true)
 
   useEffect(() => { init() }, [init])
+  useEffect(() => { fetchAgentRoles().then(setRoleOptions) }, [])
 
   useEffect(() => {
     if (!canQuery || !effectiveId) return
@@ -303,8 +290,8 @@ export default function AgentUpsertPage({ mode }: { mode: 'new' | 'edit' }) {
               className="w-full rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-blue-400"
             >
               <option value="">— Seçiniz —</option>
-              {ROLE_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>{o.label} — {o.desc}</option>
+              {roleOptions.map((o) => (
+                <option key={o.slug} value={o.slug}>{o.label} — {o.description}</option>
               ))}
             </select>
           </div>
