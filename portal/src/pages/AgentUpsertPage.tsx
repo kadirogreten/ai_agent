@@ -19,6 +19,7 @@ import {
 // ─── Sabitler ────────────────────────────────────────────────────────────────
 
 const ROLE_OPTIONS: { value: AgentRole; label: string; desc: string }[] = [
+  { value: 'ceo', label: 'CEO / Yönetim', desc: 'Hedef bölme, delegasyon, eskalasyon yönetimi' },
   { value: 'research', label: 'Araştırma', desc: 'Kaynak tarar, not çıkarır' },
   { value: 'analysis', label: 'Analiz', desc: 'İddiaları test eder, tutarlılık kontrolü' },
   { value: 'writing', label: 'Yazım', desc: 'Rapor / metin üretir' },
@@ -28,6 +29,7 @@ const ROLE_OPTIONS: { value: AgentRole; label: string; desc: string }[] = [
   { value: 'contrarian', label: 'Contrarian', desc: '"Bu neden yanlış olabilir?" raporu' },
   { value: 'design', label: 'Tasarım', desc: 'UI/UX, görsel tasarım görevleri' },
   { value: 'code', label: 'Kod', desc: 'Yazılım geliştirme, teknik analiz' },
+  { value: 'architecture', label: 'Mimari', desc: 'Domain pack / sistem iskeleti tasarımı' },
 ]
 
 const RISK_OPTIONS: { value: RiskCeiling; label: string; color: string }[] = [

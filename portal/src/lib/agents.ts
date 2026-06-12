@@ -10,6 +10,8 @@ export type AgentRole =
   | 'contrarian'
   | 'design'
   | 'code'
+  | 'architecture'
+  | 'ceo'
 
 export type RiskCeiling = 'R0' | 'R1' | 'R2' | 'R3'
 export type CostClass = 'low' | 'medium' | 'high'
