@@ -511,8 +511,8 @@ Sıraya girmeyen, 15 dakikalık bakım işleri:
 | 2 | Drift critic ilk hazırlık adımını boğuyordu (skor 10<40) → gece 19 kopya operasyon/eskalasyon zinciri (dedup eskalasyonu "aktif" saymıyor) | ✅ Geçici eşik override'ıyla aşıldı (tur sonrası kaldırıldı); kalıcı düzeltme aşağıdaki listede |
 | 3 | `tool_choice="required"` ilk turda **başka araçla savuşturulabiliyordu** (PO yerine link_check) | ✅ Düzeltildi: `primaryTool` step alanı — spesifik fonksiyon zorlama + adım araç kısıtı; canlıda doğrulandı |
 | 4 | Ürün adı eşleşmesi kırılgan ("Kirmizi Kalem (KIR-001)" ≠ "Kırmızı Kalem") | ✅ Düzeltildi: SKU regex → tam ad → ILIKE sırası; canlıda doğrulandı (stok 8→11) |
-| 5 | Koşullu adımda `primaryTool` zorlaması **koşulu atlıyor**: "teslimse güncelle" adımı teslimden önce `stock_replenish` koştu | ⛔ Açık — düzeltme listede |
-| 6 | Fazlar arası yapılandırılmış veri aktarımı yok: `order_id`/`tracking_number` kargo run'ına taşınmıyor → cargo_track hash-fallback'e düşüp asla "teslim" demiyor | ⛔ Açık — düzeltme listede |
+| 5 | Koşullu adımda `primaryTool` zorlaması **koşulu atlıyor**: "teslimse güncelle" adımı teslimden önce `stock_replenish` koştu | ✅ Düzeltildi (Dogfood 3 #2): `StockReplenishTool` teslim guard'ı — `tracking_number` Unix zamanından teslim eşiği kontrolü, teslim olmadan `Failure`; ayrıca `order_id` idempotency. Canlı Tur-4'te doğrulandı (teslim öncesi iki tick "teslimat tamamlanmadı, kargo fazında devam" kararı verdi, replenish'e atlamadı). |
+| 6 | Fazlar arası yapılandırılmış veri aktarımı yok: `order_id`/`tracking_number` kargo run'ına taşınmıyor → cargo_track hash-fallback'e düşüp asla "teslim" demiyor | ✅ Düzeltildi (Dogfood 3 #1): `operationLoopTick` OBSERVE, operasyona ait son başarılı `purchase_order` invocation output'undan `order_id`/`tracking_number`/`product`/`quantity` yakalayıp `context_json.order`'a yazıyor (operation_id'ye scope'lu); ACT kargo fazında tracking'i `next_topic`'e gömüyor. Canlı Tur-4'te kargo takibi tracking'le ilerledi. |
 
 Yan bulgular: worker `dotnet` komutu 120 sn'de zaman aşımı (uzun web-search koşularını kesiyor — limit yükseltilmeli); eskalasyonlu operasyonlar stok-dedup'ında "aktif" sayılmıyor (bulgu 2'nin kopya üretme mekanizması).
 
@@ -546,6 +546,20 @@ Repo: ai_agent. Bağlam: bu dosyadaki "Canlı Dogfood Turu" bulgu 2-5-6 + yan bu
 Bitti: temiz tur 4'te operasyon insan-onayı dışında dokunuşsuz done + kpi_summary
 üretiyor; teslim öncesi replenish reddediliyor; build + testler yeşil.
 ```
+
+### Dogfood düzeltmeleri 3 — Tamamlandı (2026-06-14)
+
+Teslim edilenler (5 değişiklik, Sonnet; build + 45/45 test + portal build yeşil):
+
+1. **Faz veri aktarımı (bulgu 6)** — `operationLoopTick.ts` OBSERVE, operasyona ait (`operation_id` scope'lu) son başarılı `purchase_order` invocation output'undan `order_id`/`tracking_number`/`product`/`quantity` yakalayıp `purchaseOrderCtx` döndürüyor; OBSERVE→DECIDE arasında `context_json.order`'a (yoksa) yazıyor; ACT kargo fazında `order` bilgisini `stockCtx`/`answers_json`'a koyup `tracking_number`'ı `next_topic`'e gömüyor.
+2. **Teslim guard (bulgu 5)** — `StockReplenishTool.cs`, `adjust_stock` öncesi iki koruma: (a) `tracking_number`'daki Unix zaman ekinden `CARGO_DEMO_SCALE` + `cargo.stage_minutes` politikasıyla teslim kontrolü, teslim olmadan `Failure`; (b) `order_id` idempotency — aynı sipariş için ikinci başarılı `stock_replenish` reddedilir (`tool_invocations` sorgusu). Not: tracking formatı tanınmazsa guard atlanıyor (fail-open) — demo dışı takip numarası için sınır.
+3. **Drift critic (bulgu 2)** — `operationLoopTick.ts:447` `CRITIC_SYSTEM_PROMPT`'a çok-adımlı operasyon kuralı ("bu adım planın mantıklı sıradaki adımı mı?") + 2 few-shot (hazırlık=85, alakasız=15). İlk hazırlık adımının boğulması (skor<40) giderildi.
+4. **Dedup (yan bulgu)** — `stockMonitorTick.ts:40` `ACTIVE_OP_STATUSES`'e `'escalated'` eklendi (`active/paused/escalated`); eskalasyonlu operasyon varken aynı ürün için yeni operasyon açılmıyor.
+5. **Worker timeout (yan bulgu)** — `runRequestWorker.ts` `dotnet` çağrısı timeout'u `policy_settings.worker.run_timeout_ms`'ten okunuyor (seed 600000 ms), `DEFAULT_CMD_TIMEOUT_MS`'e (env, eski 120 s) fallback'li.
+
+İnceleme notları: faz aktarımının `operation_id` scope'u doğru (başka operasyonun siparişini kapmaz); 3 TS değişikliğinin (1, 3, 4) `vitest` kapsamı doğrulanmalı — "45/45" C# suite gibi görünüyor; teslim guard'ı CargoTrackTool ile teslim mantığını çoğaltıyor (tek-kaynak ilkesi), aynı politikadan okuduğu için değerler tutuyor.
+
+**Canlı Tur-4 (2026-06-14, devam ediyor):** Manuel operasyon (KIR-001, `max_steps=12`, cooldown 5 dk). Kanıtlanan zincir: tick'ler 5 dk'da geliyor → araştırma → sipariş → **onay kuyruğunda gerçek R3 `purchase_order`** → **insan onayı (turun tek dokunuşu)** → kargo fazı. Bulgu 5 & 6 **canlıda kapandı**: kargo takibinde tracking taşınıyor ve teslim öncesi iki tick "teslimat tamamlanmadı, kargo fazında devam" kararı verip replenish'e atlamadı (Tur-3'te tam burada takılıyordu). Drift critic ilk hazırlık adımını boğmadı (bulgu 2 fix). Kalan: kargo teslimi `CARGO_DEMO_SCALE` ayarına bağlı; teslim → stok artışı → `done` + `kpi_summary` adımı henüz koşmadı (teslim bekleniyor). Tur bu adım yeşil olunca OA3 "operasyonda kanıtlandı" statüsüne geçer.
 
 ## 3D Ofis serisi (R1–R6 + rol kataloğu) — tamamlandı (2026-06-12)
 
@@ -814,8 +828,8 @@ Bu dört PR bittiğinde repo, S4 için yapabileceği her şeyi yapmış olur: ni
 
 | PR | Katman | Tek cümle | Biten tanımı |
 |---|---|---|---|
-| **PR13** | Eylem | MCP istemcisi — herhangi bir MCP sunucusu, kod yazmadan, yönetişim hattının içinden araç olur | Registry'ye eklenen bir MCP aracı playbook adımından çağrılıyor; RiskGate/bütçe/audit aynen işliyor |
-| **PR14** | Bilgi | Sector Factory — "X sektörüne gir" bir operasyon hedefi; sistem paketi üretir, test eder, onaya getirir | Tek operasyonla yeni sektör paketi taslak→test→onay→yayın döngüsünden geçiyor |
+| **PR13** ✅ | Eylem | MCP istemcisi — herhangi bir MCP sunucusu, kod yazmadan, yönetişim hattının içinden araç olur | Registry'ye eklenen bir MCP aracı playbook adımından çağrılıyor; RiskGate/bütçe/audit aynen işliyor |
+| **PR14** ✅ | Bilgi | Sector Factory — "X sektörüne gir" bir operasyon hedefi; sistem paketi üretir, test eder, onaya getirir | Tek operasyonla yeni sektör paketi taslak→test→onay→yayın döngüsünden geçiyor |
 | **PR15** | Süreç | Playbook sentezi — prosedürü insan değil sistem kurar; başarılılar kütüphaneye terfi eder | Hedeften sentezlenen playbook dogfood'da PASS alıp draft'tan aktife terfi ediyor |
 | **PR16** | İnsan ölçeği | Öğrenen delegasyon — onay geçmişinden oto-onay teklifi üretir; karar insanda kalır | 50+ tutarlı onaylı sınıf için sistem delegasyon teklifi çıkarıyor; kabul edilince o sınıf oto-onaya iniyor |
 
@@ -864,6 +878,14 @@ sahte/yerel bir MCP aracı playbook adımından çağrılıyor; tool_invocations
 yerleşik araçlarla aynı; sözleşmesi doldurulmamış MCP aracı Faz A kuralıyla reddediliyor.
 ```
 
+### PR13 — Tamamlandı (2026-06-14)
+
+Teslim edilenler (Sonnet; `dotnet build` + `dotnet test` 55/55 + `npm run build` yeşil — test sayısı geliştirici çıktısına dayanıyor, sandbox'ta bağımsız koşulamadı): `20260614110000_mcp_servers.sql` (mcp_servers tablosu + partial-index slug benzersizliği + RLS `WITH CHECK` guard + `tools.mcp_server_id`/`mcp_tool_name` + `mcp.call_timeout_seconds=60` seed); `Infra/McpClient.cs` (HTTP JSON-RPC 2.0, lazy `initialize → notifications/initialized` handshake, `tools/list`, `tools/call`, policy-timeout'lu); `Tools/McpProxyTool.cs` (ITool adapter, Descriptor DB kolonlarından, `category='utility'`, en-kısıtlayıcı varsayılan → Faz A reddi); `ToolExecutor.CreateWithDbAsync` (naif enabled filtresi YOK — PR8 iki-adımlı enabled-map korunur, builtin slug öncelikli, disabled → Blocked+audit); `Runner.cs` (db varsa CreateWithDbAsync); `mcp-sync --server <slug> [--dry-run]` CLI (idempotent INSERT, `tenant_id` doğru set, en-kısıtlayıcı sözleşme); ToolsPage MCP rozeti + "Sözleşme gerekli" uyarısı; 10 yeni test.
+
+İncelemede doğrulanan kapanışlar (planlama uyarılarımın tümü karşılandı): (1) `category` CHECK riski — `'utility'` kullanılıyor, `'mcp'/'external'` uydurulmadı; (2) `tenant_id` synced satırlarda doğru; (3) PR8 `tool_overrides` önceliği korundu (en büyük endişe); (4) disabled→Blocked+audit; (5) builtin-wins dedup açık; ayrıca RLS `WITH CHECK`, MCP handshake tam, SSRF notu migration yorumunda.
+
+Sonraki PR'a devir / küçük notlar: Portal MCP Sunucuları CRUD (Adım 7-8 `McpServersPage` + Express route) bilinçli olarak sonraki PR'a bırakıldı (sahte sunucu SQL seed ile kaydedilir). Devre dışı **sunucunun** araçları sessizce atlanıyor (tool-seviyesi disabled→Blocked ilkesiyle ufak tutarsızlık, sunucu seviyesi savunulabilir); `CreateWithDbAsync` MCP yükleme hatasında fail-open (CreateDefault'a düşer — run kırılmaz, config sorununu maskeleyebilir, log var).
+
 ### PR14 prompt'u — Sector Factory (sektör paketini sistem üretir)
 
 ```
@@ -908,6 +930,14 @@ taslak→test→değerlendirme→onay→yayın.
 onay kuyruğuna düştü, merge sonrası yeni pack ile bir playbook çalıştı; operasyon done +
 KPI'da tur sayısı görünüyor.
 ```
+
+### PR14 — Tamamlandı (2026-06-14)
+
+Teslim edilenler (Sonnet; `dotnet build` + 55/55 test + portal build + `tsc --noEmit` yeşil — test sayısı geliştirici çıktısı, sandbox'ta bağımsız koşulamadı): `20260614120000_sector_factory.sql` (`decide_prompts` tablosu + 3 system playbook seed'i + `sector_factory` prompt seed'i); `20260614130000_decide_prompts_base_seed.sql` (`base` + `tedarik` prompt seed'leri); `operationDecide.ts` `buildDecideSystemPrompt(supabase, kind)` — DB-first, 5 dk `PROMPT_CACHE`, DB yoksa hardcoded `DECIDE_SYSTEM_PROMPT` fallback, `base`+`kind` birleştirme; `operationLoopTick.ts` DB-first decide prompt + `sectorDraftId` OBSERVE + `context_json.draft_id` yazımı + `gate_run_for_approval` RPC köprüsü (idempotent: önce pending kontrol) + KPI `draft_rounds`/`test_pass_rate`/`missing_tools_count`; `Runner.cs` hook `Contains("sector-discovery")` → `StartsWith("sector-")`; `OperationsPage.tsx` "Sektör Fabrikası" şablon seçici (sector_name → otomatik goal_text/domain_pack/intent).
+
+İncelemede istenen düzeltmelerin tümü uygulandı (kod doğrulandı): (A) onay köprüsü direkt `upsert` değil `gate_run_for_approval` RPC — gerçek kolonlar (`action_summary`/`action_detail`) ve `run_requests.status='waiting_approval'` zinciri korunuyor; (B) uydurma `domain_pack_draft_write`/`web_search` araçları yok — `sector-paket-taslak` `DOMAIN_PACK_ARCHITECT` ajanıyla, araştırma `web_scrape`/`product_search` ile; Runner post-hook draft'ı yazıyor; (C) `draft_id` kaynağı `domain_pack_drafts` (taslak run'ı, `tool_invocations` değil), `verifier_outcome` küçük harf `'pass'` ile karşılaştırılıyor (PR12 büyük-harf tuzağından kaçınıldı). Playbook seed formatı `{id,agent,goal,output}`; migration ikiye bölündü.
+
+Devir: Portal MCP Sunucuları CRUD (`McpServersPage` + Express route — PR13'ten ertelenen) sıradaki PR. Kabul adımı: "kuaför salonları sektörüne gir" hedefli canlı uçtan-uca tur (taslak→test→onay→merge→pack ile playbook→done + KPI) henüz koşulmadı.
 
 ### PR15 prompt'u — Playbook sentezi + terfi
 
