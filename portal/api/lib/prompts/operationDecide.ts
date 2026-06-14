@@ -4,7 +4,11 @@
  * operationLoopTick.ts bu modülü import eder; prompt gömülü değildir.
  *
  * PR6: Tedarik fazı örnekleri eklendi; lastResultSummary + availablePlaybooks parametresi.
+ * PR14: buildDecideSystemPrompt(supabase, kind) — decide_prompts tablosundan 5dk cache ile okur.
+ *       DB'den okuma başarısız olursa DECIDE_SYSTEM_PROMPT sabit string'e düşer (fallback).
  */
+
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 export const DECIDE_SYSTEM_PROMPT = `\
 Sen bir otonom ajan operatörüsün. Aşağıdaki gözlem verisiyle bir sonraki aksiyonu seçeceksin.
@@ -73,6 +77,48 @@ export function parseDecideResponse(raw: string): DecideResponse | null {
     }
   } catch {
     return null
+  }
+}
+
+// ── DB-first prompt cache ──────────────────────────────────────────────────────
+
+type CacheEntry = { content: string; expiresAt: number }
+const PROMPT_CACHE = new Map<string, CacheEntry>()
+const CACHE_TTL_MS = 5 * 60 * 1000 // 5 dakika
+
+/**
+ * decide_prompts tablosundan base + kind-specific parçaları birleştirir.
+ * 5dk in-memory cache; DB'de kayıt yoksa veya hata varsa DECIDE_SYSTEM_PROMPT'a düşer.
+ */
+export async function buildDecideSystemPrompt(
+  supabase: SupabaseClient,
+  kind: string,
+): Promise<string> {
+  const cacheKey = `decide:${kind}`
+  const now = Date.now()
+  const cached = PROMPT_CACHE.get(cacheKey)
+  if (cached && cached.expiresAt > now) return cached.content
+
+  try {
+    const scopes = kind === 'base' ? ['base'] : ['base', kind]
+    const { data, error } = await supabase
+      .from('decide_prompts')
+      .select('scope, content')
+      .in('scope', scopes)
+
+    if (error || !data || data.length === 0) {
+      return DECIDE_SYSTEM_PROMPT
+    }
+
+    const rows = data as { scope: string; content: string }[]
+    const base    = rows.find((r) => r.scope === 'base')?.content ?? DECIDE_SYSTEM_PROMPT
+    const specific = kind !== 'base' ? rows.find((r) => r.scope === kind)?.content : null
+    const combined = specific ? `${base}\n\n${specific}` : base
+
+    PROMPT_CACHE.set(cacheKey, { content: combined, expiresAt: now + CACHE_TTL_MS })
+    return combined
+  } catch {
+    return DECIDE_SYSTEM_PROMPT
   }
 }
 

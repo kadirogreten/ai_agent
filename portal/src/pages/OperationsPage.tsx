@@ -402,10 +402,21 @@ const EMPTY_FORM = {
   max_steps:        10,
   cooldown_minutes: 30,
   budget_scope:     '',
+  // PR14: şablon seçici
+  template:         '' as '' | 'sector_factory',
+  sector_name:      '',
   // intent alanları
   intent_beneficiary:      '',
   intent_success_criteria: '',
   intent_expires_at:       '',
+}
+
+const SECTOR_FACTORY_DEFAULTS = {
+  domain_pack:             'system',
+  max_steps:               15,
+  cooldown_minutes:        30,
+  intent_beneficiary:      'pazar ekibi',
+  intent_success_criteria: 'sektör paketi oluştu ve onaylandı',
 }
 
 function NewOpForm({ onCreated }: { onCreated: () => void }) {
@@ -445,7 +456,14 @@ function NewOpForm({ onCreated }: { onCreated: () => void }) {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) throw new Error('Oturum bulunamadı')
 
-      const contextJson = form.budget_scope ? { budget_scope: form.budget_scope } : undefined
+      const isSectorFactory = form.template === 'sector_factory'
+      const contextJson: Record<string, unknown> = {}
+      if (form.budget_scope) contextJson.budget_scope = form.budget_scope
+      if (isSectorFactory) {
+        contextJson.kind        = 'sector_factory'
+        contextJson.sector_name = form.sector_name.trim() || form.goal_text.trim()
+      }
+
       const intentJson: IntentJson = {
         beneficiary:      form.intent_beneficiary.trim(),
         success_criteria: form.intent_success_criteria.trim(),
@@ -463,9 +481,9 @@ function NewOpForm({ onCreated }: { onCreated: () => void }) {
           domain_pack:      form.domain_pack,
           max_steps:        form.max_steps,
           cooldown_minutes: form.cooldown_minutes,
-          risk:             'R1',
+          risk:             isSectorFactory ? 'R2' : 'R1',
           intent_json:      intentJson,
-          ...(contextJson ? { context_json: contextJson } : {}),
+          ...(Object.keys(contextJson).length > 0 ? { context_json: contextJson } : {}),
         }),
       })
       const json = await resp.json() as { error?: string }
@@ -491,6 +509,55 @@ function NewOpForm({ onCreated }: { onCreated: () => void }) {
   return (
     <Card className="p-4">
       <form onSubmit={submit} className="space-y-3">
+        {/* PR14: Şablon seçici */}
+        <div>
+          <label className="mb-1 block text-xs text-white/50">Şablon (opsiyonel)</label>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              className={`rounded px-3 py-1.5 text-xs font-medium transition-colors ${
+                form.template === '' ? 'bg-white/20 text-white/90' : 'bg-white/[0.06] text-white/40 hover:bg-white/10'
+              }`}
+              onClick={() => setForm((f) => ({ ...f, template: '', goal_text: '', domain_pack: '' }))}
+            >
+              Boş
+            </button>
+            <button
+              type="button"
+              className={`rounded px-3 py-1.5 text-xs font-medium transition-colors ${
+                form.template === 'sector_factory' ? 'bg-violet-600 text-white' : 'bg-white/[0.06] text-white/40 hover:bg-white/10'
+              }`}
+              onClick={() => setForm((f) => ({
+                ...f,
+                template: 'sector_factory',
+                ...SECTOR_FACTORY_DEFAULTS,
+                goal_text: f.sector_name ? `${f.sector_name} sektörüne gir` : '',
+              }))}
+            >
+              Sektör Fabrikası
+            </button>
+          </div>
+        </div>
+
+        {form.template === 'sector_factory' && (
+          <div>
+            <label className="mb-1 block text-xs text-white/50">Sektör adı *</label>
+            <input
+              className="w-full rounded bg-white/[0.06] px-3 py-2 text-sm text-white/90 placeholder-white/20 focus:outline-none focus:ring-1 focus:ring-white/20"
+              placeholder="ör. kuaför salonları, hukuk büroları, veteriner klinikleri"
+              value={form.sector_name}
+              onChange={(e) => {
+                const sn = e.target.value
+                setForm((f) => ({
+                  ...f,
+                  sector_name: sn,
+                  goal_text: sn ? `${sn} sektörüne gir` : '',
+                }))
+              }}
+            />
+          </div>
+        )}
+
         <div>
           <label className="mb-1 block text-xs text-white/50">Hedef</label>
           <textarea

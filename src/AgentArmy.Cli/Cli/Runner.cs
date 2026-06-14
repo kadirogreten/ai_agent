@@ -341,8 +341,9 @@ public static class Runner
             // Sector Discovery hook: doğrudan playbook çalıştırması (CEO mode değil) için
             // de scaffold çıktısını domain_pack_drafts tablosuna yaz. Aksi halde portal
             // "Taslaklar" sekmesinde hiçbir şey görünmez.
+            // PR14: "sector-" prefix'li tüm playbook'lar hook'u tetikler (sector-paket-taslak dahil).
             if (db is not null
-                && playbook.Id.Contains("sector-discovery", StringComparison.OrdinalIgnoreCase))
+                && playbook.Id.StartsWith("sector-", StringComparison.OrdinalIgnoreCase))
             {
                 try
                 {

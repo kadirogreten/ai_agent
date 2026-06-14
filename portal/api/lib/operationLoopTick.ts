@@ -15,6 +15,7 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import {
   DECIDE_SYSTEM_PROMPT,
+  buildDecideSystemPrompt,
   parseDecideResponse,
   buildDecideUserMessage,
   type IntentJson,
@@ -214,6 +215,20 @@ async function observe(supabase: SupabaseClient, op: Operation) {
     }
   }
 
+  // PR14: sector_factory — domain_pack_drafts'tan draft_id oku (purchase_order context deseni).
+  // DomainPackDraftWriter Runner post-hook'u olarak domain_pack_drafts'a INSERT yapar;
+  // tool_invocations'ta karşılığı yoktur. Kaynak: run_requests.id (operation'a bağlı en son).
+  let sectorDraftId: string | null = null
+  if (op.context_json?.kind === 'sector_factory' && lastRun?.id) {
+    const { data: draftRows } = await supabase
+      .from('domain_pack_drafts')
+      .select('id')
+      .eq('run_request_id', lastRun.id)
+      .order('created_at', { ascending: false })
+      .limit(1)
+    sectorDraftId = ((draftRows ?? []) as { id: string }[])[0]?.id ?? null
+  }
+
   return {
     lastRunStatus:       lastRun?.status ?? null,
     lastVerifierOutcome,
@@ -227,6 +242,8 @@ async function observe(supabase: SupabaseClient, op: Operation) {
     lastError,
     availablePlaybooks,
     purchaseOrderCtx,
+    sectorDraftId,
+    lastRunId: lastRun?.id ?? null,
   }
 }
 
@@ -342,7 +359,10 @@ async function decide(
   })
 
   const provider = await resolveDecideProvider(supabase)
-  const raw = await callDecideLlm(provider, DECIDE_SYSTEM_PROMPT, userMsg)
+  // PR14: DB-first prompt — decide_prompts tablosundan kind'a göre okur; hata/boşsa fallback
+  const kind = (op.context_json?.kind as string | undefined) ?? 'base'
+  const systemPrompt = await buildDecideSystemPrompt(supabase, kind)
+  const raw = await callDecideLlm(provider, systemPrompt, userMsg)
   return { response: parseDecideResponse(raw), provider }
 }
 
@@ -552,7 +572,7 @@ async function computeKpiSummary(supabase: SupabaseClient, op: Operation) {
     .map((e) => e.payload?.playbook as string | undefined)
     .filter(Boolean) as string[]
 
-  return {
+  const base = {
     total_duration_min: totalDurationMin,
     tick_count:         tickCount ?? 0,
     human_touch_count:  humanTouchCount,
@@ -564,6 +584,36 @@ async function computeKpiSummary(supabase: SupabaseClient, op: Operation) {
     context_json:       op.context_json,
     completed_at:       new Date().toISOString(),
   }
+
+  // PR14: sector_factory ek KPI alanları
+  if (op.context_json?.kind === 'sector_factory') {
+    const draftRounds = playbooksRun.filter((p) => p === 'sector-paket-taslak').length
+
+    // test_pass_rate: son 5 sector-paket-test act event içinde verifier_outcome='pass' oranı
+    const { data: testEvents } = await supabase
+      .from('operation_events')
+      .select('payload')
+      .eq('operation_id', op.id)
+      .eq('kind', 'act')
+      .order('created_at', { ascending: false })
+      .limit(5)
+    const testActs = ((testEvents ?? []) as { payload: Record<string, unknown> }[])
+      .filter((e) => e.payload?.playbook === 'sector-paket-test')
+    const testPassCount = testActs.filter(
+      (e) => (e.payload?.verifier_outcome as string | undefined)?.toLowerCase() === 'pass'
+    ).length
+    const testPassRate = testActs.length > 0
+      ? Math.round((testPassCount / testActs.length) * 100)
+      : null
+
+    // missing_tools_count: context_json.missing_tools array length (OBSERVE'da set edilirse)
+    const missingTools = op.context_json?.missing_tools
+    const missingToolsCount = Array.isArray(missingTools) ? missingTools.length : null
+
+    return { ...base, draft_rounds: draftRounds, test_pass_rate: testPassRate, missing_tools_count: missingToolsCount }
+  }
+
+  return base
 }
 
 // ── single operation tick ──────────────────────────────────────────────────────
@@ -610,6 +660,21 @@ async function processOperation(supabase: SupabaseClient, op: Operation) {
       log('context_json.order yazıldı', { id: op.id, order_id: obs.purchaseOrderCtx.order_id })
     } else {
       log('context_json.order yazma hatası', { id: op.id, error: ctxErr.message })
+    }
+  }
+
+  // PR14: sector_factory — draft_id context_json'a kalıcı yaz (purchase_order deseni)
+  if (obs.sectorDraftId && !(op.context_json?.draft_id as string | undefined)) {
+    const newCtx = { ...(op.context_json ?? {}), draft_id: obs.sectorDraftId }
+    const { error: draftCtxErr } = await supabase
+      .from('operations')
+      .update({ context_json: newCtx, updated_at: new Date().toISOString() })
+      .eq('id', op.id)
+    if (!draftCtxErr) {
+      op.context_json = newCtx
+      log('context_json.draft_id yazıldı', { id: op.id, draft_id: obs.sectorDraftId })
+    } else {
+      log('context_json.draft_id yazma hatası', { id: op.id, error: draftCtxErr.message })
     }
   }
 
@@ -795,6 +860,40 @@ async function processOperation(supabase: SupabaseClient, op: Operation) {
     log('run tetiklendi', { id: op.id, action, playbook, drift_score: critic.score })
 
   } else if (action === 'wait_approval') {
+    // PR14: sector_factory — gate_run_for_approval RPC ile pack.publish onay girişi aç.
+    // Direkt approval_queue INSERT değil; RPC run_request.status='waiting_approval' + bildirim zincirini de yapar.
+    // Idempotency: bu run için bekleyen onay yoksa aç.
+    if (op.context_json?.kind === 'sector_factory') {
+      const lastRunId = obs.lastRunId
+      if (lastRunId) {
+        const { count: pendingCount } = await supabase
+          .from('approval_queue')
+          .select('id', { count: 'exact', head: true })
+          .eq('run_request_id', lastRunId)
+          .eq('status', 'pending')
+
+        if ((pendingCount ?? 0) === 0) {
+          const draftId  = op.context_json?.draft_id as string | undefined
+          const sector   = op.context_json?.sector_name as string | undefined
+          const { error: rpcErr } = await supabase.rpc('gate_run_for_approval', {
+            p_run_request_id: lastRunId,
+            p_owner_user_id:  op.owner_user_id,
+            p_risk_level:     'R2',
+            p_action_summary: `pack.publish: ${sector ?? op.goal_text.slice(0, 80)}`,
+            p_step_index:     0,
+            p_step_name:      'sector-paket-yayinla',
+            p_agent_code:     'system',
+            p_action_detail:  draftId ? { review_url: `/pack-drafts/${draftId}` } : null,
+          })
+          if (rpcErr) {
+            log('gate_run_for_approval hatası', { id: op.id, error: rpcErr.message })
+          } else {
+            log('pack.publish onay kuyruğuna eklendi', { id: op.id, draft_id: draftId ?? 'bilinmiyor' })
+          }
+        }
+      }
+    }
+
     if (obs.oldestPendingAt) {
       const ageMs = Date.now() - new Date(obs.oldestPendingAt).getTime()
       const timeoutHours = await getPolicy(supabase, op.owner_user_id ?? null, 'oploop.wait_approval_timeout_hours', 24)
