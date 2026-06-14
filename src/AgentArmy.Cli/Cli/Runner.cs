@@ -223,7 +223,9 @@ public static class Runner
                 agentOverrides, images,
                 factsIndex,
                 personaProfile,
-                ToolExecutor.CreateDefault(),
+                db is not null
+                    ? await ToolExecutor.CreateWithDbAsync(db, ct)
+                    : ToolExecutor.CreateDefault(),
                 compensator: null,
                 opMemStore:  opMemStore
             );

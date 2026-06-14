@@ -22,6 +22,8 @@ type Tool = {
   compensation: string | null
   enabled: boolean
   tenant_id: string | null
+  mcp_server_id: string | null
+  mcp_tool_name: string | null
   created_at: string
   updated_at: string
 }
@@ -276,9 +278,21 @@ export default function ToolsPage() {
                               {tool.reversible ? 'geri-alınabilir' : 'geri-alınamaz'}
                             </Badge>
                           )}
+                          {tool.mcp_server_id && (
+                            <span className="rounded border border-purple-500/30 bg-purple-500/10 px-1.5 py-0.5 text-xs text-purple-300"
+                              title={tool.mcp_tool_name ? `MCP araç adı: ${tool.mcp_tool_name}` : 'MCP proxy aracı'}>
+                              MCP
+                            </span>
+                          )}
                           {!tool.enabled && (
                             <span className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5 text-xs text-white/40">
                               Pasif
+                            </span>
+                          )}
+                          {tool.mcp_server_id && tool.side_effect === 'external' && !tool.reversible && (
+                            <span className="rounded border border-orange-500/30 bg-orange-500/10 px-1.5 py-0.5 text-xs text-orange-300"
+                              title="Faz A kuralı: external + geri-alınamaz → sözleşme doldurulana kadar çalıştırılamaz">
+                              ⚠ Sözleşme gerekli
                             </span>
                           )}
                           {tool.auth_type === 'oauth2' && tool.enabled && (

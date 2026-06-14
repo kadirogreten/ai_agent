@@ -25,6 +25,7 @@ public static partial class CommandDispatcher
             "setup"       => Setup(rootDir, tail),
             "setup-env"   => SetupFromEnv(rootDir, tail),
             "compensate"  => await CompensateAsync(rootDir, tail, ct),
+            "mcp-sync"    => await McpSyncAsync(rootDir, tail, ct),
             _             => Unknown()
         };
     }

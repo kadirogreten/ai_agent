@@ -49,6 +49,125 @@ public sealed class ToolExecutor : IToolExecutor
         new StockReplenishTool(),
     });
 
+    /// <summary>
+    /// DB'deki MCP araç satırlarından McpProxyTool'lar üretip yerleşik araçlarla birleştirir.
+    /// DB yoksa CreateDefault() ile eşdeğerdir.
+    ///
+    /// Builtin önceliği: slug çakışmasında yerleşik C# aracı kazanır (MCP proxy yok sayılır).
+    ///
+    /// enabled/disabled filtresi YOKTUR: tüm MCP araçları yüklenir.
+    /// Aktif/pasif kararı ctx.ToolEnabledMap üzerinden ToolExecutor.ExecuteAsync'de verilir
+    /// (PR8 iki-adımlı enabled-map: platform aracı + tool_overrides, override kazanır).
+    /// Böylece disabled → Blocked + audit yolu korunur; araç sessizce düşürülmez.
+    /// </summary>
+    public static async Task<ToolExecutor> CreateWithDbAsync(
+        SupabaseWriter db,
+        CancellationToken ct)
+    {
+        var builtins = CreateDefault();
+        var builtinSlugs = new HashSet<string>(
+            builtins.GetTools().Keys, StringComparer.OrdinalIgnoreCase);
+
+        try
+        {
+            // MCP araç satırlarını oku: enabled ve disabled dahil (bkz. üst not).
+            var toolsJson = await db.SelectAsync(
+                "tools",
+                "mcp_server_id=not.is.null&select=slug,name,description,input_schema,side_effect,reversible,min_risk,mcp_server_id,mcp_tool_name",
+                ct);
+
+            if (toolsJson.ValueKind != System.Text.Json.JsonValueKind.Array
+                || toolsJson.GetArrayLength() == 0)
+                return builtins;
+
+            // Araç satırlarını mcp_server_id'ye göre grupla, her sunucu için tek McpClient.
+            var serverIds = new HashSet<string>();
+            var rows = new List<(McpToolRow row, string serverId)>();
+
+            foreach (var t in toolsJson.EnumerateArray())
+            {
+                var slug      = GetStr(t, "slug");
+                var name      = GetStr(t, "name");
+                var serverId  = GetStr(t, "mcp_server_id");
+                var toolName  = GetStr(t, "mcp_tool_name");
+
+                if (string.IsNullOrWhiteSpace(slug) || string.IsNullOrWhiteSpace(serverId)
+                    || string.IsNullOrWhiteSpace(toolName)) continue;
+
+                // Builtin slug çakışması → MCP proxy atla
+                if (builtinSlugs.Contains(slug))
+                {
+                    Console.Error.WriteLine($"[ToolExecutor] MCP araç slug çakışması builtin ile — atlandı: {slug}");
+                    continue;
+                }
+
+                var inputSchemaRaw = t.TryGetProperty("input_schema", out var is_)
+                    ? is_.Clone()
+                    : System.Text.Json.JsonSerializer.SerializeToElement(new { type = "object" });
+
+                rows.Add((new McpToolRow(
+                    Slug:        slug!,
+                    Name:        name ?? slug!,
+                    Description: GetStr(t, "description"),
+                    InputSchema: inputSchemaRaw,
+                    SideEffect:  GetStr(t, "side_effect") ?? "external",
+                    Reversible:  t.TryGetProperty("reversible", out var rv) && rv.ValueKind == System.Text.Json.JsonValueKind.True,
+                    MinRisk:     GetStr(t, "min_risk") ?? "R3",
+                    McpToolName: toolName!
+                ), serverId!));
+
+                serverIds.Add(serverId!);
+            }
+
+            if (rows.Count == 0) return builtins;
+
+            // Sunucu kayıtlarını çek
+            var serverFilter = "id=in.(" + string.Join(",", serverIds) + ")&enabled=eq.true&select=id,endpoint,auth_env";
+            var serversJson  = await db.SelectAsync("mcp_servers", serverFilter, ct);
+
+            var serverMap = new Dictionary<string, (string Endpoint, string? AuthEnv)>(StringComparer.OrdinalIgnoreCase);
+            if (serversJson.ValueKind == System.Text.Json.JsonValueKind.Array)
+            {
+                foreach (var s in serversJson.EnumerateArray())
+                {
+                    var id       = GetStr(s, "id");
+                    var endpoint = GetStr(s, "endpoint");
+                    if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(endpoint)) continue;
+                    serverMap[id!] = (endpoint!, GetStr(s, "auth_env"));
+                }
+            }
+
+            // MCP araç + timeout policy
+            var timeoutSec = await PolicyReader.GetAsync(db, null, "mcp.call_timeout_seconds", 60, ct);
+
+            // Her sunucu için tek McpClient (client başına bir endpoint)
+            var clients = new Dictionary<string, McpClient>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (serverId, info) in serverMap)
+            {
+                clients[serverId] = new McpClient(info.Endpoint, info.AuthEnv, timeoutSec);
+            }
+
+            var mcpTools = new List<ITool>();
+            foreach (var (row, serverId) in rows)
+            {
+                if (!clients.TryGetValue(serverId, out var client)) continue; // sunucu disabled
+                mcpTools.Add(new McpProxyTool(row, client));
+            }
+
+            var allTools = builtins.GetTools().Values.Concat(mcpTools);
+            return new ToolExecutor(allTools);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[ToolExecutor] MCP araçları yüklenemedi, CreateDefault() kullanılıyor: {ex.Message}");
+            return builtins;
+        }
+    }
+
+    private static string? GetStr(System.Text.Json.JsonElement el, string prop)
+        => el.TryGetProperty(prop, out var v) && v.ValueKind == System.Text.Json.JsonValueKind.String
+            ? v.GetString() : null;
+
     /// <summary>Tüm kayıtlı araçları döner (CompensationExecutor için).</summary>
     public IReadOnlyDictionary<string, ITool> GetTools() => _tools;
 
