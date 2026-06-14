@@ -37,7 +37,7 @@ const MAX_STEPS        = parseInt(process.env.STOCK_MAX_STEPS        ?? '12',  1
 const COOLDOWN_MINUTES = parseInt(process.env.STOCK_COOLDOWN_MINUTES ?? '30',  10)
 
 // Aktif sayılan operasyon durumları — bu durumlarda aynı ürün için yeni operasyon açılmaz.
-const ACTIVE_OP_STATUSES = ['active', 'paused']
+const ACTIVE_OP_STATUSES = ['active', 'paused', 'escalated']
 
 type StockRow = {
   id:            string

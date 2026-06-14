@@ -501,6 +501,52 @@ Sıraya girmeyen, 15 dakikalık bakım işleri:
 
 ---
 
+## Canlı Dogfood Turu (Faz E) — 2026-06-13, 3 tur
+
+**Sonuç: kapalı döngünün omurgası canlıda kanıtlandı; 6 gerçek bulgu çıktı, 4'ü aynı gece düzeltilip doğrulandı.** Kanıtlanan zincir: operasyon (intent'li) → tick → observe/decide (drift skorlu) → araştırma (gerçek `product_search`: Atlas 418300, Hepsiburada, 69.90 TRY) → sipariş adımında **zorunlu `purchase_order`** → onay kuyruğunda gerçek R3 kaydı → **insan onayı (turun tek dokunuşu)** → sipariş işlendi → kargo takibi → `stock_replenish` SKU çözümlemesiyle **stok 8→11**. Tur, kargo-teslim fazında yapısal bulgu 6 nedeniyle bilinçli kapatıldı.
+
+| # | Bulgu | Durum |
+|---|---|---|
+| 1 | Döngü run'larına araç izni verilmiyordu (`tools` yalnız intent yasağıyla kuruluyordu) → model **araçsız rol yapıyordu** (sahte "sipariş onaya iletildi" raporu, Verifier `example.com` URL'lere PASS) | ✅ Düzeltildi: playbook `required_tools` → run'a yazılıyor; canlıda doğrulandı |
+| 2 | Drift critic ilk hazırlık adımını boğuyordu (skor 10<40) → gece 19 kopya operasyon/eskalasyon zinciri (dedup eskalasyonu "aktif" saymıyor) | ✅ Geçici eşik override'ıyla aşıldı (tur sonrası kaldırıldı); kalıcı düzeltme aşağıdaki listede |
+| 3 | `tool_choice="required"` ilk turda **başka araçla savuşturulabiliyordu** (PO yerine link_check) | ✅ Düzeltildi: `primaryTool` step alanı — spesifik fonksiyon zorlama + adım araç kısıtı; canlıda doğrulandı |
+| 4 | Ürün adı eşleşmesi kırılgan ("Kirmizi Kalem (KIR-001)" ≠ "Kırmızı Kalem") | ✅ Düzeltildi: SKU regex → tam ad → ILIKE sırası; canlıda doğrulandı (stok 8→11) |
+| 5 | Koşullu adımda `primaryTool` zorlaması **koşulu atlıyor**: "teslimse güncelle" adımı teslimden önce `stock_replenish` koştu | ⛔ Açık — düzeltme listede |
+| 6 | Fazlar arası yapılandırılmış veri aktarımı yok: `order_id`/`tracking_number` kargo run'ına taşınmıyor → cargo_track hash-fallback'e düşüp asla "teslim" demiyor | ⛔ Açık — düzeltme listede |
+
+Yan bulgular: worker `dotnet` komutu 120 sn'de zaman aşımı (uzun web-search koşularını kesiyor — limit yükseltilmeli); eskalasyonlu operasyonlar stok-dedup'ında "aktif" sayılmıyor (bulgu 2'nin kopya üretme mekanizması).
+
+### Dogfood düzeltmeleri 3 — Sonnet prompt'u
+
+```
+Repo: ai_agent. Bağlam: bu dosyadaki "Canlı Dogfood Turu" bulgu 2-5-6 + yan bulgular.
+1. FAZLAR ARASI VERİ AKTARIMI (bulgu 6): purchase_order başarılı olunca operationLoopTick
+   OBSERVE'u son run'ın çıktısından order_id + tracking_number + product + quantity'yi
+   yakalayıp operations.context_json.order'a YAZSIN (regex/JSON; tool_invocations.output'tan
+   okumak en sağlamı: son purchase_order invocation'ının output'u). ACT kargo fazında
+   next_topic'e tracking_number'ı GÖMSÜN ve kargo run answers_json'ına order bilgisi eklensin;
+   CargoTrackTool/StockReplenishTool args'ı eksikse RUN_INTENT_JSON benzeri env yerine
+   answers'tan gelen topic'te bulunan tracking'i kullanır (model görür).
+2. KOŞULLU primaryTool (bulgu 5): step şemasına "primaryToolCondition": "delivered" gibi
+   alan EKLEME — basit çöz: StockReplenishTool'a teslim guard'ı: args.tracking_number'dan
+   Unix zamanı parse et, policy eşiklerine göre teslim olmamışsa
+   Failure("henüz teslim edilmedi — stok güncellenmedi") dön. Ayrıca order_id bazlı
+   idempotency: aynı order_id için ikinci başarılı replenish reddedilir
+   (tool_invocations'ta order_id araması).
+3. DRIFT CRITIC (bulgu 2): prompts/operationDecide.ts critic sistem prompt'una:
+   "Çok adımlı operasyonlarda hazırlık/araştırma/sipariş adımları hedefe hizmet eder;
+   skoru 'bu adım planın mantıklı sıradaki adımı mı' sorusuna göre ver, 'hedef şimdi
+   tamamlandı mı' sorusuna göre DEĞİL." + few-shot 2 örnek (hazırlık=85, alakasız=15).
+4. DEDUP (yan bulgu): stockMonitorTick çift-tetik kontrolüne status IN
+   ('active','paused','escalated') — eskalasyonlu operasyon varken yenisi açılmaz
+   (insan müdahalesini bekler).
+5. WORKER TIMEOUT (yan bulgu): runRequestWorker runCmd dotnet çağrısının 120000ms
+   limitini policy'den oku (worker.run_timeout_ms, seed 600000) — 120 sn uzun
+   web-search koşularını kesiyordu (canlıda fail örneği var).
+Bitti: temiz tur 4'te operasyon insan-onayı dışında dokunuşsuz done + kpi_summary
+üretiyor; teslim öncesi replenish reddediliyor; build + testler yeşil.
+```
+
 ## 3D Ofis serisi (R1–R6 + rol kataloğu) — tamamlandı (2026-06-12)
 
 "Süs sahnesi"nden gerçek verilerle yaşayan operasyon merkezine altı turda gelindi; her tur canlı ekran görüntüsüyle doğrulandı:

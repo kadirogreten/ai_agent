@@ -4,6 +4,7 @@ import path from 'node:path'
 import { getSupabaseAdmin } from './supabaseAdmin.js'
 import { assertBundleExists } from './builtinBundles.js'
 import { notifyChannels } from './notifyChannels.js'
+import { getPolicy } from './policyReader.js'
 
 type RunRequest = {
   id: string
@@ -516,7 +517,10 @@ async function processOne(supabase: ReturnType<typeof getSupabaseAdmin>, job: Ru
       }
     }
 
-    log('Running dotnet', { args: ['dotnet', ...dotnetArgs] })
+    // Timeout policy'den oku: web-search koşuları 120 sn'de kesiliyor (canlı fail gözlemlendi).
+    const cmdTimeoutMs = await getPolicy(supabase, job.owner_user_id, 'worker.run_timeout_ms', DEFAULT_CMD_TIMEOUT_MS) as number
+
+    log('Running dotnet', { args: ['dotnet', ...dotnetArgs], timeout_ms: cmdTimeoutMs })
     const started = Date.now()
 
     const { code, stdout, stderr } = await runCmd('dotnet', dotnetArgs, {
@@ -535,7 +539,7 @@ async function processOne(supabase: ReturnType<typeof getSupabaseAdmin>, job: Ru
       RUN_INTENT_JSON:             runIntentJson,
       DOTNET_CLI_TELEMETRY_OPTOUT: '1',
       DOTNET_NOLOGO:               '1',
-    }, repoRoot)
+    }, repoRoot, cmdTimeoutMs)
 
     log('Dotnet finished', { code, duration_ms: Date.now() - started })
 

@@ -171,6 +171,49 @@ async function observe(supabase: SupabaseClient, op: Operation) {
   if (pbErr) log('playbooks sorgu hatası', { error: pbErr.message })
   const availablePlaybooks = ((pbRows ?? []) as { slug: string }[]).map((r) => r.slug)
 
+  // Fazlar arası veri aktarımı: bu operasyona ait run_request'lerin CLI run_id'lerinden
+  // en son başarılı purchase_order invocation'ının çıktısını oku.
+  let purchaseOrderCtx: {
+    order_id: string | null
+    tracking_number: string | null
+    product: string | null
+    quantity: number | null
+  } | null = null
+
+  const { data: allRunReqs } = await supabase
+    .from('run_requests')
+    .select('result_json')
+    .eq('operation_id', op.id)
+    .not('result_json', 'is', null)
+
+  const cliRunIds = ((allRunReqs ?? []) as { result_json: unknown }[])
+    .map((r) => (r.result_json as Record<string, unknown> | null)?.run_id as string | undefined)
+    .filter((id): id is string => !!id)
+
+  if (cliRunIds.length > 0) {
+    const { data: invRows } = await supabase
+      .from('tool_invocations')
+      .select('output')
+      .in('run_id', cliRunIds)
+      .eq('tool_slug', 'purchase_order')
+      .eq('status', 'succeeded')
+      .order('created_at', { ascending: false })
+      .limit(1)
+
+    const inv = ((invRows ?? []) as { output: unknown }[])[0]
+    if (inv?.output && typeof inv.output === 'object') {
+      const o = inv.output as Record<string, unknown>
+      if (o.order_id || o.tracking_number) {
+        purchaseOrderCtx = {
+          order_id:        typeof o.order_id === 'string' ? o.order_id : null,
+          tracking_number: typeof o.tracking_number === 'string' ? o.tracking_number : null,
+          product:         typeof o.product === 'string' ? o.product : null,
+          quantity:        typeof o.quantity === 'number' ? o.quantity : null,
+        }
+      }
+    }
+  }
+
   return {
     lastRunStatus:       lastRun?.status ?? null,
     lastVerifierOutcome,
@@ -183,6 +226,7 @@ async function observe(supabase: SupabaseClient, op: Operation) {
     lastPlaybook,
     lastError,
     availablePlaybooks,
+    purchaseOrderCtx,
   }
 }
 
@@ -403,9 +447,14 @@ async function promoteMemoryFacts(supabase: SupabaseClient, op: Operation): Prom
 const CRITIC_SYSTEM_PROMPT =
   'Sen bir hedef-uyum critic\'isin. ' +
   'Verilen hedef, niyet sözleşmesi ve karar incelendiğinde bu kararın hedefe ne kadar hizmet ettiğini değerlendir. ' +
+  'ÖNEMLİ: Çok adımlı operasyonlarda hazırlık/araştırma/sipariş adımları nihai hedefe hizmet eder. ' +
+  'Skoru "bu adım planın mantıklı sıradaki adımı mı?" sorusuna göre ver — "hedef şu an gerçekleşti mi?" sorusuna değil. ' +
   'YALNIZCA şu JSON formatında yanıt ver, başka hiçbir şey ekleme:\n' +
   '{"score": <0-100 tam sayı>, "reason": "<tek cümle Türkçe açıklama>"}\n' +
-  '0 = tamamen hedef dışı, 100 = mükemmel hizalamalı.'
+  '0 = tamamen hedef dışı, 100 = mükemmel hizalamalı.\n\n' +
+  'Örnekler:\n' +
+  'Hedef: "Stok tükenince sipariş ver ve teslimatta stoğu güncelle". Karar: tedarik-siparis playbookunu çalıştır (stok kontrolü yaptı, şimdi sipariş verme adımı). Puan: 85 — mantıklı sıradaki adım, hazırlık tamamlandı.\n' +
+  'Hedef: "Stok tükenince sipariş ver ve teslimatta stoğu güncelle". Karar: market_intel raporlama playbookunu çalıştır (stok/tedarikle ilgisiz). Puan: 15 — hedef dışı adım, planın sırası değil.'
 
 type CriticResult = { score: number; reason: string }
 
@@ -549,6 +598,21 @@ async function processOperation(supabase: SupabaseClient, op: Operation) {
   const obs = await observe(supabase, op)
   await logEvent(supabase, op.id, 'observe', obs as unknown as Record<string, unknown>)
 
+  // Fazlar arası veri aktarımı: purchase_order çıktısunu context_json.order'a kalıcı olarak yaz
+  if (obs.purchaseOrderCtx && !(op.context_json?.order as Record<string, unknown> | null | undefined)?.order_id) {
+    const newCtx = { ...(op.context_json ?? {}), order: obs.purchaseOrderCtx }
+    const { error: ctxErr } = await supabase
+      .from('operations')
+      .update({ context_json: newCtx, updated_at: new Date().toISOString() })
+      .eq('id', op.id)
+    if (!ctxErr) {
+      op.context_json = newCtx
+      log('context_json.order yazıldı', { id: op.id, order_id: obs.purchaseOrderCtx.order_id })
+    } else {
+      log('context_json.order yazma hatası', { id: op.id, error: ctxErr.message })
+    }
+  }
+
   if (obs.consecutiveFails >= 3) {
     await logEvent(supabase, op.id, 'escalate', { reason: 'consecutive_failures', count: obs.consecutiveFails })
     await escalateOp(supabase, op, `Ard arda ${obs.consecutiveFails} başarısız çalıştırma`)
@@ -635,15 +699,28 @@ async function processOperation(supabase: SupabaseClient, op: Operation) {
       ?? (op.context_json?.first_playbook as string | undefined)
       ?? op.domain_pack
 
-    const topic = next_topic ?? op.goal_text
+    // Kargo fazı için sipariş bilgisini (order_id + tracking_number) topic'e göm
+    const orderCtx = (op.context_json?.order ?? obs.purchaseOrderCtx) as {
+      order_id?: string | null
+      tracking_number?: string | null
+      product?: string | null
+      quantity?: number | null
+    } | null | undefined
 
-    // Kargo fazı için stok tetik bilgisini run'a taşı (agent stock_replenish aracını besler)
-    const stockCtx = op.context_json
-      ? {
-          stock_trigger_product: op.context_json.stock_trigger_product,
-          reorder_quantity:      op.context_json.reorder_quantity,
-        }
-      : {}
+    const baseTopicForOrder = next_topic ?? op.goal_text
+    const trackingNumber = orderCtx?.tracking_number
+    const topic = trackingNumber && !baseTopicForOrder.includes(trackingNumber)
+      ? `${baseTopicForOrder} (takip: ${trackingNumber})`
+      : baseTopicForOrder
+
+    // Kargo fazı için stok tetik + sipariş bilgisini run'a taşı
+    const stockCtx = {
+      ...(op.context_json ? {
+        stock_trigger_product: op.context_json.stock_trigger_product,
+        reorder_quantity:      op.context_json.reorder_quantity,
+      } : {}),
+      ...(orderCtx ? { order: orderCtx } : {}),
+    }
 
     // Araç izinleri (dogfood düzeltmesi): seçilen playbook'un required_tools'u esastır.
     // ESKİ HATA: tools yalnız intent forbidden'ı varsa kuruluyordu; required_tools hiç

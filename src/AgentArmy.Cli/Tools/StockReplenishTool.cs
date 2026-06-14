@@ -70,6 +70,37 @@ public sealed class StockReplenishTool : ITool, ICompensable
         var orderId        = args.TryGetProperty("order_id",        out var oEl) && oEl.ValueKind == JsonValueKind.String ? oEl.GetString() : null;
         var trackingNumber = args.TryGetProperty("tracking_number", out var tEl) && tEl.ValueKind == JsonValueKind.String ? tEl.GetString() : null;
 
+        // Teslim onaylama guard: tracking_number Unix suffix içeriyorsa sipariş zamanından beri
+        // geçen süreyi cargo.stage_minutes politikasıyla karşılaştır; teslim olmamışsa reddet.
+        if (!string.IsNullOrWhiteSpace(trackingNumber))
+        {
+            var delivered = await IsDeliveredAsync(ctx, trackingNumber, ct);
+            if (!delivered)
+                return ToolResult.Failure(Slug,
+                    $"Sipariş henüz teslim edilmedi — stok güncellenmedi (takip: {trackingNumber}). " +
+                    "Kargo teslim edildikten sonra tekrar deneyin.");
+        }
+
+        // order_id idempotency: aynı sipariş için önceki başarılı replenish varsa tekrarlama.
+        if (!string.IsNullOrWhiteSpace(orderId) && ctx.Db is not null && !string.IsNullOrWhiteSpace(ctx.OwnerId))
+        {
+            var alreadyDone = await IsReplenishedAsync(ctx, ctx.OwnerId!, orderId!, ct);
+            if (alreadyDone)
+            {
+                Console.Error.WriteLine($"[stock_replenish] idempotency: order_id {orderId} zaten işlendi");
+                return ToolResult.Success(Slug, JsonSerializer.SerializeToElement(new
+                {
+                    product = productRaw,
+                    quantity_added  = quantity,
+                    order_id        = orderId,
+                    tracking_number = trackingNumber,
+                    stock_updated   = false,
+                    idempotent      = true,
+                    replenished_at  = DateTimeOffset.UtcNow.ToString("o"),
+                }));
+            }
+        }
+
         // Ürün eşleşmesi (R6): SKU deseni → canonical product adı çöz, yoksa ILIKE ile devam.
         var product = productRaw;
         if (ctx.Db is not null && !string.IsNullOrWhiteSpace(ctx.OwnerId))
@@ -167,6 +198,58 @@ public sealed class StockReplenishTool : ITool, ICompensable
     // ── Yardımcılar ──────────────────────────────────────────────────────────
 
     private static readonly Regex SkuRegex = new(@"[A-Z]{2,}-\d+", RegexOptions.Compiled);
+
+    private static readonly int[] DefaultStageMinutes = { 10, 25, 45, 70, 100 };
+
+    /// <summary>
+    /// Tracking number formatı "...{hash}-{unixSec}" ise sipariş zamanından beri geçen süreyi
+    /// cargo.stage_minutes politikasıyla karşılaştırır. Format uyuşmazsa guard atlanır (true döner).
+    /// </summary>
+    private static async Task<bool> IsDeliveredAsync(RunContext ctx, string trackingNumber, CancellationToken ct)
+    {
+        var dashIdx = trackingNumber.LastIndexOf('-');
+        if (dashIdx < 0 || dashIdx >= trackingNumber.Length - 1) return true; // format bilinmiyor → guard atla
+
+        var suffix = trackingNumber[(dashIdx + 1)..];
+        if (!long.TryParse(suffix, out var unixSec)) return true; // parse edilemiyor → atla
+
+        var orderTime      = DateTimeOffset.FromUnixTimeSeconds(unixSec);
+        var elapsedRealMin = (DateTimeOffset.UtcNow - orderTime).TotalMinutes;
+
+        double demoScale = 1.0;
+        var scaleEnv = Environment.GetEnvironmentVariable("CARGO_DEMO_SCALE");
+        if (double.TryParse(scaleEnv, out var sv) && sv > 0) demoScale = sv;
+
+        var demoMin = elapsedRealMin * demoScale;
+
+        var stageMinutes = await PolicyReader.GetAsync(ctx.Db, ctx.OwnerId, "cargo.stage_minutes", DefaultStageMinutes, ct);
+        var arr = stageMinutes is { Length: > 0 } ? stageMinutes : DefaultStageMinutes;
+        var deliveryThreshold = arr[arr.Length - 1];
+
+        return demoMin >= deliveryThreshold;
+    }
+
+    /// <summary>
+    /// tool_invocations tablosunda aynı order_id için önceden başarılı stock_replenish var mı?
+    /// </summary>
+    private static async Task<bool> IsReplenishedAsync(RunContext ctx, string owner, string orderId, CancellationToken ct)
+    {
+        try
+        {
+            var query = $"owner_user_id=eq.{Uri.EscapeDataString(owner)}" +
+                        $"&tool_slug=eq.stock_replenish" +
+                        $"&status=eq.succeeded" +
+                        $"&args->>order_id=eq.{Uri.EscapeDataString(orderId)}" +
+                        $"&select=id&limit=1";
+            var res = await ctx.Db!.SelectAsync("tool_invocations", query, ct);
+            return res.ValueKind == JsonValueKind.Array && res.GetArrayLength() > 0;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[stock_replenish] idempotency kontrol hatası: {ex.Message}");
+            return false; // fail-open
+        }
+    }
 
     /// <summary>SKU ile stock_levels'tan canonical product adını çözer; bulunamazsa null.</summary>
     private static async Task<string?> ResolveProductNameAsync(
