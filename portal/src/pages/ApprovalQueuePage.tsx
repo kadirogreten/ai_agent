@@ -24,6 +24,8 @@ type ApprovalItem = {
   decided_at: string | null
   expires_at: string
   created_at: string
+  // join ile doldurulur — DB kolonları değil
+  operation_goal?: string | null
 }
 
 const RISK_COLORS: Record<string, string> = {
@@ -60,6 +62,7 @@ export default function ApprovalQueuePage() {
   const load = useCallback(async () => {
     if (!initialized || !user) return
     setLoading(true); setErr(null)
+
     const { data, error } = await supabase
       .from('approval_queue')
       .select('*')
@@ -69,8 +72,41 @@ export default function ApprovalQueuePage() {
 
     if (error) { setErr(error.message); setLoading(false); return }
     const all = (data ?? []) as ApprovalItem[]
-    setPending(all.filter((x) => x.status === 'pending'))
-    setHistory(all.filter((x) => x.status !== 'pending'))
+
+    // İki-adımlı join: run_request_id → operation_id → goal_text
+    const runIds = [...new Set(all.map((x) => x.run_request_id).filter(Boolean))] as string[]
+    const goalMap = new Map<string, string | null>()
+    if (runIds.length > 0) {
+      const { data: runs } = await supabase
+        .from('run_requests')
+        .select('id, operation_id')
+        .in('id', runIds)
+
+      const opIds = [...new Set((runs ?? []).map((r: { id: string; operation_id: string | null }) => r.operation_id).filter(Boolean))] as string[]
+      const runToOp = new Map<string, string | null>((runs ?? []).map((r: { id: string; operation_id: string | null }) => [r.id, r.operation_id]))
+
+      const opGoalMap = new Map<string, string>()
+      if (opIds.length > 0) {
+        const { data: ops } = await supabase
+          .from('operations')
+          .select('id, goal_text')
+          .in('id', opIds)
+        ;(ops ?? []).forEach((o: { id: string; goal_text: string }) => opGoalMap.set(o.id, o.goal_text))
+      }
+
+      runIds.forEach((rid) => {
+        const opId = runToOp.get(rid) ?? null
+        goalMap.set(rid, opId ? (opGoalMap.get(opId) ?? null) : null)
+      })
+    }
+
+    const enriched = all.map((x) => ({
+      ...x,
+      operation_goal: x.run_request_id ? (goalMap.get(x.run_request_id) ?? null) : null,
+    }))
+
+    setPending(enriched.filter((x) => x.status === 'pending'))
+    setHistory(enriched.filter((x) => x.status !== 'pending'))
     setLoading(false)
   }, [initialized, user])
 
@@ -87,7 +123,11 @@ export default function ApprovalQueuePage() {
       p_reviewer_note: notes[id] ?? null,
     })
     if (error) { setErr(error.message) }
-    else { await load() }
+    else {
+      // Optimistic: nav rozeti 60sn polling'i beklemeden anında düşür
+      window.dispatchEvent(new CustomEvent('approval-decided'))
+      await load()
+    }
     setActing(null)
   }
 
@@ -180,7 +220,7 @@ export default function ApprovalQueuePage() {
                   className={`p-4 space-y-3 transition-colors ${item.id === highlightId ? 'bg-yellow-500/10 border-l-2 border-yellow-400' : ''}`}
                 >
                   <div className="flex items-start justify-between gap-3">
-                    <div>
+                    <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className={`inline-flex items-center rounded border px-1.5 py-0.5 text-xs font-mono ${RISK_COLORS[item.risk_level]}`}>
                           {item.risk_level}
@@ -189,6 +229,14 @@ export default function ApprovalQueuePage() {
                           <span className="rounded border border-white/10 px-1.5 py-0.5 font-mono text-xs text-white/50">{item.agent_code}</span>
                         )}
                         {item.step_name && <span className="text-xs text-white/40">Adım: {item.step_name}</span>}
+                        {/* Operasyon etiketi */}
+                        {item.operation_goal != null ? (
+                          <span className="rounded border border-blue-500/20 bg-blue-500/10 px-1.5 py-0.5 text-xs text-blue-300 truncate max-w-[200px]" title={item.operation_goal}>
+                            🎯 {item.operation_goal.length > 40 ? item.operation_goal.slice(0, 40) + '…' : item.operation_goal}
+                          </span>
+                        ) : (
+                          <span className="rounded border border-white/[0.08] px-1.5 py-0.5 text-xs text-white/30">tekil iş</span>
+                        )}
                       </div>
                       <div className="mt-1.5 text-sm text-white/80">{item.action_summary}</div>
                     </div>
@@ -200,10 +248,26 @@ export default function ApprovalQueuePage() {
                     </div>
                   </div>
 
-                  {item.action_detail && (
-                    <pre className="whitespace-pre-wrap rounded-xl border border-white/[0.06] bg-black/20 px-3 py-2 text-xs text-white/40">
-                      {JSON.stringify(item.action_detail, null, 2)}
-                    </pre>
+                  {/* action_detail — key-value kart (ham JSON yerine) */}
+                  {item.action_detail && Object.keys(item.action_detail).length > 0 && (
+                    <div className="rounded-xl border border-white/[0.06] bg-black/20 px-3 py-2 space-y-1">
+                      {Object.entries(item.action_detail).map(([k, v]) => {
+                        const strVal = typeof v === 'string' ? v : JSON.stringify(v)
+                        const isUrl = typeof v === 'string' && (v.startsWith('http://') || v.startsWith('https://'))
+                        return (
+                          <div key={k} className="flex items-start gap-2 text-xs">
+                            <span className="shrink-0 w-24 font-mono text-white/30 truncate">{k}</span>
+                            {isUrl ? (
+                              <a href={v} target="_blank" rel="noopener noreferrer" className="text-blue-400 underline underline-offset-2 truncate max-w-xs hover:text-blue-300">
+                                {strVal}
+                              </a>
+                            ) : (
+                              <span className="text-white/55 break-all">{strVal}</span>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
                   )}
 
                   <div className="flex flex-wrap gap-2">

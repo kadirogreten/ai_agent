@@ -41,6 +41,7 @@ type JobRow = {
   error_message: string | null
   created_at: string
   updated_at: string
+  operation_id: string | null
 }
 
 type AgentRow = {
@@ -61,9 +62,10 @@ export default function JobsPage() {
   const user        = useAuthStore((s) => s.user)
   const initialized = useAuthStore((s) => s.initialized)
 
-  const [rows,   setRows]   = useState<JobRow[]>([])
-  const [loading, setLoading] = useState(false)
-  const [err,    setErr]    = useState<string | null>(null)
+  const [rows,      setRows]      = useState<JobRow[]>([])
+  const [opGoals,   setOpGoals]   = useState<Map<string, string>>(new Map())
+  const [loading,   setLoading]   = useState(false)
+  const [err,       setErr]       = useState<string | null>(null)
   const [q,      setQ]      = useState('')
   const [status, setStatus] = useState<'all' | JobStatus>('all')
   const [mode,   setMode]   = useState<'all' | JobMode>('all')
@@ -161,7 +163,7 @@ export default function JobsPage() {
     setLoading(true); setErr(null)
     let query = supabase
       .from('run_requests')
-      .select('id,status,mode,domain_pack,request_text,model,web,contrarian,risk,allow_high_risk,started_at,finished_at,error_message,created_at,updated_at')
+      .select('id,status,mode,domain_pack,request_text,model,web,contrarian,risk,allow_high_risk,started_at,finished_at,error_message,created_at,updated_at,operation_id')
       .order('created_at', { ascending: false })
       .limit(200)
 
@@ -174,10 +176,26 @@ export default function JobsPage() {
 
     const res = await query
     if (res.error) {
-      setErr(res.error.message); setRows([])
-    } else {
-      setRows((res.data ?? []) as unknown as JobRow[])
+      setErr(res.error.message); setRows([]); setLoading(false); return
     }
+
+    const jobs = (res.data ?? []) as unknown as JobRow[]
+    setRows(jobs)
+
+    // operation_id join: goal_text çek
+    const opIds = [...new Set(jobs.map((j) => j.operation_id).filter(Boolean))] as string[]
+    if (opIds.length > 0) {
+      const { data: ops } = await supabase
+        .from('operations')
+        .select('id, goal_text')
+        .in('id', opIds)
+      const map = new Map<string, string>()
+      ;(ops ?? []).forEach((o: { id: string; goal_text: string }) => map.set(o.id, o.goal_text))
+      setOpGoals(map)
+    } else {
+      setOpGoals(new Map())
+    }
+
     setLoading(false)
   }, [canQuery, filters.mode, filters.q, filters.status])
 
@@ -533,17 +551,70 @@ export default function JobsPage() {
         </div>
       )}
 
-      <Card className="overflow-hidden">
-        <div className="border-b border-white/[0.06] px-4 py-3 text-sm font-medium text-white/60">
-          {rows.length} job
-        </div>
-        <DataTable
-          columns={columns}
-          rows={rows}
-          loading={loading}
-          empty={<EmptyState icon={<Zap size={24} />} title="Job bulunamadı" />}
-        />
-      </Card>
+      {loading && rows.length === 0 ? (
+        <Card className="p-6">
+          <div className="space-y-3">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="h-5 animate-pulse rounded-full bg-white/[0.05]" style={{ width: `${40 + i * 15}%` }} />
+            ))}
+          </div>
+        </Card>
+      ) : rows.length === 0 ? (
+        <Card className="p-10">
+          <EmptyState icon={<Zap size={24} />} title="Job bulunamadı" />
+        </Card>
+      ) : (() => {
+        // Grupla: operation_id → rows; null → "Tekil İşler"
+        const grouped = new Map<string | null, JobRow[]>()
+        rows.forEach((r) => {
+          const key = r.operation_id ?? null
+          if (!grouped.has(key)) grouped.set(key, [])
+          grouped.get(key)!.push(r)
+        })
+
+        // Sıralama: operasyonlar önce (created_at desc ilk row'a göre), sonra tekil işler
+        const opEntries = [...grouped.entries()].filter(([k]) => k !== null)
+          .sort(([, a], [, b]) => new Date(b[0].created_at).getTime() - new Date(a[0].created_at).getTime())
+        const soloEntry = grouped.has(null) ? [[null, grouped.get(null)!] as [null, JobRow[]]] : []
+        const entries = [...opEntries, ...soloEntry]
+
+        return (
+          <div className="space-y-3">
+            {entries.map(([opId, groupRows]) => {
+              const goal = opId ? (opGoals.get(opId) ?? null) : null
+              const activeCount = groupRows.filter((r) => r.status === 'pending' || r.status === 'running').length
+              return (
+                <Card key={opId ?? '__solo'} className="overflow-hidden">
+                  {/* Grup başlığı */}
+                  <div className="flex items-center gap-2 border-b border-white/[0.06] px-4 py-2.5">
+                    {opId ? (
+                      <>
+                        <Link
+                          to="/app/operations"
+                          className="text-xs font-medium text-blue-300 hover:underline"
+                          title={goal ?? undefined}
+                        >
+                          🎯 {goal ? (goal.length > 60 ? goal.slice(0, 60) + '…' : goal) : opId.slice(0, 8)}
+                        </Link>
+                        {activeCount > 0 && <Badge tone="yellow">{activeCount} aktif</Badge>}
+                      </>
+                    ) : (
+                      <span className="text-xs font-medium text-white/40">Tekil İşler</span>
+                    )}
+                    <span className="ml-auto text-xs text-white/25">{groupRows.length} iş</span>
+                  </div>
+                  <DataTable
+                    columns={columns}
+                    rows={groupRows}
+                    loading={false}
+                    empty={<div />}
+                  />
+                </Card>
+              )
+            })}
+          </div>
+        )
+      })()}
     </div>
   )
 }

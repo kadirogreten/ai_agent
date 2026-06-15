@@ -176,7 +176,7 @@ export default function AppShell() {
   const [importMsg,    setImportMsg]    = useState<string | null>(null)
   const [pendingCount, setPendingCount] = useState(0)
 
-  // Onay kuyruğu nav badge — 60sn polling
+  // Onay kuyruğu nav badge — 60sn polling + optimistic düşürme
   useEffect(() => {
     if (!user) return
     async function poll() {
@@ -188,7 +188,11 @@ export default function AppShell() {
     }
     poll()
     const interval = setInterval(poll, 60_000)
-    return () => clearInterval(interval)
+    // ApprovalQueuePage onay/red mutasyonundan sonra bu event'i fırlatır;
+    // 60sn'yi beklemeden sayacı anında düşürür.
+    function onDecided() { setPendingCount((c) => Math.max(0, c - 1)) }
+    window.addEventListener('approval-decided', onDecided)
+    return () => { clearInterval(interval); window.removeEventListener('approval-decided', onDecided) }
   }, [user])
   async function runImport() {
     const session = useAuthStore.getState().session

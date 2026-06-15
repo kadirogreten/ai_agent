@@ -559,7 +559,91 @@ Teslim edilenler (5 değişiklik, Sonnet; build + 45/45 test + portal build yeş
 
 İnceleme notları: faz aktarımının `operation_id` scope'u doğru (başka operasyonun siparişini kapmaz); 3 TS değişikliğinin (1, 3, 4) `vitest` kapsamı doğrulanmalı — "45/45" C# suite gibi görünüyor; teslim guard'ı CargoTrackTool ile teslim mantığını çoğaltıyor (tek-kaynak ilkesi), aynı politikadan okuduğu için değerler tutuyor.
 
-**Canlı Tur-4 (2026-06-14, devam ediyor):** Manuel operasyon (KIR-001, `max_steps=12`, cooldown 5 dk). Kanıtlanan zincir: tick'ler 5 dk'da geliyor → araştırma → sipariş → **onay kuyruğunda gerçek R3 `purchase_order`** → **insan onayı (turun tek dokunuşu)** → kargo fazı. Bulgu 5 & 6 **canlıda kapandı**: kargo takibinde tracking taşınıyor ve teslim öncesi iki tick "teslimat tamamlanmadı, kargo fazında devam" kararı verip replenish'e atlamadı (Tur-3'te tam burada takılıyordu). Drift critic ilk hazırlık adımını boğmadı (bulgu 2 fix). Kalan: kargo teslimi `CARGO_DEMO_SCALE` ayarına bağlı; teslim → stok artışı → `done` + `kpi_summary` adımı henüz koşmadı (teslim bekleniyor). Tur bu adım yeşil olunca OA3 "operasyonda kanıtlandı" statüsüne geçer.
+**Canlı Tur-4 (2026-06-14, devam ediyor):** Manuel operasyon (KIR-001, `max_steps=12`, cooldown 5 dk). Kanıtlanan zincir: tick'ler 5 dk'da geliyor → araştırma → sipariş → **onay kuyruğunda gerçek R3 `purchase_order`** → **insan onayı (turun tek dokunuşu)** → kargo fazı. Bulgu 5 & 6 **canlıda kapandı**: kargo takibinde tracking taşınıyor ve teslim öncesi iki tick "teslimat tamamlanmadı, kargo fazında devam" kararı verip replenish'e atlamadı (Tur-3'te tam burada takılıyordu). Drift critic ilk hazırlık adımını boğmadı (bulgu 2 fix). Kargo ~18:00'de teslim oldu (7 tick "teslim olmadı → takibe devam", ardından "kargo başarılı → stok güncelleme"). Kalan: stok artışı → `done` + `kpi_summary` (max_steps=12'ye 1 adım kala, yarış).
+
+**Tur-4 canlı bulguları (2026-06-14) — açık:**
+
+| # | Bulgu | Tür | Durum |
+|---|---|---|---|
+| T4-1 | **Decide faz-regresyonu → ikinci `purchase_order`** (event'ten doğrulandı). 18:00 tick "kargo başarılı → stok güncelleme" dedikten sonra **18:10 tick "Sipariş başarılı, sıradaki adım kargo" diyerek order fazına geri döndü** ve ikinci PO'yu üretti (tur "tek dokunuş = PO" hedefini aşıyor). Kök neden: decide'ın "teslim edildi + replenish yapıldı" kalıcı durumu yok; OBSERVE her tick'i baştan yorumlayınca faz döngüye giriyor. Gerek: kalıcı faz işaretçisi (context_json.phase) + teslim/replenish sonrası order fazına dönüşün yasaklanması. | Yönetişim | ✅ Kapandı (Dogfood-4): `context_json.phase` + kod-seviyesi `forbiddenRollback` guard (cargo/replenish/done → tedarik-siparis = escalate) + decide tedarik v2 kuralı |
+| T4-2 | **Link FAIL'liyken PO onaya düştü** — rapor `link_check` FAIL gösteriyordu ama `purchase_order` yine onaya geldi. PR2 `blockOnVerifierFail`'in engellemesi gereken durum (Faz E bulgu 1/3 deseni: sahte link → FAIL ama ilerliyor). | Yönetişim | ✅ Kapandı (Dogfood-4): `runs.verifier_outcome` CHECK'e `'blocked_by_verifier'` eklendi (`20260614140000`) + decide tedarik v2 `blocked_by_verifier → retry → tedarik-arastirma` |
+| T4-3 | **Onay rozeti onaydan sonra güncellenmiyor** — nav `Onay bekleyenler` rozeti olay-tabanlı değil 60 sn polling; onaylayınca anında düşmüyor. Optimistic update / event gerekli. | UX | ✅ Kapandı: AppShell `approval-decided` event'i → optimistic düşürme; ApprovalQueuePage `decide()` sonrası `dispatchEvent` |
+| T4-4 | **Onay kuyruğunda "neyi onayladım" bağlamı yok** — kayıtlar yalnız `action_summary` ("tool:purchase_order") gösteriyor, `action_detail` boş, operasyon bağı yok. `approval_queue.run_request_id → run_requests.operation_id` (PR3) bağını ApprovalQueuePage'e taşı + `action_detail`'i (ürün/tutar/link/faz) dolu geç. (Bu eksiklik yüzünden onaylanan kayıt timeline'la eşleştirilemedi.) | UX | ✅ Kapandı: iki-adımlı join (`run_requests → operations.goal_text`) + 🎯 etiket + `action_detail` key-value/URL render. Not: `action_detail` aslında `{tool, args}` ile zaten doluymuş (RiskGate); iş yalnız render'daydı — T4-4b (PurchaseOrderTool) gereksiz görülüp atıldı. |
+| T4-5 | **İşler menüsü operasyona göre gruplanmalı** — çok sayıda `run_requests` satırı düz listeleniyor; `operation_id` (PR3) zaten var, operasyona göre grupla/rozetle ("Tur-4 → N run"), operasyonsuzlar "Tekil". | UX | ✅ Kapandı: JobsPage `operation_id` select + `operations.goal_text` join + gruplu render (operasyon kartı + `/app/operations` link + aktif rozet; "Tekil İşler" sonda) |
+
+Not (T4-1 ek): kargo-bekleme tick'leri `max_steps` bütçesini tüketiyor (uzun teslimde tuzak). ✅ Kapandı (Dogfood-4): kargo `continue`'ları `step_count` yerine `context_json.cargo_poll_count` artırıyor; `oploop.cargo_poll_max=30` tavanı aşılınca escalate — `max_steps` yalnız gerçek faz ilerlemelerini sayıyor.
+
+**Durum (2026-06-15):** T4-1…T4-5 + max_steps tuzağı kapandı (Dogfood-4 yönetişim migration'ı `20260614140000` + operationLoopTick faz/poll mantığı + ApprovalQueue/Jobs/AppShell UX). Kalan kabul adımı: temiz Tur-5 canlı koşusu (tek PO onayı → done + kpi_summary, ikinci PO yok, link-FAIL'li PO yok).
+
+### Dogfood düzeltmeleri 4 — Sonnet prompt'u (yönetişim: T4-1, T4-2 + max_steps)
+
+```
+Repo: ai_agent. Bağlam: bu dosyadaki "Tur-4 canlı bulguları" (T4-1, T4-2) +
+portal/api/lib/operationLoopTick.ts (OBSERVE/DECIDE/ACT, step_count artışı),
+decide_prompts tablosu scope='tedarik' seed (PR14, 20260614130000_decide_prompts_base_seed.sql),
+src/AgentArmy.Cli/Tools/StockReplenishTool.cs, supabase/migrations/20260611140000_operations.sql
+(operations.context_json), tedarik-siparis playbook seed'i (PR6).
+
+KURAL: Migration/şema öncesi gerçek kolon ve CHECK doğrulaması (operations.status CHECK,
+run_requests kolonları, policy_settings deseni); kolon/değer uydurma.
+
+Görev: Tur-4'te canlı çıkan iki yönetişim bulgusunu + max_steps tuzağını kapat.
+
+1. KALICI FAZ DURUMU (T4-1): operations.context_json.phase alanı
+   ('research'|'order'|'cargo'|'replenish'|'done'). operationLoopTick ACT her faz
+   geçişinde phase yazsın: purchase_order başarılı → 'cargo'; cargo "teslim edildi" →
+   'replenish'; stock_replenish başarılı → 'done'. decide_prompts scope='tedarik' kuralı:
+   phase 'cargo'/'replenish'/'done' iken order fazına (purchase_order / tedarik-siparis)
+   ASLA geri dönme — yalnız ileri; geri dönüş gerekiyorsa escalate. (18:00 "stok güncelleme"
+   dedikten sonra 18:10 "sipariş başarılı → kargo"ya dönüp ikinci PO üretmişti.)
+
+2. LINK FAIL → PO BLOK (T4-2): tedarik-siparis'te purchase_order adımından önceki
+   link_check/Verifier FAIL ise PO çalışmamalı. Doğrula: purchase_order adımında
+   blockOnVerifierFail=true mı ve link_check FAIL gerçekten verifier_outcome='fail'
+   (küçük harf) üretiyor mu; üretmiyorsa zinciri bağla. Bitti: link FAIL'li run'da PO
+   onaya DÜŞMEZ.
+
+3. MAX_STEPS ≠ KARGO BEKLEME (T4-1 ek): kargo fazında "teslim olmadı → devam" continue'ları
+   step_count'u tüketmesin. Ayrı cargo_poll_count + policy tavanı
+   (oploop.cargo_poll_max, seed 30); tavan aşılırsa escalate. max_steps yalnız gerçek faz
+   ilerlemelerini saysın.
+
+Önce kısa plan, onaydan sonra kod. Bitti kriteri: dotnet build + test yeşil; npm run build yeşil;
+temiz tur 5'te (CARGO_DEMO_SCALE makul) operasyon: araştırma → PO (tek onay) → kargo (N poll,
+step yemeden) → teslim → stock_replenish → done + kpi_summary; ikinci purchase_order ÜRETİLMEZ;
+link FAIL'li PO onaya düşmez.
+```
+
+### Tur-4 UX paketi — Sonnet prompt'u (T4-3, T4-4, T4-5)
+
+```
+Repo: ai_agent. Bağlam: portal/src/pages/ApprovalQueuePage.tsx, AppShell.tsx
+(nav "Onay bekleyenler" rozeti — PR8, 60 sn polling), /app/jobs sayfası (İşler — run_requests
+listesi), run_requests.operation_id (PR3), approval_queue (run_request_id, action_summary,
+action_detail), gate_run_for_approval RPC, src/AgentArmy.Cli/Tools/ToolExecutor.cs +
+RiskGate (gate çağrısı).
+
+Görev: Tur-4'te çıkan üç UX bulgusu.
+
+1. ONAY ROZETİ ANINDA GÜNCELLENSİN (T4-3): onay/red mutasyonundan sonra nav rozeti 60 sn
+   polling'i beklemeden düşsün — sayacı optimistic güncelle veya pending sorgusunu
+   invalidate et. (Bugün onaylayınca rozet "1"de kalıyor.)
+
+2. ONAY KUYRUĞUNDA BAĞLAM (T4-4): ApprovalQueuePage'de her kayıt için operasyon + adım +
+   action_detail göster. approval_queue.run_request_id → run_requests.operation_id →
+   operations.goal_text join'i; action_summary yanında action_detail (ürün, tutar, link, faz)
+   render et. Ayrıca gate çağrılarında (purchase_order vb.) action_detail'i DOLU geç —
+   şu an "—" boş geliyor; RiskGate/ToolExecutor gate çağrısında ilgili args'ı action_detail'e
+   koy. (Bu eksiklik yüzünden onaylanan kayıt operasyonla eşleştirilemedi.)
+
+3. İŞLER OPERASYONA GÖRE GRUPLANSIN (T4-5): /app/jobs'ta düz run_requests listesi yerine
+   operation_id'ye göre grupla (operasyon başlığı + altında run'lar, "Tur-4 → N run");
+   operation_id NULL olanlar "Tekil" grubu; operasyon başlığına OperationsPage linki.
+
+Önce kısa plan, onaydan sonra kod. Bitti kriteri: npm run build yeşil; onaylayınca rozet anında
+düşüyor; onay kuyruğunda hangi operasyon/ne onaylandığı (action_detail) görünüyor; İşler
+operasyona göre gruplı.
+```
 
 ## 3D Ofis serisi (R1–R6 + rol kataloğu) — tamamlandı (2026-06-12)
 
@@ -938,6 +1022,58 @@ Teslim edilenler (Sonnet; `dotnet build` + 55/55 test + portal build + `tsc --no
 İncelemede istenen düzeltmelerin tümü uygulandı (kod doğrulandı): (A) onay köprüsü direkt `upsert` değil `gate_run_for_approval` RPC — gerçek kolonlar (`action_summary`/`action_detail`) ve `run_requests.status='waiting_approval'` zinciri korunuyor; (B) uydurma `domain_pack_draft_write`/`web_search` araçları yok — `sector-paket-taslak` `DOMAIN_PACK_ARCHITECT` ajanıyla, araştırma `web_scrape`/`product_search` ile; Runner post-hook draft'ı yazıyor; (C) `draft_id` kaynağı `domain_pack_drafts` (taslak run'ı, `tool_invocations` değil), `verifier_outcome` küçük harf `'pass'` ile karşılaştırılıyor (PR12 büyük-harf tuzağından kaçınıldı). Playbook seed formatı `{id,agent,goal,output}`; migration ikiye bölündü.
 
 Devir: Portal MCP Sunucuları CRUD (`McpServersPage` + Express route — PR13'ten ertelenen) sıradaki PR. Kabul adımı: "kuaför salonları sektörüne gir" hedefli canlı uçtan-uca tur (taslak→test→onay→merge→pack ile playbook→done + KPI) henüz koşulmadı.
+
+### Sektör keşfi komple PR14'e taşıma — Sonnet prompt'u (eski scaffold emekli)
+
+Gerekçe (canlı bulgu, 2026-06-15): "PCO" sektör keşfi `sector-discovery-and-scaffold`
+(eski meta-playbook, 0020) ile koştu; run `success` ama `run_outputs` BOŞ → DraftWriter
+parse edecek içerik bulamadı → paket kabuğu oluştu, playbook/persona 0. Aynı eski playbook'la
+üretilen tüm sektör paketleri (Hukuk/Fintech/İK/Lojistik/PCO) 0 playbook. Eski playbook'ta iki
+somut hata: `required_tools:['web_search']` (geçersiz slug) ve scaffold adımı
+`agent:"DomainPackArchitect"` (yalnız C# kataloğunda; DB kodu `DOMAIN_PACK_ARCHITECT`).
+PR14 `sector_factory` akışı bunların düzeltilmiş hali; ama portaldaki "sektör keşfi" hâlâ eski
+playbook'u çağırıyor.
+
+```
+Repo: ai_agent. Bağlam: portal/src/pages/SectorBuilderPage.tsx, PackDraftReviewPage.tsx,
+portal/src/pages/OperationsPage.tsx (PR14 "Sektör Fabrikası" şablonu + POST /api/operations),
+portal/api/lib/operationLoopTick.ts (sector_factory fazı), supabase/migrations/0020_domain_pack_architect.sql
+(eski sector-discovery-and-scaffold meta-playbook + DOMAIN_PACK_ARCHITECT),
+supabase/migrations/20260614120000_sector_factory.sql (yeni sector-* playbook'lar),
+src/AgentArmy.Cli/Domain/DomainPackDraftWriter.cs, src/AgentArmy.Cli/Cli/Runner.cs (sector- hook).
+
+KURAL: Migration öncesi gerçek kolon/CHECK doğrulaması (playbooks.status var mı? yoksa devre dışı
+bırakma stratejisi belirle); kolon/değer uydurma.
+
+Görev: sektör keşfini KOMPLE PR14 sector_factory akışına taşı; eski sector-discovery-and-scaffold
+yolunu emekliye ayır. Canlı bulgu: eski akış run_outputs'a hiç yazmadan "success" dönüyor → boş paket.
+
+1. UI YÖNLENDİRME: SectorBuilderPage'in "sektör keşfi başlat" aksiyonu artık
+   sector-discovery-and-scaffold run_request'i AÇMASIN. Bunun yerine bir sector_factory
+   operasyonu açsın (OperationsPage "Sektör Fabrikası" şablonuyla aynı yol: POST /api/operations,
+   context_json.kind='sector_factory', sector_name, intent). SectorBuilderPage ya bu çağrıyı
+   yapsın ya da kullanıcıyı OperationsPage şablonuna yönlendirsin. Tek giriş noktası kalsın.
+2. ESKİ PLAYBOOK EMEKLİ: migration ile sector-discovery-and-scaffold'u devre dışı bırak
+   (playbooks.status varsa 'retired'; yoksa enabled=false / listeden gizleme). Yeni run
+   açılamasın. Eski playbook'u çağıran kod/UI yollarını kaldır.
+3. DRAFTWRITER GUARD (sessiz boş paket YASAK): DomainPackDraftWriter, çıktı boşsa VEYA
+   parse edilen draft_json.playbooks/personas boş/eksikse → gürültülü hata logla ve BOŞ
+   taslak/paket YAZMA (ya da draft status='failed'). FetchArchitectContentAsync birden çok
+   run_output varsa doğru adımı (DOMAIN_PACK_ARCHITECT/scaffold) seçsin — run_id + step/agent
+   filtresi, arr[0] değil.
+4. RUN_OUTPUTS PERSIST: sector_factory taslak run'ında DOMAIN_PACK_ARCHITECT adım çıktısının
+   run_outputs'a yazıldığını doğrula (Orchestrator persist yolu). Eski akışta run_outputs boş
+   kalıyordu — yeni akışta dolduğunu garanti et.
+5. MEVCUT BOŞ PAKETLER (opsiyonel temizlik): 0-playbook sektör paketleri (Hukuk/Fintech/İK/
+   Lojistik/PCO) için temizlik/işaretleme notu (SQL ile, kod dışı).
+
+Önce kısa plan, onaydan sonra kod. Bitti kriteri: portaldan "PCO sektörüne gir" → sector_factory
+operasyonu → araştırma (web_scrape/product_search) → DOMAIN_PACK_ARCHITECT taslağı (playbooks +
+personas DOLU) → domain_pack_drafts.draft_json dolu → test → onay → merge → playbooks/personas
+tablolarında satırlar → pack >0 playbook; eski sector-discovery-and-scaffold çağrılamıyor;
+boş çıktıda DraftWriter gürültülü hata veriyor (sessiz boş paket yok); npm run build + dotnet
+build + test yeşil.
+```
 
 ### PR15 prompt'u — Playbook sentezi + terfi
 
