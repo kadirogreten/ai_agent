@@ -145,6 +145,8 @@ export function buildDecideUserMessage(obs: {
   lastResultSummary:   string | null
   availablePlaybooks:  string[]
   intent?:             IntentJson | null
+  currentPhase?:       string | null
+  cargoPollCount?:     number | null
 }): string {
   return [
     `## Operasyon hedefi\n${obs.goalText}`,
@@ -181,5 +183,9 @@ export function buildDecideUserMessage(obs: {
 
     obs.lastPlaybook ? `## Son playbook\n${obs.lastPlaybook}` : null,
     obs.lastError    ? `## Son hata (özet)\n${obs.lastError.slice(0, 300)}` : null,
+    obs.currentPhase ? `## Mevcut faz\n${obs.currentPhase}` : null,
+    obs.cargoPollCount != null && obs.cargoPollCount > 0
+      ? `## Kargo poll sayısı\n${obs.cargoPollCount} (tavan policy'den okunur)`
+      : null,
   ].filter(Boolean).join('\n\n')
 }

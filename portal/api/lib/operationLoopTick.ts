@@ -243,7 +243,10 @@ async function observe(supabase: SupabaseClient, op: Operation) {
     availablePlaybooks,
     purchaseOrderCtx,
     sectorDraftId,
-    lastRunId: lastRun?.id ?? null,
+    lastRunId:      lastRun?.id ?? null,
+    currentPhase:   (op.context_json?.phase as string | undefined) ?? null,
+    cargoPollCount: (op.context_json?.cargo_poll_count as number | undefined) ?? 0,
+    cliRunIds,
   }
 }
 
@@ -356,6 +359,8 @@ async function decide(
     lastResultSummary:   obs.lastResultSummary,
     availablePlaybooks:  obs.availablePlaybooks,
     intent:              op.intent_json,
+    currentPhase:        obs.currentPhase,
+    cargoPollCount:      obs.cargoPollCount,
   })
 
   const provider = await resolveDecideProvider(supabase)
@@ -663,6 +668,34 @@ async function processOperation(supabase: SupabaseClient, op: Operation) {
     }
   }
 
+  // PR15 T4-1: tedarik — stock_replenish tamamlandıysa phase='replenish' yaz (purchase_order deseni).
+  // cliRunIds zaten observe()'da hesaplandı; burada tekrar sorgu yerine obs'tan geliyor.
+  // phase='replenish' → bir sonraki tick'te DECIDE 'done' verir.
+  if (
+    op.context_json?.kind !== 'sector_factory' &&
+    op.context_json?.phase === 'cargo' &&
+    obs.cliRunIds.length > 0
+  ) {
+    const { data: replenishRows } = await supabase
+      .from('tool_invocations')
+      .select('id')
+      .in('run_id', obs.cliRunIds)
+      .eq('tool_slug', 'stock_replenish')
+      .eq('status', 'succeeded')
+      .limit(1)
+    if (((replenishRows ?? []) as { id: string }[]).length > 0) {
+      const replenishCtx = { ...(op.context_json ?? {}), phase: 'replenish' }
+      const { error: repErr } = await supabase
+        .from('operations')
+        .update({ context_json: replenishCtx, updated_at: new Date().toISOString() })
+        .eq('id', op.id)
+      if (!repErr) {
+        op.context_json = replenishCtx
+        log('phase replenish yazıldı', { id: op.id })
+      }
+    }
+  }
+
   // PR14: sector_factory — draft_id context_json'a kalıcı yaz (purchase_order deseni)
   if (obs.sectorDraftId && !(op.context_json?.draft_id as string | undefined)) {
     const newCtx = { ...(op.context_json ?? {}), draft_id: obs.sectorDraftId }
@@ -843,10 +876,71 @@ async function processOperation(supabase: SupabaseClient, op: Operation) {
 
     if (insErr) { log('run_request insert hatası', { id: op.id, error: insErr.message }); return }
 
-    await supabase
-      .from('operations')
-      .update({ step_count: op.step_count + 1, updated_at: new Date().toISOString() })
-      .eq('id', op.id)
+    // PR15 T4-1: Faz geri dönüş guard (kod seviyesi — prompt'a güvenmeden sert kapı).
+    // phase 'cargo'/'replenish'/'done' iken tedarik-siparis önerilirse escalate.
+    const currentPhaseNow = op.context_json?.phase as string | undefined
+    if (
+      op.context_json?.kind !== 'sector_factory' &&
+      ['cargo', 'replenish', 'done'].includes(currentPhaseNow ?? '') &&
+      playbook === 'tedarik-siparis'
+    ) {
+      await logEvent(supabase, op.id, 'escalate', {
+        reason: 'forbidden_phase_rollback',
+        current_phase: currentPhaseNow,
+        blocked_playbook: playbook,
+      })
+      await escalateOp(supabase, op, `Faz geri dönüşü engellendi: ${currentPhaseNow} → tedarik-siparis`)
+      return
+    }
+
+    // PR15 T4-1: Faz yazımı — playbook geçişine göre context_json.phase güncelle.
+    // PR15 T4-3: Kargo bekleme döngüsü: step_count tüketmez; cargo_poll_count artar.
+    const isCargoLoop =
+      op.context_json?.kind !== 'sector_factory' &&
+      playbook === 'tedarik-kargo' &&
+      currentPhaseNow === 'cargo'
+
+    const phaseByPlaybook: Record<string, string> = {
+      'tedarik-arastirma': 'research',
+      'tedarik-siparis':   'order',
+      'tedarik-kargo':     'cargo',
+    }
+    const nextPhase = phaseByPlaybook[playbook]
+
+    if (isCargoLoop) {
+      // Kargo poll: step_count artmaz, cargo_poll_count artar
+      const newPollCount = obs.cargoPollCount + 1
+      const cargoMax = await getPolicy(supabase, null, 'oploop.cargo_poll_max', 30) as number
+      if (newPollCount > cargoMax) {
+        await logEvent(supabase, op.id, 'escalate', {
+          reason: 'cargo_poll_max_exceeded',
+          cargo_poll_count: newPollCount,
+          cargo_poll_max: cargoMax,
+        })
+        await escalateOp(supabase, op, `Kargo poll tavanı aşıldı (${newPollCount}/${cargoMax})`)
+        return
+      }
+      const pollCtx = { ...(op.context_json ?? {}), cargo_poll_count: newPollCount }
+      await supabase
+        .from('operations')
+        .update({ context_json: pollCtx, updated_at: new Date().toISOString() })
+        .eq('id', op.id)
+      op.context_json = pollCtx
+      log('kargo poll count artırıldı', { id: op.id, cargo_poll_count: newPollCount })
+    } else {
+      // Gerçek faz geçişi: step_count++ + phase güncelle
+      const phaseCtx = nextPhase
+        ? { ...(op.context_json ?? {}), phase: nextPhase }
+        : op.context_json ?? {}
+      await supabase
+        .from('operations')
+        .update({ step_count: op.step_count + 1, context_json: phaseCtx, updated_at: new Date().toISOString() })
+        .eq('id', op.id)
+      if (nextPhase) {
+        op.context_json = phaseCtx
+        log('faz güncellendi', { id: op.id, phase: nextPhase })
+      }
+    }
 
     // drift_score act event payload'una yazılır (decide zaten loglandı, critic sonrası buraya)
     await logEvent(supabase, op.id, 'act', {
@@ -854,8 +948,10 @@ async function processOperation(supabase: SupabaseClient, op: Operation) {
       playbook,
       topic,
       reason,
-      drift_score:  critic.score,
-      drift_reason: critic.reason,
+      drift_score:     critic.score,
+      drift_reason:    critic.reason,
+      phase:           nextPhase ?? currentPhaseNow ?? null,
+      cargo_poll_count: isCargoLoop ? obs.cargoPollCount + 1 : null,
     })
     log('run tetiklendi', { id: op.id, action, playbook, drift_score: critic.score })
 
