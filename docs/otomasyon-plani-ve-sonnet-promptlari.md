@@ -1075,6 +1075,49 @@ boş çıktıda DraftWriter gürültülü hata veriyor (sessiz boş paket yok); 
 build + test yeşil.
 ```
 
+### MCP Sunucuları CRUD — Sonnet prompt'u (PR13'ten ertelenen portal yönetimi)
+
+Gerekçe: PR13'te MCP omurgası (mcp_servers tablosu + RLS, McpClient, McpProxyTool,
+CreateWithDbAsync, mcp-sync CLI, ToolsPage MCP rozeti) tamamlandı; **portal CRUD bilinçli
+ertelenmişti** — sunucu kaydı şu an yalnız SQL ile yapılabiliyor.
+
+```
+Repo: ai_agent. Bağlam: supabase/migrations/20260614110000_mcp_servers.sql (mcp_servers
+şeması + RLS: owner_user_id IS NULL = platform; WITH CHECK owner_user_id=auth.uid();
+platform satırı yalnız service_role), portal/src/pages/NotificationChannelsPage.tsx +
+BudgetsPage.tsx (CRUD sayfa deseni), portal/src/pages/ModelsPage.tsx (ADMIN_USER_IDS yazma
+kapısı deseni — PR10), portal/api (Express route deseni, ör. /api/notifications/test —
+owner token'dan), portal/src/components/AppShell.tsx (nav), portal/src/pages/ToolsPage.tsx
+(MCP rozeti — PR13), src/AgentArmy.Cli/Cli/CommandDispatcher.McpSync.cs (mcp-sync).
+
+KURAL: mcp_servers gerçek kolonlarını ve RLS'i migration'dan doğrula; kolon/değer uydurma.
+Yeni migration GEREKMEZ (tablo + RLS PR13'te var) — yalnız portal + API.
+
+Görev: MCP sunucularını portaldan yönet (PR13 devri).
+
+1. Express route portal/api: GET /api/mcp-servers (platform + owner satırları),
+   POST /api/mcp-servers, PUT /api/mcp-servers/:id, DELETE /api/mcp-servers/:id.
+   Auth owner token'dan (owner_user_id body'den ALINMAZ — auth'tan). owner kendi satırlarını
+   yazar (RLS WITH CHECK zaten owner_user_id=auth.uid() zorluyor). Platform satırı
+   (owner_user_id NULL) yazımı yalnız ADMIN_USER_IDS (ModelsPage deseni) — service_role ile.
+2. portal/src/pages/McpServersPage.tsx: CRUD tablosu — slug, display_name, transport
+   (http|stdio select; stdio "yakında" disabled), endpoint, auth_env (env değişken ADI —
+   anahtar değil; yardım metni), enabled toggle. Insert'te owner_user_id = auth.uid()
+   (platform satırı UI'dan değil). Platform (owner=NULL) satırları salt-okunur "platform"
+   rozetiyle gösterilir. NotificationChannelsPage CRUD desenini birebir izle.
+3. Nav + route: Ayarlar altına "MCP Sunucuları" (AppShell). ToolsPage MCP rozetine
+   (PR13) sunucu adı tooltip'i — hangi sunucudan geldiği.
+4. Senkronizasyon köprüsü (opsiyonel ama faydalı): sunucu satırında "Araçları Senkronla"
+   butonu — mcp-sync CLI'yı tetikleyen bir run_request kuyruğa atar (mode='mcp-sync',
+   server slug answers_json'da) VEYA buton yoksa UI'da "CLI'dan `mcp-sync --server <slug>`
+   çalıştır" notu göster. Kapsamı şişirmemek için buton yerine net not yeterli.
+
+Önce kısa plan, onaydan sonra kod. Bitti kriteri: npm run build yeşil; portaldan owner MCP
+sunucusu eklenip enable/disable ediliyor ve listeleniyor; platform satırı UI'dan
+düzenlenemiyor (salt-okunur); eklenen sunucunun araçları mcp-sync sonrası ToolsPage'de MCP
+rozetiyle görünüyor; RLS ihlali yok (owner başka owner'ın/platform satırını yazamıyor).
+```
+
 ### PR15 prompt'u — Playbook sentezi + terfi
 
 ```
