@@ -1,21 +1,19 @@
 # Sosyal Medya Knowledge
 
-Bu klasör, `sosyal-medya` domain pack çalıştırmaları için marka ve SSS bilgi tabanı iskeletidir.
+Bu klasör insan-okur dokümantasyon içindir. **SSS ve facts verisi dosyada tutulmaz.**
 
 ## İçerik
 
 - **Marka sesi** — ton, üslup, yasaklı ifadeler, örnek cümleler (tenant tarafından doldurulur).
-- **SSS** — sık sorulan sorular ve onaylı yanıt şablonları (`faq.jsonl`, PR-S3'te eklenecek).
+- **SSS** — sık sorulan sorular ve onaylı yanıt şablonları Supabase `facts` tablosunda (`domain_pack='sosyal-medya'`, `source_domain='sosyal-medya-faq'`).
 - **Yasaklı konular** — otomatik yanıt veya içerik üretiminde kaçınılacak başlıklar.
 
-## Dosyalar
+## Veri kaynağı
 
-| Dosya | Açıklama |
-|---|---|
-| `README.md` | Bu dosya — klasör yapısı ve kullanım notları |
-| `faq.jsonl` | (PR-S3) Satır bazlı SSS kayıtları — community-manager önce buradan arar |
+- Tek hakikat kaynağı: Supabase `facts` tablosu (`FactsStore` / `FactsIndex` — `src/AgentArmy.Cli/Knowledge/`).
+- Community-manager persona yanıt üretmeden önce `FactsIndex.SearchAsync` ile ilgili SSS kayıtlarını arar.
+- Tenant veya pack'e özel notlar portal üzerinden veya run çıktılarından `facts` tablosuna terfi edilir.
 
 ## Notlar
 
-- Tenant'a özel marka rehberi portal veya `facts` terfisi ile genişletilebilir.
 - Hassas ve kriz içerikli yorumlar SSS ile otomatik yanıtlanmaz; eskale edilir.

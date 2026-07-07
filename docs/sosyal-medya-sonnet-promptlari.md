@@ -89,7 +89,11 @@ onay reddedilirse yayın adımı hiç çalışmıyor (kanıt: invocation kaydı 
 
 ---
 
-## PR-S3 prompt'u — Etkileşim: inbox araçları + yanıt playbook'u
+## PR-S3 — Tamamlandı (2026-07-07)
+
+Teslim: `SocialInboxFetchTool` (read/R0, deterministik 5 öğe) + `SocialReplySendTool` (write/R2) + `ToolExecutor.CreateDefault` kaydı; `20260707130000_sosyal_etkilesim.sql` (2 tool seed, sosyal-etkilesim-yanit 4 adımlı playbook, 10 SSS `facts` seed'i sosyal-medya-faq-01…10, community-manager FactsIndex talimatı); README faq.jsonl temizliği; `SocialInboxFlowTests.cs` (4 test). Doğrulama: 62/62 test, migration 2x idempotent, `list` = 4 playbook. Not: `reversible=true` Faz A uyumu için (prompt'taki `reversible=false` hataydı — Faz A bloklardı); "yanıt geri alınamaz" iş kuralı goal'da, gerçek `reply_delete` PR-S7 backlog'unda.
+
+### PR-S3 prompt'u — Etkileşim: inbox araçları + yanıt playbook'u
 
 ```
 Repo: ai_agent. Bağlam: docs/sosyal-medya-domain-pack-plani.md (§5.3, §9), PR-S1/S2 çıktıları,
@@ -145,6 +149,9 @@ Görev:
      (LLM'e güvenme, araç içinde kontrol). R3 → onay kuyruğu.
    - ads_campaign_pause (write/R1): compensation aracı. ads_campaign_activate'in
      compensation'ı olarak kaydet (CompensationExecutor deseni).
+   Üç araçta da reversible=true (Faz A kuralı: write + reversible=false araçlar
+   AvailableFor'da hiç sunulmaz — PR-S2/S3'te doğrulandı). activate zaten gerçekten
+   geri alınabilir: tools.compensation='ads_campaign_pause'.
 3. policy_settings'e ads.max_daily_budget ve ads.max_total_budget seed
    (20260611170000 deseni; gerçek kolonları doğrula).
 4. reklam-kampanya-yayinla playbook seed'i (plan §5.5): create (paused) →
@@ -214,6 +221,16 @@ ekran görüntüsü veya kısa kayıt PR açıklamasına.
 ```
 
 ---
+
+## PR-S7 backlog — gerçek API bağlama (S6 sonrası, prompt henüz yazılmadı)
+
+Seri boyunca biriken maddeler; PR-S7 prompt'u yazılırken hepsi kapsanmalı:
+
+1. Gerçek Meta/X/LinkedIn/TikTok/Google Ads API bağlantısı (App Review onayları önkoşul — plan §11).
+2. Çok-kullanıcılı credential yönetimi: portal OAuth akışı ("hesabını bağla"), `user_social_accounts` tablosu (owner_user_id, platform, şifreli access/refresh token, expires_at; RLS owner-only; pgsodium/Vault), araç katmanında token'ın global env yerine koşum sahibine göre çözümlenmesi, token refresh schedule'ı. Mevcut `auth_env` yaklaşımı tek-hesap/tek-dağıtım içindir.
+3. Compensation'lar: `post_delete` (meta-social__post_publish için) ve `reply_delete` (social_reply_send için) + tools.compensation kolonlarının doldurulması.
+4. mcp_servers.endpoint güncellemesi: mock (127.0.0.1:3847) → gerçek endpoint, UPDATE migration ile.
+5. reversible/`iş kuralı` ayrımının gözden geçirilmesi: demo'da reversible=true idi; gerçek API'de compensation'larla birlikte doğrulanmalı.
 
 ## Çalışma notları
 

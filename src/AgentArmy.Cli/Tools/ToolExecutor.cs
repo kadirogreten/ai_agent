@@ -47,6 +47,9 @@ public sealed class ToolExecutor : IToolExecutor
         new PurchaseOrderTool(),
         new CargoTrackTool(),
         new StockReplenishTool(),
+        // Sosyal medya etkileşim araçları (PR-S3 demo).
+        new SocialInboxFetchTool(),
+        new SocialReplySendTool(),
     });
 
     /// <summary>
