@@ -1,8 +1,8 @@
 # Market Intel Knowledge
 
-Bu klasör, market/competitive intelligence çalıştırmalarından çıkan “facts” verilerini kalıcı hale getirmek için kullanılır.
+Bu klasör insan-okur dokümantasyon içindir. **Facts verisi artık dosyada tutulmaz.**
 
-- `facts.jsonl`: satır bazlı JSON (append-only). Her satır bir `FactEntry` kaydıdır.
+- Tek hakikat kaynağı: Supabase `facts` tablosu (`FactsStore` / `FactsIndex` — `src/AgentArmy.Cli/Knowledge/`).
+- Eski `facts.jsonl` dosya tabanlı depo DB-first geçişiyle kaldırıldı; bu klasör yalnızca README-only iskelet olarak kalır.
 
-Not: Bu dosya büyüyebileceği için git’e commitlenmemesi önerilir.
-
+Tenant veya pack'e özel notlar portal üzerinden veya run çıktılarından `facts` tablosuna terfi edilir.

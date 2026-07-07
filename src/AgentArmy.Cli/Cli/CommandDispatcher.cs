@@ -16,7 +16,7 @@ public static partial class CommandDispatcher
         var tail = args.Skip(1).ToArray();
         return cmd switch
         {
-            "list"        => ListPlaybooks(rootDir, tail),
+            "list"        => await ListPlaybooksAsync(rootDir, tail, ct),
             "bundles"     => ListBundles(rootDir, tail),
             "run"         => await RunPlaybookAsync(rootDir, tail, ct),
             "bundle"      => await RunBundleAsync(rootDir, tail, ct),
@@ -62,14 +62,27 @@ public static partial class CommandDispatcher
         return 1;
     }
 
-    private static int ListPlaybooks(string rootDir, string[] args)
+    private static async Task<int> ListPlaybooksAsync(string rootDir, string[] args, CancellationToken ct)
     {
-        var parsed = Args.Parse(args);
-        var packId = parsed.GetValueOrDefault("domainPack")
-                     ?? Environment.GetEnvironmentVariable("AGENTARMY_DOMAIN_PACK");
-        var pack   = DomainPackLoader.TryLoad(rootDir, packId);
-        foreach (var id in PlaybookLoader.ListPlaybooks(rootDir, pack))
-            Console.WriteLine(id);
+        var parsed   = Args.Parse(args);
+        var packId   = parsed.GetValueOrDefault("domainPack")
+                       ?? Environment.GetEnvironmentVariable("AGENTARMY_DOMAIN_PACK");
+        if (string.IsNullOrWhiteSpace(packId))
+        {
+            Console.Error.WriteLine("Missing --domainPack");
+            return 1;
+        }
+
+        var supabase = GetSupabase(rootDir);
+        if (supabase.IsConfigured != true)
+        {
+            Console.Error.WriteLine("DB-first: Supabase yapılandırılmamış — list için setup gerekli.");
+            return 1;
+        }
+
+        var rows = await DomainPackDbLoader.LoadPlaybooksAsync(supabase, packId, ct);
+        foreach (var row in rows.OrderBy(r => r.Slug, StringComparer.OrdinalIgnoreCase))
+            Console.WriteLine(row.Slug);
         return 0;
     }
 
