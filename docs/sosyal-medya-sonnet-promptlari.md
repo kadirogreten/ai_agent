@@ -262,6 +262,52 @@ Seri boyunca biriken maddeler; PR-S7 prompt'u yazılırken hepsi kapsanmalı:
 4. mcp_servers.endpoint güncellemesi: mock (127.0.0.1:3847) → gerçek endpoint, UPDATE migration ile.
 5. reversible/`iş kuralı` ayrımının gözden geçirilmesi: demo'da reversible=true idi; gerçek API'de compensation'larla birlikte doğrulanmalı.
 
+## PR-S7c prompt'u — OAuth app kimlik bilgilerinin panelden yönetimi
+
+```
+Repo: ai_agent. Bağlam: PR-S7a/S7b çıktıları — portal/api/lib/tokenEncryptor.ts,
+portal/api/lib/social/providers/, portal/src/pages/SocialAccountsPage.tsx,
+supabase/migrations/20260708100000_user_social_accounts.sql (RLS + şifreleme deseni),
+0014_audit_log.sql (audit deseni).
+
+KURAL: Kolon adlarını ve CHECK kısıtlarını önce gerçek migration dosyalarından doğrula.
+SOCIAL_TOKEN_ENC_KEY env'de KALIR (kök anahtar) — bu PR onu DB'ye taşımaz.
+
+Görev: META_APP_ID / META_APP_SECRET / redirect URI artık env değil, panelden yönetilsin.
+
+1. Migration: social_oauth_apps tablosu — platform TEXT NOT NULL, owner_user_id UUID
+   NULL (NULL = platform geneli varsayılan; dolu = tenant'a özel), app_id TEXT NOT NULL,
+   app_secret_ciphertext TEXT NOT NULL (tokenEncryptor AES-GCM), redirect_uri TEXT,
+   enabled BOOLEAN default true, created_at/updated_at + trigger.
+   UNIQUE partial index'ler mcp_servers deseninde (platform satırı / owner satırı).
+   RLS: owner kendi satırını SELECT/INSERT/UPDATE/DELETE (app_secret_ciphertext'i
+   SELECT'ten gizlemek için portal API'si üzerinden erişim — aşağıda), service_role ALL.
+   Sonuna NOTIFY pgrst, 'reload schema' ekle.
+2. Provider config çözümleme sırası (MetaOAuthProvider + gelecekteki tüm provider'lar
+   için ortak helper): (a) social_oauth_apps owner satırı → (b) platform geneli satır
+   → (c) env fallback (META_APP_ID vb. — geriye uyum, kaldırma).
+   app_secret yalnız server-side decrypt edilir.
+3. Portal API: GET /api/social/apps (app_secret ASLA dönmez — yalnız app_id,
+   redirect_uri, updated_at, secret_set:boolean), PUT /api/social/:platform/app
+   (app_id + app_secret + redirect_uri; secret boşsa mevcut korunur), DELETE.
+   Her değişiklik audit_log'a yazılır (0014 deseni).
+4. UI: SocialAccountsPage'e platform kartı başına "Uygulama ayarları" bölümü
+   (veya ayrı sekme): app_id alanı, app_secret write-only parola alanı
+   (kayıtlıysa "••••" + secret_set rozeti), redirect_uri önerisi otomatik
+   (PORTAL_PUBLIC_URL + /api/social/{platform}/oauth/callback, kopyala butonu).
+   Kaydet sonrası "META_APP_ID eksik" banner'ı kalkar (banner artık DB+env
+   birleşik çözümlemeye bakar).
+5. Testler: çözümleme sırası (owner > platform > env) unit; secret'ın hiçbir GET
+   yanıtında ve logda görünmediği; şifreli round-trip (encrypt→decrypt).
+   scripts/check-token-leakage.sh kapsamına app_secret pattern'i ekle.
+
+Önce plan, sonra kod. Bitti kriteri: migration 2x idempotent; portal build + testler
+yeşil; panelden girilen App ID/Secret ile OAuth akışı env'siz uçtan uca çalışıyor
+(dev mode); GET yanıtlarında secret yok; audit_log kaydı düşüyor.
+```
+
+---
+
 ## Çalışma notları
 
 - Oturum başına tek PR; her prompt'un başındaki bağlam dosyalarını Sonnet'e okutmadan koda başlatma.

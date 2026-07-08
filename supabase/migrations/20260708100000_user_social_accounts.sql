@@ -56,3 +56,6 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.user_social_accounts TO ser
 
 COMMENT ON TABLE public.user_social_accounts IS
   'Platform-agnostik OAuth token deposu. PR-S8 yeni platform = yeni platform değeri, tablo değişmez.';
+
+-- PostgREST şema önbelleğini yenile — yeni tablo REST API'de hemen görünsün.
+NOTIFY pgrst, 'reload schema';

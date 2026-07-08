@@ -1,11 +1,11 @@
 -- PR-S7b: Meta live MCP + compensation + sosyal araç compensation güncellemeleri.
 
 -- meta-social MCP endpoint: meta-social-mcp.ts (aynı port, gerçek Graph + demo fallback)
+-- NOT: mcp_servers'ta updated_at kolonu YOK (20260614110000 şeması) — SET listesine ekleme.
 UPDATE public.mcp_servers
 SET
   display_name = 'Meta Social (Graph API)',
-  endpoint     = 'http://127.0.0.1:3847/mcp',
-  updated_at   = now()
+  endpoint     = 'http://127.0.0.1:3847/mcp'
 WHERE slug = 'meta-social' AND owner_user_id IS NULL;
 
 -- post_publish → post_delete compensation
