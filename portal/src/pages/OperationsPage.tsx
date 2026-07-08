@@ -54,6 +54,7 @@ type KpiSummary = {
 }
 
 type DomainPack = { id: string; name: string }
+type PlaybookOption = { id: string; title: string }
 type BudgetScope = { id: string; scope: string; period: string }
 
 // ── renk yardımcıları ─────────────────────────────────────────────────────────
@@ -403,8 +404,9 @@ const EMPTY_FORM = {
   cooldown_minutes: 30,
   budget_scope:     '',
   // PR14: şablon seçici
-  template:         '' as '' | 'sector_factory',
+  template:         '' as '' | 'sector_factory' | 'sosyal_medya',
   sector_name:      '',
+  playbook_slug:    '',
   // intent alanları
   intent_beneficiary:      '',
   intent_success_criteria: '',
@@ -419,19 +421,31 @@ const SECTOR_FACTORY_DEFAULTS = {
   intent_success_criteria: 'sektör paketi oluştu ve onaylandı',
 }
 
+const SOCIAL_MEDIA_DEFAULTS = {
+  domain_pack:             'sosyal-medya',
+  max_steps:               10,
+  cooldown_minutes:        30,
+  intent_beneficiary:      'pazarlama ekibi',
+  intent_success_criteria: 'onaylı içerik/reklam aksiyonları tamamlandı',
+}
+
 function NewOpForm({ onCreated }: { onCreated: () => void }) {
   const [form,    setForm]    = useState(EMPTY_FORM)
   const [saving,  setSaving]  = useState(false)
   const [error,   setError]   = useState<string | null>(null)
   const [open,    setOpen]    = useState(false)
-  const [packs,   setPacks]   = useState<DomainPack[]>([])
-  const [budgets, setBudgets] = useState<BudgetScope[]>([])
+  const [packs,     setPacks]     = useState<DomainPack[]>([])
+  const [playbooks, setPlaybooks] = useState<PlaybookOption[]>([])
+  const [budgets,   setBudgets]   = useState<BudgetScope[]>([])
 
   useEffect(() => {
     if (!open) return
     // domain_packs tablosundan seçici
     supabase.from('domain_packs').select('id, name').order('name').then(({ data }) => {
       if (data) setPacks(data as DomainPack[])
+    })
+    supabase.from('playbooks').select('id, title').eq('pack_id', 'sosyal-medya').order('title').then(({ data }) => {
+      if (data) setPlaybooks(data as PlaybookOption[])
     })
     // mevcut bütçe scope'ları
     supabase.auth.getUser().then(({ data: { user } }) => {
@@ -446,6 +460,10 @@ function NewOpForm({ onCreated }: { onCreated: () => void }) {
   async function submit(e: React.FormEvent) {
     e.preventDefault()
     if (!form.goal_text.trim() || !form.domain_pack) return
+    if (form.template === 'sosyal_medya' && !form.playbook_slug.trim()) {
+      setError('Sosyal Medya şablonu için playbook seçimi zorunlu')
+      return
+    }
     if (!form.intent_beneficiary.trim() || !form.intent_success_criteria.trim()) {
       setError('Intent yararlanıcı ve başarı kriteri zorunlu')
       return
@@ -457,11 +475,15 @@ function NewOpForm({ onCreated }: { onCreated: () => void }) {
       if (!session) throw new Error('Oturum bulunamadı')
 
       const isSectorFactory = form.template === 'sector_factory'
+      const isSocialMedia   = form.template === 'sosyal_medya'
       const contextJson: Record<string, unknown> = {}
       if (form.budget_scope) contextJson.budget_scope = form.budget_scope
       if (isSectorFactory) {
         contextJson.kind        = 'sector_factory'
         contextJson.sector_name = form.sector_name.trim() || form.goal_text.trim()
+      }
+      if (isSocialMedia && form.playbook_slug.trim()) {
+        contextJson.first_playbook = form.playbook_slug.trim()
       }
 
       const intentJson: IntentJson = {
@@ -536,8 +558,48 @@ function NewOpForm({ onCreated }: { onCreated: () => void }) {
             >
               Sektör Fabrikası
             </button>
+            <button
+              type="button"
+              className={`rounded px-3 py-1.5 text-xs font-medium transition-colors ${
+                form.template === 'sosyal_medya' ? 'bg-pink-600 text-white' : 'bg-white/[0.06] text-white/40 hover:bg-white/10'
+              }`}
+              onClick={() => setForm((f) => ({
+                ...f,
+                template: 'sosyal_medya',
+                ...SOCIAL_MEDIA_DEFAULTS,
+                playbook_slug: f.playbook_slug || playbooks[0]?.id || '',
+                goal_text: f.goal_text || (playbooks[0]?.title ? `${playbooks[0].title} operasyonu` : 'Sosyal medya operasyonu'),
+              }))}
+            >
+              Sosyal Medya
+            </button>
           </div>
         </div>
+
+        {form.template === 'sosyal_medya' && (
+          <div>
+            <label className="mb-1 block text-xs text-white/50">Playbook *</label>
+            <select
+              className="w-full rounded bg-white/[0.06] px-3 py-2 text-sm text-white/90 focus:outline-none focus:ring-1 focus:ring-white/20"
+              value={form.playbook_slug}
+              onChange={(e) => {
+                const slug = e.target.value
+                const pb = playbooks.find((p) => p.id === slug)
+                setForm((f) => ({
+                  ...f,
+                  playbook_slug: slug,
+                  goal_text: pb ? `${pb.title} operasyonu` : f.goal_text,
+                }))
+              }}
+              required
+            >
+              <option value="" disabled>Seç…</option>
+              {playbooks.map((p) => (
+                <option key={p.id} value={p.id}>{p.title || p.id}</option>
+              ))}
+            </select>
+          </div>
+        )}
 
         {form.template === 'sector_factory' && (
           <div>
@@ -576,6 +638,7 @@ function NewOpForm({ onCreated }: { onCreated: () => void }) {
               value={form.domain_pack}
               onChange={(e) => setForm((f) => ({ ...f, domain_pack: e.target.value }))}
               required
+              disabled={form.template === 'sector_factory' || form.template === 'sosyal_medya'}
             >
               <option value="" disabled>Seç…</option>
               {packs.map((p) => (
@@ -651,7 +714,7 @@ function NewOpForm({ onCreated }: { onCreated: () => void }) {
 
         {error && <p className="text-xs text-red-400">{error}</p>}
         <div className="flex gap-2">
-          <Button type="submit" size="sm" disabled={saving || !form.domain_pack || !form.intent_beneficiary || !form.intent_success_criteria}>
+          <Button type="submit" size="sm" disabled={saving || !form.domain_pack || !form.intent_beneficiary || !form.intent_success_criteria || (form.template === 'sosyal_medya' && !form.playbook_slug)}>
             {saving ? 'Kaydediliyor…' : 'Oluştur'}
           </Button>
           <Button type="button" size="sm" variant="secondary" onClick={() => setOpen(false)}>

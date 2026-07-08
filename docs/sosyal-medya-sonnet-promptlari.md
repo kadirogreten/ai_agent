@@ -170,7 +170,11 @@ compensation testi geçiyor; ad_spend_ledger kayıtları doğru.
 
 ---
 
-## PR-S5 prompt'u — Metrik araçları + haftalık rapor + schedule seed'leri
+## PR-S5 — Tamamlandı (2026-07-08)
+
+Teslim: `StableHash.cs` (FNV-1a — string.GetHashCode() proses başına rastgele olduğundan), `SocialMetricsFetchTool` + `AdsMetricsFetchTool` (read/R0, ledger yalnız SELECT, spent DB'ye yazılmıyor) + `AdsMetricsDemo` (deterministik harcama + anomaly_spike kuralı); `20260707150000_sosyal_metrics.sql` (2 tool seed, sosyal-haftalik-rapor playbook, 5 persona_schedules şablonu **enabled=false** + placeholder owner); README schedule kurulum notları. Doğrulama: 73/73 test, migration 2x idempotent, `list` = 6 playbook, ledger'a PATCH/POST yapılmadığı test kanıtlı. Not: anomali test id'si `camp_spike_3` (plandaki id formülle spike üretmiyordu). Öğrenilenler: deterministik demo araçlarda kararlı hash şart; şablon schedule'lar pasif seed'lenmeli (aktif olsaydı schedulerTick sahte owner'a run üretirdi).
+
+### PR-S5 prompt'u — Metrik araçları + haftalık rapor + schedule seed'leri
 
 ```
 Repo: ai_agent. Bağlam: docs/sosyal-medya-domain-pack-plani.md (§5.6, §8), PR-S1..S4,
@@ -211,14 +215,17 @@ portal/ approval queue mevcut sayfası (önce bul ve oku), 0015_approval_enforce
 
 Görev:
 
-1. Approval queue sayfasında action_detail.kind'a göre iki özel kart:
-   - Post önizleme kartı: platform ikonu, metin, görsel (varsa), karakter sayısı,
-     hedef hesap. Onay/red mevcut RPC'lerle — yeni RPC yazma.
-   - Kampanya bütçe kartı: platform, hedef kitle özeti, daily_budget,
-     total_budget_cap, para birimi, "bu onay para harcar" uyarı bandı.
-2. Worker tarafında gate_run_for_approval çağrısına action_detail'i dolduran
-   kod zaten var mı kontrol et; yoksa yayın/aktivasyon adımlarında action_detail'e
-   {kind:'social_post'|'ad_campaign', ...} yaz (minimal dokunuş).
+1. Kart tipi TÜRETİLİR, backend'e dokunulmaz. Doğrulanmış durum (ToolExecutor:357 +
+   RiskGate.GateForToolAsync): CLI yolunda action_summary = araç slug'ı,
+   action_detail = araç argümanları JSON'u. Kart seçimi action_summary'den:
+   - meta-social__post_publish, social_reply_send → Post önizleme kartı:
+     platform, metin (action_detail'den), karakter sayısı, görsel (varsa).
+     Onay/red mevcut RPC'lerle — yeni RPC yazma.
+   - ads_campaign_activate → Kampanya bütçe kartı: action_detail'de YALNIZ
+     campaign_id var; daily_budget/total_budget_cap/currency/platform'u
+     ad_spend_ledger'dan SELECT et (RLS owner policy'si yeter — onay sahibi =
+     ledger sahibi). "Bu onay para harcar" uyarı bandı.
+   - Diğer slug'lar → mevcut genel kart (regresyon yok).
 3. OperationsPage şablon seçicisine (Sektör Fabrikası deseni) "Sosyal Medya"
    şablonu: domain_pack='sosyal-medya' + playbook seçimi.
 
