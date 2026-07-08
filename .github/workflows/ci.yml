@@ -67,7 +67,7 @@ jobs:
       - name: Restore + Build (Release)
         run: dotnet build src/AgentArmy.Cli/AgentArmy.Cli.csproj --configuration Release --nologo
       - name: Help command
-        run: dotnet run --project src/AgentArmy.Cli --no-build --configuration Release -- list
+        run: dotnet run --project src/AgentArmy.Cli --no-build --configuration Release -- help
       - name: Dry-run a playbook
         run: |
           dotnet run --project src/AgentArmy.Cli --no-build --configuration Release -- \

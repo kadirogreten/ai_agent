@@ -16,6 +16,7 @@ public static partial class CommandDispatcher
         var tail = args.Skip(1).ToArray();
         return cmd switch
         {
+            "help"        => Help(),
             "list"        => await ListPlaybooksAsync(rootDir, tail, ct),
             "bundles"     => ListBundles(rootDir, tail),
             "run"         => await RunPlaybookAsync(rootDir, tail, ct),
@@ -55,6 +56,12 @@ public static partial class CommandDispatcher
     }
 
     // ── Komutlar ─────────────────────────────────────────────────────────────
+
+    private static int Help()
+    {
+        Console.WriteLine(HelpText.Build());
+        return 0;
+    }
 
     private static int Unknown()
     {
