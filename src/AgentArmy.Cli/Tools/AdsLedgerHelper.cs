@@ -13,6 +13,11 @@ internal sealed record AdsLedgerRow(
     string Currency,
     string Status);
 
+internal sealed record AdsLedgerMetricsContext(
+    decimal DailyBudget,
+    DateTimeOffset? CreatedAt,
+    string Status);
+
 internal static class AdsLedgerHelper
 {
     internal static async Task<AdsLedgerRow?> TryLoadAsync(
@@ -37,6 +42,34 @@ internal static class AdsLedgerHelper
             TotalBudgetCap:  ParseDecimal(row.GetProperty("total_budget_cap")),
             Currency:        row.TryGetProperty("currency", out var c) ? c.GetString() ?? "TRY" : "TRY",
             Status:          row.GetProperty("status").GetString() ?? "paused");
+    }
+
+    internal static async Task<AdsLedgerMetricsContext?> TryLoadMetricsContextAsync(
+        SupabaseWriter db, string ownerId, string campaignId, CancellationToken ct)
+    {
+        var filter =
+            $"campaign_id=eq.{Uri.EscapeDataString(campaignId)}" +
+            $"&owner_user_id=eq.{Uri.EscapeDataString(ownerId)}" +
+            "&select=daily_budget,created_at,status&limit=1";
+
+        var result = await db.SelectAsync("ad_spend_ledger", filter, ct);
+        if (result.ValueKind != JsonValueKind.Array || result.GetArrayLength() == 0)
+            return null;
+
+        var row = result[0];
+        if (row.ValueKind != JsonValueKind.Object) return null;
+
+        DateTimeOffset? createdAt = null;
+        if (row.TryGetProperty("created_at", out var ca) && ca.ValueKind == JsonValueKind.String &&
+            DateTimeOffset.TryParse(ca.GetString(), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var parsed))
+        {
+            createdAt = parsed;
+        }
+
+        return new AdsLedgerMetricsContext(
+            DailyBudget: ParseDecimal(row.GetProperty("daily_budget")),
+            CreatedAt:   createdAt,
+            Status:      row.TryGetProperty("status", out var s) ? s.GetString() ?? "paused" : "paused");
     }
 
     internal static async Task<bool> TryInsertPausedAsync(

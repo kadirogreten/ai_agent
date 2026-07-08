@@ -126,7 +126,11 @@ item'a yanıt üretilmediğinin testi var; R2 gate kanıtı (waiting_approval ka
 
 ---
 
-## PR-S4 prompt'u — Reklam katmanı: kampanya araçları + ad_spend_ledger + R3
+## PR-S4 — Tamamlandı (2026-07-08)
+
+Teslim (2 commit): a0964ef CI fix — `help` komutu (exit 0) + ci.yml smoke `-- help` (bare `list` exit 1 beklenen davranış); 9c633aa PR-S4 — `IToolPreGate` (ITool.cs, ToolExecutor gate-öncesi doğrulama), `AdsCampaignCreateTool` (R1, her zaman paused) / `AdsCampaignActivateTool` (R3, ICompensable, compensation=ads_campaign_pause) / `AdsCampaignPauseTool` (R1) / `AdsBudgetGuard` / `AdsLedgerHelper`, `20260707140000_sosyal_ads.sql` (ad_spend_ledger owner NOT NULL=RUN_OWNER_USER_ID fail-closed, 3 tool seed, ads.max_daily_budget=5000 / ads.max_total_budget=50000, reklam-kampanya-yayinla playbook R3). Doğrulama: 68/68 test; cap aşımı gate çağrılmadan araç hatası (`gate.WasCalled==false`); compensation ledger'ı paused'a çekiyor; bütçe ledger'dan okunuyor; `list` = 5 playbook. Öğrenilen: cap kontrolü executor sırası gereği `IToolPreGate` kancasıyla gate öncesine alındı.
+
+### PR-S4 prompt'u — Reklam katmanı: kampanya araçları + ad_spend_ledger + R3
 
 ```
 Repo: ai_agent. Bağlam: docs/sosyal-medya-domain-pack-plani.md (§5.5, §7), PR-S1..S3,
@@ -177,8 +181,11 @@ Görev:
 
 1. İki read/R0 yerli ITool (demo-first, deterministik örnek veri):
    - social_metrics_fetch: platform+tarih aralığı → erişim, etkileşim, takipçi delta.
-   - ads_metrics_fetch: campaign_id → harcama, gösterim, tıklama, CPC/CPM/ROAS;
-     ad_spend_ledger.spent alanını demo verisiyle senkron güncelle.
+   - ads_metrics_fetch: campaign_id → harcama, gösterim, tıklama, CPC/CPM/ROAS.
+     DİKKAT: read/R0 araç DB'ye YAZMAZ — ledger.spent'i güncelleme. Demo harcamayı
+     deterministik hesapla (örn. kampanya yaşı × daily_budget'ın sabit oranı,
+     campaign_id hash'iyle) ve yalnız çıktıda döndür. spent kolonunun gerçek
+     güncellemesi PR-S7'de gerçek API senkronuyla gelir.
 2. Migration: araç kayıtları + sosyal-haftalik-rapor playbook seed'i (plan §5.6,
    çıktı haftalik-rapor.md) + persona_schedules seed'leri plan §8 tablosundan
    (5 kayıt; owner_user_id seed'de nasıl çözülüyor — mevcut schedule seed'i varsa

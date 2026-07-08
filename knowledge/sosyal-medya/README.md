@@ -17,3 +17,14 @@ Bu klasör insan-okur dokümantasyon içindir. **SSS ve facts verisi dosyada tut
 ## Notlar
 
 - Hassas ve kriz içerikli yorumlar SSS ile otomatik yanıtlanmaz; eskale edilir.
+
+## Zamanlanmış koşumlar (persona_schedules)
+
+PR-S5 migration'ı 5 **şablon** schedule seed'ler (`enabled=false`, placeholder `owner_user_id`).
+
+Kurulum:
+1. `persona_schedules` satırında `owner_user_id` değerini gerçek `auth.users` UUID'niz ile güncelleyin.
+2. Portal Schedules sayfasından ilgili kaydı **enable** edin.
+3. `next_fire_at` başlangıçta NULL olabilir; `portal/api/lib/schedulerTick.ts` ilk tetiklemede `computeNextFire` ile hesaplar.
+
+Şablonlar aktif bırakılmamalı — placeholder owner ile `enabled=true` scheduler'ın sahte kullanıcıya `run_request` üretmesine yol açar.

@@ -54,6 +54,9 @@ public sealed class ToolExecutor : IToolExecutor
         new AdsCampaignCreateTool(),
         new AdsCampaignActivateTool(),
         new AdsCampaignPauseTool(),
+        // Sosyal medya metrik araçları (PR-S5 demo).
+        new SocialMetricsFetchTool(),
+        new AdsMetricsFetchTool(),
     });
 
     /// <summary>
