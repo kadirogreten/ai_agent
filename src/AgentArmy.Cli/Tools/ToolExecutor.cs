@@ -83,7 +83,7 @@ public sealed class ToolExecutor : IToolExecutor
             // MCP araç satırlarını oku: enabled ve disabled dahil (bkz. üst not).
             var toolsJson = await db.SelectAsync(
                 "tools",
-                "mcp_server_id=not.is.null&select=slug,name,description,input_schema,side_effect,reversible,min_risk,mcp_server_id,mcp_tool_name",
+                "mcp_server_id=not.is.null&select=slug,name,description,input_schema,side_effect,reversible,min_risk,compensation,mcp_server_id,mcp_tool_name",
                 ct);
 
             if (toolsJson.ValueKind != System.Text.Json.JsonValueKind.Array
@@ -123,7 +123,8 @@ public sealed class ToolExecutor : IToolExecutor
                     SideEffect:  GetStr(t, "side_effect") ?? "external",
                     Reversible:  t.TryGetProperty("reversible", out var rv) && rv.ValueKind == System.Text.Json.JsonValueKind.True,
                     MinRisk:     GetStr(t, "min_risk") ?? "R3",
-                    McpToolName: toolName!
+                    McpToolName: toolName!,
+                    Compensation: GetStr(t, "compensation")
                 ), serverId!));
 
                 serverIds.Add(serverId!);
@@ -132,29 +133,42 @@ public sealed class ToolExecutor : IToolExecutor
             if (rows.Count == 0) return builtins;
 
             // Sunucu kayıtlarını çek
-            var serverFilter = "id=in.(" + string.Join(",", serverIds) + ")&enabled=eq.true&select=id,endpoint,auth_env";
+            var serverFilter = "id=in.(" + string.Join(",", serverIds) + ")&enabled=eq.true&select=id,slug,endpoint,auth_env";
             var serversJson  = await db.SelectAsync("mcp_servers", serverFilter, ct);
 
-            var serverMap = new Dictionary<string, (string Endpoint, string? AuthEnv)>(StringComparer.OrdinalIgnoreCase);
+            var serverMap = new Dictionary<string, (string Slug, string Endpoint, string? AuthEnv)>(StringComparer.OrdinalIgnoreCase);
             if (serversJson.ValueKind == System.Text.Json.JsonValueKind.Array)
             {
                 foreach (var s in serversJson.EnumerateArray())
                 {
                     var id       = GetStr(s, "id");
                     var endpoint = GetStr(s, "endpoint");
+                    var slug     = GetStr(s, "slug");
                     if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(endpoint)) continue;
-                    serverMap[id!] = (endpoint!, GetStr(s, "auth_env"));
+                    serverMap[id!] = (slug ?? "", endpoint!, GetStr(s, "auth_env"));
                 }
             }
 
             // MCP araç + timeout policy
             var timeoutSec = await PolicyReader.GetAsync(db, null, "mcp.call_timeout_seconds", 60, ct);
+            var resolver   = new CredentialResolver(db);
 
             // Her sunucu için tek McpClient (client başına bir endpoint)
             var clients = new Dictionary<string, McpClient>(StringComparer.OrdinalIgnoreCase);
             foreach (var (serverId, info) in serverMap)
             {
-                clients[serverId] = new McpClient(info.Endpoint, info.AuthEnv, timeoutSec);
+                var platform = PlatformCredentialMap.PlatformFromMcpServerSlug(info.Slug);
+                clients[serverId] = new McpClient(
+                    info.Endpoint,
+                    info.AuthEnv,
+                    platform is not null
+                        ? async ct2 =>
+                        {
+                            var owner = Environment.GetEnvironmentVariable("RUN_OWNER_USER_ID");
+                            return await resolver.ResolveBearerAsync(owner, platform, info.AuthEnv, ct2);
+                        }
+                        : null,
+                    timeoutSec);
             }
 
             var mcpTools = new List<ITool>();

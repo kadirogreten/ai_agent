@@ -100,6 +100,16 @@ internal static class AdsLedgerHelper
         return true;
     }
 
+    internal static async Task<bool> TryPatchSpentAsync(
+        SupabaseWriter db, string ownerId, string campaignId, decimal spent, CancellationToken ct)
+    {
+        var filter =
+            $"campaign_id=eq.{Uri.EscapeDataString(campaignId)}" +
+            $"&owner_user_id=eq.{Uri.EscapeDataString(ownerId)}";
+        await db.PatchAsync("ad_spend_ledger", filter, new { spent }, ct);
+        return true;
+    }
+
     internal static string BuildCampaignId(string platform, decimal daily, decimal total, string ownerId)
     {
         var seed = $"{platform}:{daily}:{total}:{ownerId}";

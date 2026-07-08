@@ -29,25 +29,34 @@ public interface IMcpClient
 public sealed class McpClient : IMcpClient, IDisposable
 {
     private readonly string     _endpoint;
+    private readonly string?    _authEnv;
+    private readonly Func<CancellationToken, Task<string?>>? _bearerProvider;
     private readonly HttpClient _http;
     private int  _requestId = 0;
     private bool _initialized;
     private readonly SemaphoreSlim _initLock = new(1, 1);
 
     public McpClient(string endpoint, string? authEnv = null, int timeoutSeconds = 60)
-    {
-        _endpoint = endpoint.TrimEnd('/');
+        : this(endpoint, authEnv, bearerProvider: null, timeoutSeconds) { }
 
-        // Her McpClient örneği kendi HttpClient'ını alır ama paylaşılan handler kullanır.
+    /// <summary>
+    /// PR-S7a: bearerProvider varsa her istekte çağrılır (owner DB token + env fallback).
+    /// Yoksa authEnv statik env fallback (mevcut demo akışı).
+    /// </summary>
+    public McpClient(
+        string endpoint,
+        string? authEnv,
+        Func<CancellationToken, Task<string?>>? bearerProvider,
+        int timeoutSeconds = 60)
+    {
+        _endpoint       = endpoint.TrimEnd('/');
+        _authEnv        = authEnv;
+        _bearerProvider = bearerProvider;
+
         _http = new HttpClient(HttpClientPool.SharedHandler, disposeHandler: false)
         {
             Timeout = TimeSpan.FromSeconds(timeoutSeconds),
         };
-
-        var token = authEnv is not null ? Environment.GetEnvironmentVariable(authEnv) : null;
-        if (!string.IsNullOrWhiteSpace(token))
-            _http.DefaultRequestHeaders.Authorization =
-                new AuthenticationHeaderValue("Bearer", token);
     }
 
     public async Task<IReadOnlyList<McpToolDef>> ListToolsAsync(CancellationToken ct)
@@ -125,6 +134,7 @@ public sealed class McpClient : IMcpClient, IDisposable
                 {
                     Content = new StringContent(notif, Encoding.UTF8, "application/json"),
                 };
+                await ApplyBearerAsync(notifReq, ct);
                 using var _ = await _http.SendAsync(notifReq,
                     HttpCompletionOption.ResponseHeadersRead, ct);
             }
@@ -158,6 +168,7 @@ public sealed class McpClient : IMcpClient, IDisposable
         {
             Content = new StringContent(payload, Encoding.UTF8, "application/json"),
         };
+        await ApplyBearerAsync(req, ct);
 
         HttpResponseMessage resp;
         try
@@ -192,6 +203,17 @@ public sealed class McpClient : IMcpClient, IDisposable
                 ? result.Clone()
                 : root.Clone();
         }
+    }
+
+    private async Task ApplyBearerAsync(HttpRequestMessage req, CancellationToken ct)
+    {
+        string? token = null;
+        if (_bearerProvider is not null)
+            token = await _bearerProvider(ct);
+        if (string.IsNullOrWhiteSpace(token) && _authEnv is not null)
+            token = Environment.GetEnvironmentVariable(_authEnv);
+        if (!string.IsNullOrWhiteSpace(token))
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
     }
 
     public void Dispose()

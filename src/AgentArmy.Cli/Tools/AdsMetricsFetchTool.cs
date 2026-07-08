@@ -41,7 +41,7 @@ public sealed class AdsMetricsFetchTool : ITool
     {
         Slug         = Slug,
         Name         = "Reklam Metrik Çek",
-        Description  = "Kampanya reklam metriklerini döner (demo spent hesaplanır; ledger.spent güncellenmez).",
+        Description  = "Kampanya reklam metriklerini döner; live modda ledger.spent senkronize edilir (demo fallback).",
         Category     = "data",
         SideEffect   = ToolSideEffect.Read,
         Reversible   = true,
@@ -84,6 +84,28 @@ public sealed class AdsMetricsFetchTool : ITool
         }
 
         var metrics = AdsMetricsDemo.Compute(campaignId, dailyBudget, createdAt);
+
+        // PR-S7b: live spent sync (demo fallback korunur)
+        if (ctx.Db is not null && !string.IsNullOrWhiteSpace(owner) && !MetaGraphHelper.IsDemoMode())
+        {
+            var token = await MetaGraphHelper.ResolveTokenAsync(ctx.Db, owner, ct);
+            if (!string.IsNullOrWhiteSpace(token))
+            {
+                var liveSpent = await MetaGraphHelper.TryFetchCampaignSpentAsync(token, campaignId, ct);
+                if (liveSpent.HasValue)
+                {
+                    metrics = metrics with { Spent = liveSpent.Value };
+                    try
+                    {
+                        await AdsLedgerHelper.TryPatchSpentAsync(ctx.Db, owner, campaignId, liveSpent.Value, ct);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.Error.WriteLine($"[ads_metrics_fetch] ledger.spent güncellenemedi: {ex.Message}");
+                    }
+                }
+            }
+        }
 
         var output = JsonSerializer.SerializeToElement(new
         {

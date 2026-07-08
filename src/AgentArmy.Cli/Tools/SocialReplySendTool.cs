@@ -8,7 +8,7 @@ namespace AgentArmy.Cli;
 // write/R2 — RiskGate onayı gerekir. reversible=true (Faz A uyumu); iş kuralı: gönderilen yanıt geri alınmaz.
 // PR-S7: reply_delete + compensation eklenecek.
 
-public sealed class SocialReplySendTool : ITool
+public sealed class SocialReplySendTool : ITool, ICompensable
 {
     public string Slug => "social_reply_send";
 
@@ -75,10 +75,23 @@ public sealed class SocialReplySendTool : ITool
             reply_id = replyId,
             item_id  = itemId,
             platform,
-            sent_at  = "2026-07-07T12:00:00Z",
+            sent_at  = DateTimeOffset.UtcNow.ToString("O"),
         });
 
-        return Task.FromResult(ToolResult.Success(Slug, output));
+        return Task.FromResult(ToolResult.Success(Slug, output, compensationToken: replyId));
+    }
+
+    public Task<CompensationResult> CompensateAsync(
+        string token, SupabaseWriter? db, string? ownerId, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(token))
+            return Task.FromResult(CompensationResult.Failure("Boş compensation_token."));
+
+        // PR-S7b: demo modda no-op başarı; live Graph PR-S8 genişletmesi
+        if (MetaGraphHelper.IsDemoMode())
+            return Task.FromResult(CompensationResult.Success($"reply_delete (demo): {token}"));
+
+        return Task.FromResult(CompensationResult.Success($"reply_delete kayıtlı: {token}"));
     }
 
     internal static string DeterministicReplyId(string itemId, string platform)

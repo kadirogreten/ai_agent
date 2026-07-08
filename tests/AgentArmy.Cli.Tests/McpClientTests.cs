@@ -86,7 +86,8 @@ public class McpProxyToolTests
             SideEffect:  sideEffect,
             Reversible:  reversible,
             MinRisk:     minRisk,
-            McpToolName: "do_thing"
+            McpToolName: "do_thing",
+            Compensation: null
         );
 
     [Fact]
@@ -161,7 +162,8 @@ public class McpToolExecutorTests
             SideEffect:  sideEffect,
             Reversible:  reversible,
             MinRisk:     "R0",
-            McpToolName: slug
+            McpToolName: slug,
+            Compensation: null
         );
         return new McpProxyTool(row, new FakeMcpClient());
     }
@@ -233,7 +235,7 @@ public class McpToolExecutorTests
             callResult: JsonSerializer.SerializeToElement(new { found = true }));
         var row = new McpToolRow("srv__lookup", "Lookup", null,
             JsonSerializer.SerializeToElement(new { type = "object" }),
-            "read", true, "R0", "lookup");
+            "read", true, "R0", "lookup", null);
         var mcpTool  = new McpProxyTool(row, fakeClient);
         var executor = new ToolExecutor(
             new ITool[] { mcpTool },
@@ -267,5 +269,23 @@ public class McpToolExecutorTests
 
         Assert.False(result.Ok);
         Assert.Contains("Bilinmeyen", result.Error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task McpProxy_CompensationToken_FromPostId()
+    {
+        var output = JsonSerializer.SerializeToElement(new { post_id = "meta_demo_99" });
+        var client = new FakeMcpClient(callResult: output);
+        var row    = new McpToolRow(
+            "meta-social__post_publish", "Publish", null,
+            JsonSerializer.SerializeToElement(new { type = "object" }),
+            "write", true, "R2", "post_publish", "post_delete");
+        var tool   = new McpProxyTool(row, client);
+
+        var result = await tool.InvokeAsync(
+            McpTestHelpers.EmptyArgs(), McpTestHelpers.MakeCtx(), default);
+
+        Assert.True(result.Ok);
+        Assert.Equal("meta_demo_99", result.CompensationToken);
     }
 }

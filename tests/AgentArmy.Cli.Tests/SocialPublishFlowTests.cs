@@ -52,7 +52,8 @@ public sealed class SocialPublishFlowTests
             SideEffect:  sideEffect,
             Reversible:  reversible,
             MinRisk:     "R2",
-            McpToolName: "post_publish"
+            McpToolName: "post_publish",
+            Compensation: "post_delete"
         );
         return new McpProxyTool(row, client);
     }

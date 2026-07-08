@@ -28,3 +28,35 @@ Kurulum:
 3. `next_fire_at` başlangıçta NULL olabilir; `portal/api/lib/schedulerTick.ts` ilk tetiklemede `computeNextFire` ile hesaplar.
 
 Şablonlar aktif bırakılmamalı — placeholder owner ile `enabled=true` scheduler'ın sahte kullanıcıya `run_request` üretmesine yol açar.
+
+## PR-S7 — Meta OAuth + credential (platform-agnostik)
+
+### Ortam değişkenleri
+
+| Değişken | Nerede | Açıklama |
+|----------|--------|----------|
+| `SOCIAL_TOKEN_ENC_KEY` | Portal API + CLI worker | 32 byte base64 AES-256-GCM anahtarı |
+| `META_APP_ID` / `META_APP_SECRET` | Portal API | Meta Developer uygulaması |
+| `META_OAUTH_REDIRECT_URI` | Portal API | `https://<portal>/api/social/meta/oauth/callback` |
+| `PORTAL_PUBLIC_URL` | Portal API | OAuth sonrası yönlendirme |
+| `META_ACCESS_TOKEN` | CLI (fallback) | DB kaydı yoksa mock/demo MCP |
+| `SOCIAL_API_MODE=demo` | CLI + meta-social-mcp | Graph çağrısı yok, deterministik demo |
+| `META_PAGE_ID` | meta-social-mcp | Canlı Facebook sayfa yayını (App Review sonrası) |
+
+### Akış
+
+1. Portal → **Sosyal hesaplar** → Meta **Bağla** → `user_social_accounts` (ciphertext, düz token yok).
+2. CLI `CredentialResolver`: `RUN_OWNER_USER_ID` + `platform=meta` → decrypt veya `META_ACCESS_TOKEN` env.
+3. `credentialRefreshTick` (cron): `expires_at` yakın Meta token'ları yeniler.
+
+### Token sızıntısı guardrail
+
+Token'lar **araç argümanı değil** — `McpClient` Authorization header. Log / `run_outputs` / `action_detail` / `tool_invocations` / `approval_queue` içinde düz metin token yazılmaz.
+
+Doğrulama: `scripts/check-token-leakage.sh`
+
+### Meta App Review checklist
+
+- `pages_manage_posts`, `instagram_content_publish`, `ads_management`
+- OAuth redirect URI production + preview ortamlarında kayıtlı
+- App Review onayı öncesi `SOCIAL_API_MODE=demo` ile uçtan uca test

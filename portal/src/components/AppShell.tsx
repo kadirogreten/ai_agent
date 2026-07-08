@@ -12,7 +12,7 @@ import {
   DollarSign, ScrollText, Bell,
   Compass, FileStack, Boxes,
   Download, LogOut, ChevronDown, Target,
-  Settings, Wallet, Cpu,
+  Settings, Wallet, Cpu, Link2,
 } from 'lucide-react'
 
 type NavItem = { to: string; label: string; icon: React.ReactNode; primary?: boolean; badge?: number }
@@ -45,6 +45,7 @@ const navGroups: NavGroup[] = [
       { to: '/app/personas', label: 'Personalar', icon: <UserCircle size={15} /> },
       { to: '/app/playbooks', label: "Playbook'lar", icon: <BookOpen size={15} /> },
       { to: '/app/tools', label: 'Araçlar', icon: <Wrench size={15} /> },
+      { to: '/app/social-accounts', label: 'Sosyal hesaplar', icon: <Link2 size={15} /> },
     ],
   },
   {

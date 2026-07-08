@@ -206,7 +206,17 @@ hesaplatıyor (test veya manuel kanıt); anomali senaryosu raporda görünüyor.
 
 ---
 
-## PR-S6 prompt'u — Portal: sosyal onay kuyruğu görünümü
+## PR-S6 — Tamamlandı (2026-07-08)
+
+Teslim (portal-only, backend dokunuşsuz): `approvalCards.ts` (parseToolApproval + resolveCardKind, `tool:` prefix), `components/approval/` — PostPreviewCard / CampaignBudgetCard (ad_spend_ledger RLS SELECT + "Bu onay para harcar" bandı) / GenericKeyValueCard / ApprovalDetailCard; ApprovalQueuePage entegrasyonu (decide_approval akışı aynen); OperationsPage Sosyal Medya şablonu (domain_pack sabit, playbook dropdown zorunlu, context_json.first_playbook). Doğrulama: portal 14/14 test (+4), tsc + build yeşil, dotnet 73/73 regresyonsuz. Gerçek format notu: action_summary=`tool:{slug}`, action_detail=`{tool,args}` (RiskGate.cs:36–38).
+
+---
+
+## Seri durumu (2026-07-08): PR-S1–S6 TAMAMLANDI
+
+`sosyal-medya` domain pack uçtan uca çalışır durumda (demo-first): 5 persona, 6 playbook, 7 yerli araç + 1 MCP aracı, ad_spend_ledger + cap guardrail (IToolPreGate), R2/R3 onay gate'leri, 5 pasif schedule şablonu, portal onay kartları + operasyon şablonu. Toplam test: 73 (.NET) + 14 (portal). Kalan tek iş: **PR-S7** (gerçek API + OAuth/credential katmanı — backlog bölümü yukarıda; önkoşul App Review başvuruları, plan §11).
+
+### PR-S6 prompt'u — Portal: sosyal onay kuyruğu görünümü
 
 ```
 Repo: ai_agent. Bağlam: docs/sosyal-medya-domain-pack-plani.md (§7, §10 PR-S6),
@@ -236,7 +246,13 @@ ekran görüntüsü veya kısa kayıt PR açıklamasına.
 
 ---
 
-## PR-S7 backlog — gerçek API bağlama (S6 sonrası, prompt henüz yazılmadı)
+## PR-S7 — Tamamlandı (2026-07-08, S7a + S7b iki oturum)
+
+**S7a (credential çekirdeği):** `20260708100000_user_social_accounts.sql` (platform-agnostik, RLS, ciphertext); AES-256-GCM app-level şifreleme (`SOCIAL_TOKEN_ENC_KEY`, C#/TS uyumlu wire format — Vault/pgsodium kurulu olmadığından bilinçli tercih); `CredentialResolver` + env fallback; McpClient per-request bearer; portal `/api/social/*` agnostik OAuth router + `MetaOAuthProvider` + SocialAccountsPage + `credentialRefreshTick`.
+**S7b (canlı Meta):** `scripts/meta-social-mcp.ts` (Graph + `SOCIAL_API_MODE=demo` fallback; post_publish/post_delete/reply_delete); `20260708110000_sosyal_live_meta.sql` (post_delete + reply_delete compensation'ları); McpProxyTool compensationToken çıkarımı; `ads_metrics_fetch` live modda `ledger.spent` PATCH.
+Doğrulama: dotnet 76/76 + portal 16/16 + build yeşil + `check-token-leakage.sh` OK. Kalan dış bağımlılık: Meta App Review + `META_PAGE_ID` (prod yayın için). Aşağıdaki backlog maddelerinin tamamı karşılandı; PR-S8 (X/LinkedIn/TikTok/Google Ads) yalnız provider ekleyerek gelir.
+
+### PR-S7 backlog — gerçek API bağlama (arşiv; S7'de karşılandı)
 
 Seri boyunca biriken maddeler; PR-S7 prompt'u yazılırken hepsi kapsanmalı:
 
