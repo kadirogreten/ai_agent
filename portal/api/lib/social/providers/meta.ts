@@ -1,14 +1,8 @@
 import { createHmac, randomBytes } from 'node:crypto'
-import type { ISocialOAuthProvider } from './types.js'
+import type { ISocialOAuthProvider, OAuthAppCredentials } from './types.js'
 import { decryptToken, encryptToken } from '../../tokenEncryptor.js'
 
 const GRAPH = 'https://graph.facebook.com/v21.0'
-
-function requireEnv(name: string): string {
-  const v = process.env[name]?.trim()
-  if (!v) throw new Error(`${name} eksik`)
-  return v
-}
 
 function oauthStateSecret(): string {
   return process.env.SOCIAL_OAUTH_STATE_SECRET?.trim()
@@ -41,9 +35,9 @@ export class MetaOAuthProvider implements ISocialOAuthProvider {
   readonly slug = 'meta' as const
   readonly displayName = 'Meta (Facebook / Instagram)'
 
-  buildAuthorizeUrl(state: string): string {
-    const clientId    = requireEnv('META_APP_ID')
-    const redirectUri = requireEnv('META_OAUTH_REDIRECT_URI')
+  buildAuthorizeUrl(state: string, app: OAuthAppCredentials): string {
+    const clientId    = app.appId
+    const redirectUri = app.redirectUri
     const scopes = [
       'pages_manage_posts',
       'pages_read_engagement',
@@ -61,10 +55,10 @@ export class MetaOAuthProvider implements ISocialOAuthProvider {
     return `https://www.facebook.com/v21.0/dialog/oauth?${params}`
   }
 
-  async exchangeCode(code: string) {
-    const clientId     = requireEnv('META_APP_ID')
-    const clientSecret = requireEnv('META_APP_SECRET')
-    const redirectUri  = requireEnv('META_OAUTH_REDIRECT_URI')
+  async exchangeCode(code: string, app: OAuthAppCredentials) {
+    const clientId     = app.appId
+    const clientSecret = app.appSecret
+    const redirectUri  = app.redirectUri
 
     const tokenUrl = new URL(`${GRAPH}/oauth/access_token`)
     tokenUrl.searchParams.set('client_id', clientId)
@@ -128,15 +122,15 @@ export class MetaOAuthProvider implements ISocialOAuthProvider {
     access_token_ciphertext: string
     refresh_token_ciphertext: string | null
     expires_at: string | null
-  }) {
+  }, app: OAuthAppCredentials) {
     if (!row.expires_at) return null
     const expires = new Date(row.expires_at).getTime()
     const soon = Date.now() + 7 * 24 * 60 * 60 * 1000
     if (expires > soon) return null
 
     const current = decryptToken(row.access_token_ciphertext)
-    const clientId     = requireEnv('META_APP_ID')
-    const clientSecret = requireEnv('META_APP_SECRET')
+    const clientId     = app.appId
+    const clientSecret = app.appSecret
 
     const url = new URL(`${GRAPH}/oauth/access_token`)
     url.searchParams.set('grant_type', 'fb_exchange_token')

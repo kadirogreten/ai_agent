@@ -262,7 +262,11 @@ Seri boyunca biriken maddeler; PR-S7 prompt'u yazılırken hepsi kapsanmalı:
 4. mcp_servers.endpoint güncellemesi: mock (127.0.0.1:3847) → gerçek endpoint, UPDATE migration ile.
 5. reversible/`iş kuralı` ayrımının gözden geçirilmesi: demo'da reversible=true idi; gerçek API'de compensation'larla birlikte doğrulanmalı.
 
-## PR-S7c prompt'u — OAuth app kimlik bilgilerinin panelden yönetimi
+## PR-S7c — Tamamlandı (2026-07-08, Claude tarafından uygulandı)
+
+Teslim: `20260708120000_social_oauth_apps.sql` (tablo; authenticated'a policy/grant bilinçli YOK — secret PostgREST'ten okunamaz, tüm erişim portal API/service_role); `portal/api/lib/social/oauthApps.ts` (çözümleme: owner > platform geneli > env fallback, ENV_MAP 5 platform, audit_log kaydı); `ISocialOAuthProvider` imzaları `OAuthAppCredentials` enjeksiyonlu; MetaOAuthProvider'dan requireEnv kaldırıldı; routes: GET /api/social/apps (secret_set boolean, secret asla dönmez) + PUT/DELETE /:provider/app; credentialRefreshTick owner-bazlı config; SocialAccountsPage "Uygulama ayarları" bölümü (App ID, write-only secret, redirect kopyalama, kaynak rozeti, "Yapılandırma gerekli" durumu); `oauthApps.test.ts` (öncelik sırası + secret sızmama); check-token-leakage.sh app_secret deseni. Doğrulama: tsc --noEmit + token-leakage OK (sandbox'ta); vitest kullanıcı makinesinde koşulacak (esbuild platform binary'si).
+
+### PR-S7c prompt'u — OAuth app kimlik bilgilerinin panelden yönetimi (arşiv)
 
 ```
 Repo: ai_agent. Bağlam: PR-S7a/S7b çıktıları — portal/api/lib/tokenEncryptor.ts,
