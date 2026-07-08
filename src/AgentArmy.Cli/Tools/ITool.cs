@@ -22,6 +22,15 @@ public interface ITool
 }
 
 /// <summary>
+/// RiskGate öncesi opsiyonel doğrulama (örn. reklam bütçe cap).
+/// <c>null</c> dönerse pipeline devam eder; failure <see cref="ToolResult"/> gate'e düşmeden reddedilir.
+/// </summary>
+public interface IToolPreGate
+{
+    Task<ToolResult?> ValidateBeforeGateAsync(JsonElement args, RunContext ctx, CancellationToken ct);
+}
+
+/// <summary>
 /// Araç çağrılarının TEK giriş noktası. Hiçbir yan etkili eylem bunun dışından geçemez
 /// (tasarım §8 invariant'ı). Pipeline: çözümle → izin → Faz A güvenliği →
 /// (yan etkili ise RiskGate, PR5) → invoke → kaydet.

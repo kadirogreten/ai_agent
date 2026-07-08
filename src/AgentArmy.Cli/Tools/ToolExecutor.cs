@@ -50,6 +50,10 @@ public sealed class ToolExecutor : IToolExecutor
         // Sosyal medya etkileşim araçları (PR-S3 demo).
         new SocialInboxFetchTool(),
         new SocialReplySendTool(),
+        // Sosyal medya reklam araçları (PR-S4 demo).
+        new AdsCampaignCreateTool(),
+        new AdsCampaignActivateTool(),
+        new AdsCampaignPauseTool(),
     });
 
     /// <summary>
@@ -331,6 +335,15 @@ public sealed class ToolExecutor : IToolExecutor
                 return await FinishAsync(ctx, slug, agent.Id, args, sideEffect, effRisk, null,
                     failResult, ToolInvocationStatus.Blocked, ct);
             }
+        }
+
+        // 3b) Gate öncesi doğrulama (opsiyonel — cap aşımı gate'e düşmeden reddedilir).
+        if (tool is IToolPreGate preGate)
+        {
+            var preResult = await preGate.ValidateBeforeGateAsync(args, ctx, ct);
+            if (preResult is not null)
+                return await FinishAsync(ctx, slug, agent.Id, args, sideEffect, effRisk, null,
+                    preResult, ToolInvocationStatus.Blocked, ct);
         }
 
         // 4b) Yan etkili araç → RiskGate (instance _gate; testler FakeRiskGate enjekte eder).
