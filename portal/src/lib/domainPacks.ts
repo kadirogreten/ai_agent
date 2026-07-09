@@ -149,7 +149,7 @@ export async function triggerSectorDialog(
       domain_pack: 'system',
       request_text: sectorPrompt,
       status: 'pending',
-      risk: 'R2',
+      risk: 'R1',
       web: false,
       answers_json: {
         source: 'sector-builder',

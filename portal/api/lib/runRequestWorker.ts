@@ -487,40 +487,46 @@ async function processOne(supabase: ReturnType<typeof getSupabaseAdmin>, job: Ru
     }
 
     if ((job.risk === 'R2' || job.risk === 'R3') && !job.allow_high_risk) {
-      log('R2/R3 job requires human approval — gating', { id: job.id, risk: job.risk })
-      const actionSummary = [job.mode, job.domain_pack, job.request_text?.slice(0, 120)]
-        .filter(Boolean).join(' · ')
-      const { data: queueId, error: gateErr } = await supabase.rpc('gate_run_for_approval', {
-        p_run_request_id: job.id,
-        p_owner_user_id:  job.owner_user_id,
-        p_risk_level:     job.risk,
-        p_action_summary: actionSummary || `${job.mode} çalıştırma isteği`,
-        p_step_index:     0,
-        p_step_name:      job.mode,
-        p_agent_code:     null,
-        p_action_detail:  {
-          mode:        job.mode,
-          domain_pack: job.domain_pack,
-          model:       job.model,
-          risk:        job.risk,
-          request:     job.request_text?.slice(0, 500),
-        },
-      })
-      if (gateErr) throw new Error(`Approval gate failed: ${gateErr.message}`)
-      log('Job gated for approval', { id: job.id, risk: job.risk })
+      // D2a sector-builder CEO soru fazı: yalnızca netleştirici soru üretir, R2 onay kapısı gereksiz.
+      const answers = (job.answers_json ?? {}) as Record<string, unknown>
+      const isSectorQuestionPhase =
+        job.mode === 'ceo' &&
+        answers.source === 'sector-builder' &&
+        answers.phase === 'questions'
+      if (!isSectorQuestionPhase) {
+        log('R2/R3 job requires human approval — gating', { id: job.id, risk: job.risk })
+        const actionSummary = [job.mode, job.domain_pack, job.request_text?.slice(0, 120)]
+          .filter(Boolean).join(' · ')
+        const { data: queueId, error: gateErr } = await supabase.rpc('gate_run_for_approval', {
+          p_run_request_id: job.id,
+          p_owner_user_id:  job.owner_user_id,
+          p_risk_level:     job.risk,
+          p_action_summary: actionSummary || `${job.mode} çalıştırma isteği`,
+          p_step_index:     0,
+          p_step_name:      job.mode,
+          p_agent_code:     null,
+          p_action_detail:  {
+            mode:        job.mode,
+            domain_pack: job.domain_pack,
+            model:       job.model,
+            risk:        job.risk,
+            request:     job.request_text?.slice(0, 500),
+          },
+        })
+        if (gateErr) throw new Error(`Approval gate failed: ${gateErr.message}`)
+        log('Job gated for approval', { id: job.id, risk: job.risk })
 
-      // PR2 devir (b): run-seviyesi R2/R3 onay bildirimi (worker yolu).
-      // CLI RiskGate bildirimi C# NotificationDispatcher'da; bu worker yolu.
-      await notifyChannels({
-        ownerId: job.owner_user_id,
-        subject: `[AgentArmy] ${job.risk} onay bekliyor`,
-        message: [
-          `Çalıştırma isteği onay bekliyor (${job.risk}).`,
-          `Özet: ${actionSummary || job.mode}`,
-          `Onay ID: ${queueId ?? job.id}`,
-        ].join('\n'),
-      })
-      return
+        await notifyChannels({
+          ownerId: job.owner_user_id,
+          subject: `[AgentArmy] ${job.risk} onay bekliyor`,
+          message: [
+            `Çalıştırma isteği onay bekliyor (${job.risk}).`,
+            `Özet: ${actionSummary || job.mode}`,
+            `Onay ID: ${queueId ?? job.id}`,
+          ].join('\n'),
+        })
+        return
+      }
     }
 
     if (job.mode === 'bundle') {

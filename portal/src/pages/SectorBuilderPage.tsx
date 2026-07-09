@@ -109,6 +109,8 @@ export default function SectorBuilderPage() {
     const job = await getRunRequest(jobId)
     if (job.status === 'success') {
       await loadReview()
+    } else if (job.status === 'waiting_approval') {
+      setError('CEO soru üretimi onay bekliyor. Onay Kuyruğu sayfasından onaylayın veya sayfayı sıfırlayıp tekrar başlatın.')
     } else if (job.status === 'fail') {
       setError(job.error_message ?? 'CEO planlama başarısız')
       setPhase('prompt')
