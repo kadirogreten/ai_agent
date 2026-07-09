@@ -65,6 +65,7 @@ export default function SectorBuilderPage() {
   const [reviewItems, setReviewItems] = useState<ReviewItem[]>([])
   const [operationStatus, setOperationStatus] = useState<string | null>(null)
   const [draftId, setDraftId] = useState<string | null>(null)
+  const [saveMessage, setSaveMessage] = useState<string | null>(null)
 
   const authHeaders = useMemo(() => {
     if (!session?.access_token) return null
@@ -135,7 +136,7 @@ export default function SectorBuilderPage() {
       setOperationStatus(op.status)
       const ctx = op.context_json as Record<string, unknown> | null
       if (typeof ctx?.draft_id === 'string') setDraftId(ctx.draft_id)
-      if (op.status === 'completed' || op.status === 'failed') setPhase('done')
+      if (op.status === 'done' || op.status === 'failed' || op.status === 'completed') setPhase('done')
     }
     const t = setInterval(() => { poll().catch(console.error) }, 5000)
     poll().catch(console.error)
@@ -158,25 +159,33 @@ export default function SectorBuilderPage() {
     }
   }
 
+  async function persistReview(showSuccess: boolean) {
+    if (!jobId || !authHeaders) {
+      throw new Error('Oturum bulunamadı. Lütfen tekrar giriş yapın.')
+    }
+    const res = await fetch(`/api/ceo/jobs/${jobId}/review`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({
+        items: reviewItems.map((item) => ({
+          position: item.position,
+          user_answer: item.user_answer ?? '',
+          status: item.user_answer?.trim() ? 'edited' : 'suggested',
+        })),
+      }),
+    })
+    const text = await res.text()
+    const parsed = parseApiResponse<{ success: boolean }>(text, res, 'Kayıt başarısız')
+    if (parsed.ok === false) throw new Error(parsed.error)
+    if (showSuccess) setSaveMessage('Cevaplar kaydedildi.')
+  }
+
   async function saveReview() {
-    if (!jobId || !authHeaders) return
     setSubmitting(true)
     setError(null)
+    setSaveMessage(null)
     try {
-      const res = await fetch(`/api/ceo/jobs/${jobId}/review`, {
-        method: 'POST',
-        headers: authHeaders,
-        body: JSON.stringify({
-          items: reviewItems.map((item) => ({
-            position: item.position,
-            user_answer: item.user_answer ?? '',
-            status: item.user_answer?.trim() ? 'edited' : 'suggested',
-          })),
-        }),
-      })
-      const text = await res.text()
-      const parsed = parseApiResponse<{ success: boolean }>(text, res, 'Kayıt başarısız')
-      if (parsed.ok === false) throw new Error(parsed.error)
+      await persistReview(true)
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Kayıt hatası')
     } finally {
@@ -185,11 +194,15 @@ export default function SectorBuilderPage() {
   }
 
   async function handleStartFactory() {
-    if (!jobId || !session?.access_token) return
+    if (!jobId || !session?.access_token) {
+      setError('Oturum bulunamadı. Lütfen tekrar giriş yapın.')
+      return
+    }
     setSubmitting(true)
     setError(null)
+    setSaveMessage(null)
     try {
-      await saveReview()
+      await persistReview(false)
       const opId = await startSectorFactoryOperation(jobId, session.access_token)
       setOperationId(opId)
       setPhase('operation')
@@ -243,6 +256,13 @@ export default function SectorBuilderPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
+          {saveMessage && (
+            <div className="rounded-lg border border-green-500/30 bg-green-500/10 px-4 py-3 text-sm text-green-300 flex gap-2">
+              <CheckCircle className="h-4 w-4 shrink-0 mt-0.5" />
+              {saveMessage}
+            </div>
+          )}
+
           {error && (
             <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300 flex gap-2">
               <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
@@ -306,9 +326,9 @@ export default function SectorBuilderPage() {
                 <button
                   onClick={() => saveReview()}
                   disabled={submitting}
-                  className="rounded-lg border border-white/20 px-4 py-2 text-sm text-white/80 hover:bg-white/10"
+                  className="rounded-lg border border-white/20 px-4 py-2 text-sm text-white/80 hover:bg-white/10 disabled:opacity-50"
                 >
-                  Cevapları Kaydet
+                  {submitting ? 'Kaydediliyor…' : 'Cevapları Kaydet'}
                 </button>
                 <button
                   onClick={() => handleStartFactory()}

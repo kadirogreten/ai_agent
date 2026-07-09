@@ -353,6 +353,30 @@ function extractPlaybookRunIds(stdout: string): string[] {
   return []
 }
 
+/** CEO stdout'taki "- soru" satırlarını çıkarır (portal API olmadan review için). */
+function extractCeoQuestions(stdout: string): string[] {
+  const lines = stdout.split('\n')
+  const questions: string[] = []
+  let inBlock = false
+  for (const raw of lines) {
+    const t = raw.trim()
+    if (t.startsWith('CEO sorular')) {
+      inBlock = true
+      continue
+    }
+    if (!inBlock) continue
+    if (t === 'CEO_QUESTIONS_ONLY=1') break
+    if (t === 'OK' || t === 'FAILED') break
+    if (!t) continue
+    if (t.startsWith('- ')) {
+      questions.push(t.slice(2).trim())
+      continue
+    }
+    if (questions.length > 0) break
+  }
+  return questions.filter(Boolean)
+}
+
 function buildDotnetArgs(job: RunRequest) {
   const noBuild = process.env.DOTNET_NO_BUILD === 'true'
   const base = noBuild
@@ -599,7 +623,13 @@ async function processOne(supabase: ReturnType<typeof getSupabaseAdmin>, job: Ru
     // CLI artık runId'yi stdout'a yazar (tam dizin yolu değil)
     const runId = extractRunId(stdout)
     const playbookRunIds = extractPlaybookRunIds(stdout)
-    log('Extracted runId', { runId, playbook_run_ids: playbookRunIds, stdout_tail: stdout.trim().split('\n').slice(-5).join('\n') })
+    const ceoQuestions = job.mode === 'ceo' ? extractCeoQuestions(stdout) : []
+    log('Extracted runId', {
+      runId,
+      playbook_run_ids: playbookRunIds,
+      ceo_questions: ceoQuestions.length,
+      stdout_tail: stdout.trim().split('\n').slice(-5).join('\n'),
+    })
 
     const metricsRunId = playbookRunIds.length > 0 ? playbookRunIds[playbookRunIds.length - 1] : runId
     const metrics    = metricsRunId ? await readMetricsFromDb(supabase, metricsRunId) : null
@@ -640,6 +670,7 @@ async function processOne(supabase: ReturnType<typeof getSupabaseAdmin>, job: Ru
         result_json: {
           run_id:             runId,
           playbook_run_ids:   playbookRunIds.length > 0 ? playbookRunIds : undefined,
+          clarifying_questions: ceoQuestions.length > 0 ? ceoQuestions : undefined,
           dotnet_stdout_tail: stdout.trim().split('\n').slice(-5).join('\n'),
           metrics,
           sla: { total_ms: totalMs, queue_latency_ms: queueLatencyMs, sla_threshold_ms: SLA_THRESHOLD_MS },

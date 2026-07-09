@@ -185,7 +185,17 @@ export async function startSectorFactoryOperation(
       'Content-Type': 'application/json',
     },
   })
-  const json = await res.json() as { success?: boolean; operationId?: string; error?: string }
+  const text = await res.text()
+  let json: { success?: boolean; operationId?: string; error?: string } = {}
+  try {
+    json = JSON.parse(text) as typeof json
+  } catch {
+    throw new Error(
+      res.ok
+        ? 'Operasyon yanıtı geçersiz JSON'
+        : 'Operasyon başlatılamadı. Geliştirmede `npm run dev` çalıştığından emin olun.',
+    )
+  }
   if (!res.ok || !json.operationId) {
     throw new Error(json.error ?? 'Operasyon başlatılamadı')
   }
