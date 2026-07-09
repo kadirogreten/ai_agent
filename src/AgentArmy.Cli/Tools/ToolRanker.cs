@@ -143,7 +143,7 @@ public sealed class ToolRanker
     private static HashSet<string> Tokenize(string text)
     {
         return text.ToLowerInvariant()
-            .Split([' ', '\t', '\n', ',', '.', '-', '_', '/', ':', ';'], StringSplitOptions.RemoveEmptyEntries)
+            .Split(new[] { ' ', '\t', '\n', ',', '.', '-', '_', '/', ':', ';' }, StringSplitOptions.RemoveEmptyEntries)
             .Where(w => w.Length > 2)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
     }
