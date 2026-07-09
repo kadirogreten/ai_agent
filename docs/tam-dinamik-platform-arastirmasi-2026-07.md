@@ -119,7 +119,7 @@ Dinamiklik = daha geniş yüzey. Sıralamada her şeyden önce:
 
 | Dalga | İçerik | Bağımlılık |
 |---|---|---|
-| **D0 — Güvenlik tabanı** (2-3 PR) | §4'ün tamamı: karantina + imtiyaz ayrımı + injection eval + şema doğrulama | Yok — hemen |
+| **D0 — Güvenlik tabanı** ✅ Tamamlandı (2026-07-09) | PR-D0a karantina (`tools.untrusted_source` + `WrapUntrusted` + prompt hiyerarşisi), PR-D0b imtiyaz ayrımı (RunContext taint + privilege gate + URL→R3; mention `security.mention_escalation` policy'sinde, default off), PR-D0c eval+şema+rubric (AdversarialTests 10–12, `ToolArgumentValidator`, sosyal-medya rubric migration). 85 .NET + 23 portal testi yeşil. Bonus: PR-S8-X (X provider, OAuth2 PKCE). | — |
 | **D1 — Öğrenme çekirdeği** (3-4 PR) | pgvector facts + eval harness + model router + onay geri beslemesi | D0 |
 | **D2 — Ajan Fabrikası** (3-4 PR) | Diyaloglu fabrika + otomatik eval üretimi + canary yayın + pack manifest | D1 (eval şart) |
 | **D3 — Genel planlayıcı** (2-3 PR) | Playbook'suz plan-and-execute modu + dinamik araç seçimi | D0+D1 (güvenlik+eval şart) |

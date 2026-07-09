@@ -5,9 +5,10 @@
 import { getSupabaseAdmin } from './supabaseAdmin.js'
 import { encryptToken } from './tokenEncryptor.js'
 import { getSocialProvider } from './social/providers/index.js'
+import { resolveOAuthAppConfig } from './social/oauthApps.js'
 
 const SELECT =
-  'id,platform,access_token_ciphertext,refresh_token_ciphertext,expires_at,status'
+  'id,owner_user_id,platform,access_token_ciphertext,refresh_token_ciphertext,expires_at,status'
 
 export async function credentialRefreshTick(): Promise<{ refreshed: number; errors: number }> {
   const supabase = getSupabaseAdmin()
@@ -30,7 +31,9 @@ export async function credentialRefreshTick(): Promise<{ refreshed: number; erro
     if (!provider) continue
 
     try {
-      const result = await provider.refreshIfNeeded(row)
+      // PR-S7c: app config satır sahibine göre (owner > platform geneli > env)
+      const appConfig = await resolveOAuthAppConfig(row.platform, row.owner_user_id) ?? undefined
+      const result = await provider.refreshIfNeeded(row, appConfig)
       if (!result) continue
 
       const { error: upErr } = await supabase

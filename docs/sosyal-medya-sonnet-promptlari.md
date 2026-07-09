@@ -312,6 +312,10 @@ yeşil; panelden girilen App ID/Secret ile OAuth akışı env'siz uçtan uca ça
 
 ---
 
+## D0 Güvenlik Dalgası + PR-S8-X — Tamamlandı (2026-07-09)
+
+D0a: `20260709120000_d0_untrusted_source.sql` + `ToolDescriptor.UntrustedSource` + `WrapUntrusted` (`<untrusted_data source="tool:slug">`) + LLM istemcilerinde koşullu sarma + PromptBuilder talimat hiyerarşisi. D0b: RunContext taint (adım başında temizlenir) + privilege gate (untrusted read sonrası aynı adımda R2+ yan etkili araç → Blocked + `tool.privilege_denied` audit) + URL→R3 yükseltme; mention yükseltmesi `security.mention_escalation` policy (default off). D0c: AdversarialTests senaryo 10–12, `ToolArgumentValidator` (minimal JSON Schema, gate öncesi red), `20260709130000_d0_sosyal_verifier_rubric.sql`, guvenlik-eval-raporu güncellendi. PR-S8-X: `providers/x.ts` (OAuth2 PKCE + refresh; interface `createOAuthExtras`/`oauthState` ile genişletildi), env fallback `X_*`. Doğrulama: 85 .NET + 23 portal testi. KURAL: canlı inbox (`SOCIAL_API_MODE=live`) yalnız D0 migration'ları push edildikten sonra açılır; adımlar-arası injection savunması Verifier rubriği + insan onayına dayanır (taint adım-içi).
+
 ## Çalışma notları
 
 - Oturum başına tek PR; her prompt'un başındaki bağlam dosyalarını Sonnet'e okutmadan koda başlatma.

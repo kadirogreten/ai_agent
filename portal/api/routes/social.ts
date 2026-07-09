@@ -10,6 +10,14 @@ import {
   signOAuthState,
   verifyOAuthState,
 } from '../lib/social/providers/meta.js'
+import {
+  defaultRedirectUri,
+  deleteOAuthApp,
+  listOAuthAppsSafeWith,
+  resolveOAuthAppConfig,
+  upsertOAuthApp,
+} from '../lib/social/oauthApps.js'
+import type { SocialPlatformSlug } from '../lib/social/providers/types.js'
 
 const router = Router({ mergeParams: true })
 
@@ -62,16 +70,24 @@ router.get('/:provider/oauth/start', async (req: Request, res: Response) => {
     const provider = getSocialProvider(req.params.provider ?? '')
     if (!provider) return res.status(404).json({ error: 'Bilinmeyen platform' })
 
+    // PR-S7c: app config panelden (owner > platform geneli > env fallback)
+    const appConfig = await resolveOAuthAppConfig(provider.slug, user.id)
+    if (!appConfig) {
+      return res.status(400).json({
+        error: `${provider.displayName} app yapılandırması eksik — karttaki "Uygulama ayarları" bölümünden App ID/Secret girin.`,
+      })
+    }
+
     const extras = provider.createOAuthExtras?.() ?? {}
     const state = signOAuthState({
       userId:   user.id,
       provider: provider.slug,
       nonce:    cryptoRandom(),
       exp:      Date.now() + 15 * 60 * 1000,
-      ...extras,
+      ...extras,   // GÜVENLİK: appConfig state'e KONMAZ (URL'de taşınır)
     })
 
-    const authorizeUrl = provider.buildAuthorizeUrl(state, extras)
+    const authorizeUrl = provider.buildAuthorizeUrl(state, { ...extras, appConfig })
     return res.status(200).json({ authorizeUrl })
   } catch (e) {
     const err = e as Error
@@ -106,7 +122,13 @@ router.get('/:provider/oauth/callback', async (req: Request, res: Response) => {
       return
     }
 
-    const exchanged = await provider.exchangeCode(code, { oauthState: payload })
+    const appConfig = await resolveOAuthAppConfig(provider.slug, payload.userId)
+    if (!appConfig) {
+      res.redirect(redirectFail)
+      return
+    }
+
+    const exchanged = await provider.exchangeCode(code, { oauthState: payload, appConfig })
     const supabase  = getSupabaseAdmin()
 
     const row = {
@@ -151,6 +173,71 @@ router.post('/:provider/disconnect', async (req: Request, res: Response) => {
       .eq('status', 'active')
 
     if (error) throw error
+    return res.status(200).json({ ok: true })
+  } catch (e) {
+    const err = e as Error
+    if (err.message === 'Missing Authorization header') return res.status(401).json({ error: err.message })
+    if (err.message === 'Invalid token')               return res.status(401).json({ error: err.message })
+    return res.status(500).json({ error: err.message })
+  }
+})
+
+// ── PR-S7c: OAuth app yapılandırması (panelden) ──────────────────────────────
+// GÜVENLİK: secret hiçbir GET yanıtında dönmez — yalnız secret_set:boolean.
+
+// GET /api/social/apps
+router.get('/apps', async (req: Request, res: Response) => {
+  try {
+    const { supabase, user } = await getAuthedUser(req)
+    const platforms = listSocialProviders().map((p) => p.slug)
+    const apps = await listOAuthAppsSafeWith(supabase, user.id, platforms)
+    return res.status(200).json(apps.map((a) => ({
+      ...a,
+      suggested_redirect_uri: defaultRedirectUri(a.platform),
+    })))
+  } catch (e) {
+    const err = e as Error
+    if (err.message === 'Missing Authorization header') return res.status(401).json({ error: err.message })
+    if (err.message === 'Invalid token')               return res.status(401).json({ error: err.message })
+    return res.status(500).json({ error: err.message })
+  }
+})
+
+// PUT /api/social/:provider/app — kaydet (secret boşsa mevcut korunur)
+router.put('/:provider/app', async (req: Request, res: Response) => {
+  try {
+    const { user } = await getAuthedUser(req)
+    const provider = getSocialProvider(req.params.provider ?? '')
+    if (!provider) return res.status(404).json({ error: 'Bilinmeyen platform' })
+
+    const body = req.body as { app_id?: string; app_secret?: string; redirect_uri?: string }
+    if (!body?.app_id?.trim()) return res.status(400).json({ error: 'app_id zorunlu' })
+
+    await upsertOAuthApp({
+      ownerUserId: user.id,
+      platform:    provider.slug as SocialPlatformSlug,
+      appId:       body.app_id,
+      appSecret:   body.app_secret ?? null,
+      redirectUri: body.redirect_uri ?? null,
+    })
+    return res.status(200).json({ ok: true })
+  } catch (e) {
+    const err = e as Error
+    if (err.message === 'Missing Authorization header') return res.status(401).json({ error: err.message })
+    if (err.message === 'Invalid token')               return res.status(401).json({ error: err.message })
+    if (err.message === 'İlk kayıtta app_secret zorunlu' || err.message === 'app_id boş olamaz')
+      return res.status(400).json({ error: err.message })
+    return res.status(500).json({ error: err.message })
+  }
+})
+
+// DELETE /api/social/:provider/app
+router.delete('/:provider/app', async (req: Request, res: Response) => {
+  try {
+    const { user } = await getAuthedUser(req)
+    const provider = getSocialProvider(req.params.provider ?? '')
+    if (!provider) return res.status(404).json({ error: 'Bilinmeyen platform' })
+    await deleteOAuthApp(user.id, provider.slug as SocialPlatformSlug)
     return res.status(200).json({ ok: true })
   } catch (e) {
     const err = e as Error

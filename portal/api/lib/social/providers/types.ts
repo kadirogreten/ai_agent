@@ -15,15 +15,29 @@ export type OAuthStartResult = {
   authorizeUrl: string
 }
 
+/**
+ * PR-S7c: panelden yönetilen app kimlik bilgileri (owner > platform geneli > env).
+ * Route katmanı çözümler ve extras.appConfig / context.appConfig ile enjekte eder.
+ * GÜVENLİK: appConfig ASLA imzalı OAuth state'ine konmaz (state URL'de taşınır).
+ */
+export type OAuthAppCredentials = {
+  appId: string
+  appSecret: string
+  redirectUri: string
+}
+
 export interface ISocialOAuthProvider {
   readonly slug: SocialPlatformSlug
   readonly displayName: string
   /** Opsiyonel PKCE / platform özel state alanları (X). */
   createOAuthExtras?(): Record<string, unknown>
-  buildAuthorizeUrl(state: string, extras?: Record<string, unknown>): string
+  buildAuthorizeUrl(
+    state: string,
+    extras?: Record<string, unknown> & { appConfig?: OAuthAppCredentials },
+  ): string
   exchangeCode(
     code: string,
-    context?: { oauthState?: Record<string, unknown> },
+    context?: { oauthState?: Record<string, unknown>; appConfig?: OAuthAppCredentials },
   ): Promise<{
     accessToken: string
     refreshToken?: string
@@ -36,7 +50,7 @@ export interface ISocialOAuthProvider {
     access_token_ciphertext: string
     refresh_token_ciphertext: string | null
     expires_at: string | null
-  }): Promise<{
+  }, app?: OAuthAppCredentials): Promise<{
     accessToken: string
     refreshToken?: string
     expiresAt?: Date

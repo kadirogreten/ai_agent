@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto'
-import type { ISocialOAuthProvider } from './types.js'
+import type { ISocialOAuthProvider, OAuthAppCredentials } from './types.js'
 import { defaultRedirectUri } from '../oauthApps.js'
 
 const TOKEN_URL = 'https://api.twitter.com/2/oauth2/token'
@@ -30,9 +30,10 @@ export class XOAuthProvider implements ISocialOAuthProvider {
     }
   }
 
-  buildAuthorizeUrl(state: string, extras?: Record<string, unknown>): string {
-    const clientId    = requireEnv('X_APP_ID')
-    const redirectUri = process.env.X_OAUTH_REDIRECT_URI?.trim() ?? defaultRedirectUri('x')
+  buildAuthorizeUrl(state: string, extras?: Record<string, unknown> & { appConfig?: OAuthAppCredentials }): string {
+    const cfg = extras?.appConfig
+    const clientId    = cfg?.appId ?? requireEnv('X_APP_ID')
+    const redirectUri = cfg?.redirectUri ?? process.env.X_OAUTH_REDIRECT_URI?.trim() ?? defaultRedirectUri('x')
     const challenge   = typeof extras?.codeChallenge === 'string'
       ? extras.codeChallenge
       : pkceChallenge(randomBytes(32).toString('base64url'))
@@ -49,10 +50,11 @@ export class XOAuthProvider implements ISocialOAuthProvider {
     return `${AUTHORIZE_URL}?${params}`
   }
 
-  async exchangeCode(code: string, context?: { oauthState?: Record<string, unknown> }) {
-    const clientId     = requireEnv('X_APP_ID')
-    const clientSecret = requireEnv('X_APP_SECRET')
-    const redirectUri  = process.env.X_OAUTH_REDIRECT_URI?.trim() ?? defaultRedirectUri('x')
+  async exchangeCode(code: string, context?: { oauthState?: Record<string, unknown>; appConfig?: OAuthAppCredentials }) {
+    const cfg = context?.appConfig
+    const clientId     = cfg?.appId ?? requireEnv('X_APP_ID')
+    const clientSecret = cfg?.appSecret ?? requireEnv('X_APP_SECRET')
+    const redirectUri  = cfg?.redirectUri ?? process.env.X_OAUTH_REDIRECT_URI?.trim() ?? defaultRedirectUri('x')
     const verifier     = typeof context?.oauthState?.codeVerifier === 'string'
       ? context.oauthState.codeVerifier
       : null
@@ -112,7 +114,7 @@ export class XOAuthProvider implements ISocialOAuthProvider {
     access_token_ciphertext: string
     refresh_token_ciphertext: string | null
     expires_at: string | null
-  }) {
+  }, app?: OAuthAppCredentials) {
     if (!row.expires_at || !row.refresh_token_ciphertext) return null
     const expires = new Date(row.expires_at).getTime()
     const soon    = Date.now() + 7 * 24 * 60 * 60 * 1000
@@ -120,8 +122,8 @@ export class XOAuthProvider implements ISocialOAuthProvider {
 
     const { decryptToken } = await import('../../tokenEncryptor.js')
     const refreshToken = decryptToken(row.refresh_token_ciphertext)
-    const clientId     = requireEnv('X_APP_ID')
-    const clientSecret = requireEnv('X_APP_SECRET')
+    const clientId     = app?.appId ?? requireEnv('X_APP_ID')
+    const clientSecret = app?.appSecret ?? requireEnv('X_APP_SECRET')
     const basic        = Buffer.from(`${clientId}:${clientSecret}`).toString('base64')
 
     const body = new URLSearchParams({

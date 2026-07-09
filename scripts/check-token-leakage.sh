@@ -13,7 +13,7 @@ TARGETS=(
 FAIL=0
 for dir in "${TARGETS[@]}"; do
   if rg -n "$PATTERNS" $EXCLUDES "$dir" \
-    | rg -v 'access_token_ciphertext|refresh_token_ciphertext|access_token\?|oauth/access_token|tokenJson|longJson|json\.access_token|accessToken|encodeURIComponent|META_ACCESS_TOKEN|auth_env|Authorization header|Bearer provider|Bearer <|getBearerToken|resolveBearer|encryptToken|decryptToken|compensation_token|api_key_env|EscapeDataString' \
+    | rg -v 'access_token_ciphertext|refresh_token_ciphertext|access_token\?|oauth2?/access_token|tokenJson|longJson|json\.access_token|json\.refresh_token|accessToken|refreshToken|encodeURIComponent|META_ACCESS_TOKEN|auth_env|Authorization header|Bearer provider|Bearer <|getBearerToken|resolveBearer|encryptToken|decryptToken|compensation_token|api_key_env|EscapeDataString|refresh_token\?|refresh_token:|refresh_token_expires_in|grant_type' \
     ; then
     echo "[token-leakage] Şüpheli eşleşme: $dir" >&2
     FAIL=1
