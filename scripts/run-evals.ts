@@ -78,6 +78,22 @@ async function loadGoldenFromDb(draftId: string): Promise<GoldenPack> {
   return data.eval_json as GoldenPack
 }
 
+/** Merge öncesi taslaklar için fake harness: pack DB'de yoksa system proxy kullan. */
+async function resolveHarnessGolden(golden: GoldenPack, mode: string): Promise<GoldenPack> {
+  if (mode !== 'fake') return golden
+  const url = process.env.SUPABASE_URL
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!url || !key) return golden
+  const { createClient } = await import('@supabase/supabase-js')
+  const supabase = createClient(url, key)
+  const { data } = await supabase.from('domain_packs').select('id').eq('id', golden.pack).maybeSingle()
+  if (data?.id) return golden
+  console.log(
+    `[evals] pack "${golden.pack}" henüz aktif değil — fake harness proxy: system/sector-arastirma`,
+  )
+  return { ...golden, pack: 'system', playbook: 'sector-arastirma' }
+}
+
 function loadGolden(pack: string): GoldenPack {
   const p = path.join(repoRoot, 'evals', pack, 'golden.json')
   if (!existsSync(p)) throw new Error(`Golden set bulunamadı: ${p}`)
@@ -115,10 +131,10 @@ function runCase(
     'run', '--project', 'src/AgentArmy.Cli',
     '--',
     'run',
-    `--playbook=${golden.playbook}`,
-    `--topic=${c.topic}`,
-    `--dryRun=${mode === 'fake' ? 'true' : 'false'}`,
-    `--domainPack=${golden.pack}`,
+    '--domainPack', golden.pack,
+    '--playbook', golden.playbook,
+    '--topic', c.topic,
+    '--dryRun', mode === 'fake' ? 'true' : 'false',
   ]
 
   const env = {
@@ -173,9 +189,10 @@ function evaluateCase(golden: GoldenPack, c: GoldenCase, runs: CaseRunResult[]):
 
 async function main() {
   const { mode, pack, fromDb, draftId } = parseArgs()
-  const golden = fromDb
+  let golden = fromDb
     ? await loadGoldenFromDb(draftId)
     : loadGolden(pack)
+  golden = await resolveHarnessGolden(golden, mode)
   const k = golden.pass_k ?? 3
 
   console.log(`[evals] pack=${golden.pack} playbook=${golden.playbook} mode=${mode} pass^${k}${fromDb ? ` draft=${draftId}` : ''}`)

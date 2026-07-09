@@ -23,6 +23,7 @@ import {
 } from './prompts/operationDecide.js'
 import { notifyChannels } from './notifyChannels.js'
 import { getPolicy } from './policyReader.js'
+import { enqueueEvalGeneratorJob } from './evalGenerator.js'
 import {
   sanitizePlanStepSpec,
   type PlanStepSpec,
@@ -737,6 +738,17 @@ async function processOperation(supabase: SupabaseClient, op: Operation) {
     if (!draftCtxErr) {
       op.context_json = newCtx
       log('context_json.draft_id yazıldı', { id: op.id, draft_id: obs.sectorDraftId })
+      if (op.context_json?.kind === 'sector_factory') {
+        try {
+          await enqueueEvalGeneratorJob(supabase, obs.sectorDraftId, op.owner_user_id)
+          log('EvalGenerator enqueued', { draft_id: obs.sectorDraftId })
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e)
+          if (!msg.includes('eval_generator_run_id')) {
+            log('EvalGenerator enqueue hatası', { draft_id: obs.sectorDraftId, error: msg })
+          }
+        }
+      }
     } else {
       log('context_json.draft_id yazma hatası', { id: op.id, error: draftCtxErr.message })
     }

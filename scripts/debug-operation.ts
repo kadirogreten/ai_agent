@@ -7,6 +7,32 @@ const sb = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_
 const cmd = process.argv[2] ?? 'show'
 const opId = process.argv[3] ?? '25c356c1-9f71-4761-996c-c8908d744b07'
 
+if (cmd === 'drafts') {
+  const { data } = await sb
+    .from('domain_pack_drafts')
+    .select('id, proposed_pack_id, proposed_name, status, eval_status, created_at')
+    .order('created_at', { ascending: false })
+    .limit(10)
+  console.log('drafts:', data)
+  process.exit(0)
+}
+
+if (cmd === 'draft' && opId) {
+  const { data } = await sb
+    .from('domain_pack_drafts')
+    .select('id, proposed_pack_id, eval_status, eval_json, eval_generator_run_id')
+    .eq('id', opId)
+    .maybeSingle()
+  console.log({
+    id: data?.id,
+    pack: data?.proposed_pack_id,
+    eval_status: data?.eval_status,
+    eval_generator_run_id: data?.eval_generator_run_id,
+    eval_json: data?.eval_json,
+  })
+  process.exit(0)
+}
+
 if (cmd === 'unblock' && opId) {
   const { error } = await sb
     .from('operations')
