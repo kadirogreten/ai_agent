@@ -52,28 +52,62 @@ Tedarik operasyonları üç faz playbook'una ayrılmıştır; doğru sırayla il
 JSON dışında HİÇBİR metin yazma; açıklama, başlık veya markdown blok işareti dahil.
 `
 
-export type DecideAction = 'continue' | 'retry' | 'wait_approval' | 'done' | 'escalate'
+export type DecideAction = 'continue' | 'retry' | 'wait_approval' | 'done' | 'escalate' | 'plan_step'
+
+export interface PlanStepSpec {
+  topic:         string
+  tools_spec:    string
+  risk:          'R0' | 'R1' | 'R2' | 'R3'
+  agent_slug?:   string
+  deliverables?: string
+}
 
 export interface DecideResponse {
   action:        DecideAction
   next_playbook: string | null
   next_topic:    string | null
   reason:        string
+  step_spec?:    PlanStepSpec | null
 }
 
 /** LLM çıktısını parse eder. Başarısız parse → null döner (tick escalate eder). */
-export function parseDecideResponse(raw: string): DecideResponse | null {
+export function parseDecideResponse(raw: string, plannerEnabled = false): DecideResponse | null {
   const cleaned = raw.replace(/```json\s*/gi, '').replace(/```/g, '').trim()
   try {
-    const obj = JSON.parse(cleaned) as Partial<DecideResponse>
-    const validActions: DecideAction[] = ['continue', 'retry', 'wait_approval', 'done', 'escalate']
+    const obj = JSON.parse(cleaned) as Partial<DecideResponse> & { step_spec?: Partial<PlanStepSpec> }
+    const validActions: DecideAction[] = plannerEnabled
+      ? ['continue', 'retry', 'wait_approval', 'done', 'escalate', 'plan_step']
+      : ['continue', 'retry', 'wait_approval', 'done', 'escalate']
     if (!obj.action || !validActions.includes(obj.action)) return null
     if (!obj.reason) return null
+
+    if (obj.action === 'plan_step') {
+      if (!plannerEnabled) return null
+      const spec = obj.step_spec
+      if (!spec?.topic || !spec?.tools_spec || !spec?.risk) return null
+      const validRisk = ['R0', 'R1', 'R2', 'R3'] as const
+      if (!validRisk.includes(spec.risk as typeof validRisk[number])) return null
+      return {
+        action:        'plan_step',
+        next_playbook: null,
+        next_topic:    null,
+        reason:        obj.reason.slice(0, 240),
+        step_spec: {
+          topic:         String(spec.topic).slice(0, 500),
+          tools_spec:    String(spec.tools_spec).slice(0, 400),
+          risk:          spec.risk as PlanStepSpec['risk'],
+          agent_slug:    spec.agent_slug ? String(spec.agent_slug).slice(0, 64) : undefined,
+          deliverables:  spec.deliverables ? String(spec.deliverables).slice(0, 300) : undefined,
+        },
+      }
+    }
+
     return {
       action:        obj.action,
       next_playbook: obj.next_playbook ?? null,
       next_topic:    obj.next_topic    ?? null,
       reason:        obj.reason.slice(0, 240),
+      step_spec:     null,
     }
   } catch {
     return null
@@ -93,14 +127,16 @@ const CACHE_TTL_MS = 5 * 60 * 1000 // 5 dakika
 export async function buildDecideSystemPrompt(
   supabase: SupabaseClient,
   kind: string,
+  plannerEnabled = false,
 ): Promise<string> {
-  const cacheKey = `decide:${kind}`
+  const cacheKey = `decide:${kind}:${plannerEnabled ? 'planner' : 'noplanner'}`
   const now = Date.now()
   const cached = PROMPT_CACHE.get(cacheKey)
   if (cached && cached.expiresAt > now) return cached.content
 
   try {
     const scopes = kind === 'base' ? ['base'] : ['base', kind]
+    if (plannerEnabled) scopes.push('planner')
     const { data, error } = await supabase
       .from('decide_prompts')
       .select('scope, content')
@@ -113,7 +149,8 @@ export async function buildDecideSystemPrompt(
     const rows = data as { scope: string; content: string }[]
     const base    = rows.find((r) => r.scope === 'base')?.content ?? DECIDE_SYSTEM_PROMPT
     const specific = kind !== 'base' ? rows.find((r) => r.scope === kind)?.content : null
-    const combined = specific ? `${base}\n\n${specific}` : base
+    const planner  = plannerEnabled ? rows.find((r) => r.scope === 'planner')?.content : null
+    const combined = [base, specific, planner].filter(Boolean).join('\n\n')
 
     PROMPT_CACHE.set(cacheKey, { content: combined, expiresAt: now + CACHE_TTL_MS })
     return combined
@@ -147,6 +184,8 @@ export function buildDecideUserMessage(obs: {
   intent?:             IntentJson | null
   currentPhase?:       string | null
   cargoPollCount?:     number | null
+  untrustedTaint?:     boolean
+  plannerEnabled?:     boolean
 }): string {
   return [
     `## Operasyon hedefi\n${obs.goalText}`,
@@ -186,6 +225,14 @@ export function buildDecideUserMessage(obs: {
     obs.currentPhase ? `## Mevcut faz\n${obs.currentPhase}` : null,
     obs.cargoPollCount != null && obs.cargoPollCount > 0
       ? `## Kargo poll sayısı\n${obs.cargoPollCount} (tavan policy'den okunur)`
+      : null,
+
+    obs.plannerEnabled
+      ? `## Planlayıcı modu\nAktif — uygun playbook yoksa action=plan_step + step_spec kullan.`
+      : null,
+
+    obs.untrustedTaint
+      ? `## Untrusted taint\nSon çalıştırmada untrusted read araç çıktısı tüketildi. plan_step kullanıyorsan yan etkili araçlar için risk min R3 olmalı.`
       : null,
   ].filter(Boolean).join('\n\n')
 }

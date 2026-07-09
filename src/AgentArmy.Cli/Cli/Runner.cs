@@ -243,7 +243,10 @@ public static class Runner
                     : ToolExecutor.CreateDefault(),
                 compensator: null,
                 opMemStore:  opMemStore,
-                stepLlm:     stepLlm
+                stepLlm:     stepLlm,
+                toolRanker:  db is not null && embeddingService is not null
+                    ? new ToolRanker(db, embeddingService)
+                    : null
             );
 
             // tools.enabled haritasını run başında yükle.

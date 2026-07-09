@@ -22,6 +22,11 @@ import {
 } from './prompts/operationDecide.js'
 import { notifyChannels } from './notifyChannels.js'
 import { getPolicy } from './policyReader.js'
+import {
+  sanitizePlanStepSpec,
+  type PlanStepSpec,
+  type ToolMeta,
+} from './planStepSanitizer.js'
 
 // ── helpers ────────────────────────────────────────────────────────────────────
 
@@ -229,6 +234,28 @@ async function observe(supabase: SupabaseClient, op: Operation) {
     sectorDraftId = ((draftRows ?? []) as { id: string }[])[0]?.id ?? null
   }
 
+  // D3a: untrusted taint — son run'da untrusted_source araç çağrısı başarılı mı?
+  let untrustedTaint = false
+  if (lastRun) {
+    const lastCliRunId = (lastRun.result_json as Record<string, unknown> | null)?.run_id as string | undefined
+    if (lastCliRunId) {
+      const { data: untrustedInv } = await supabase
+        .from('tool_invocations')
+        .select('tool_slug')
+        .eq('run_id', lastCliRunId)
+        .eq('status', 'succeeded')
+      const slugs = ((untrustedInv ?? []) as { tool_slug: string }[]).map((r) => r.tool_slug)
+      if (slugs.length > 0) {
+        const { data: untrustedTools } = await supabase
+          .from('tools')
+          .select('slug')
+          .in('slug', slugs)
+          .eq('untrusted_source', true)
+        untrustedTaint = ((untrustedTools ?? []) as { slug: string }[]).length > 0
+      }
+    }
+  }
+
   return {
     lastRunStatus:       lastRun?.status ?? null,
     lastVerifierOutcome,
@@ -247,6 +274,7 @@ async function observe(supabase: SupabaseClient, op: Operation) {
     currentPhase:   (op.context_json?.phase as string | undefined) ?? null,
     cargoPollCount: (op.context_json?.cargo_poll_count as number | undefined) ?? 0,
     cliRunIds,
+    untrustedTaint,
   }
 }
 
@@ -345,6 +373,7 @@ async function decide(
   supabase: SupabaseClient,
   op: Operation,
   obs: Awaited<ReturnType<typeof observe>>,
+  plannerEnabled: boolean,
 ): Promise<{ response: Awaited<ReturnType<typeof parseDecideResponse>>; provider: LlmProviderRow }> {
   const userMsg = buildDecideUserMessage({
     goalText:            op.goal_text,
@@ -361,14 +390,15 @@ async function decide(
     intent:              op.intent_json,
     currentPhase:        obs.currentPhase,
     cargoPollCount:      obs.cargoPollCount,
+    untrustedTaint:      obs.untrustedTaint,
+    plannerEnabled,
   })
 
   const provider = await resolveDecideProvider(supabase)
-  // PR14: DB-first prompt — decide_prompts tablosundan kind'a göre okur; hata/boşsa fallback
   const kind = (op.context_json?.kind as string | undefined) ?? 'base'
-  const systemPrompt = await buildDecideSystemPrompt(supabase, kind)
+  const systemPrompt = await buildDecideSystemPrompt(supabase, kind, plannerEnabled)
   const raw = await callDecideLlm(provider, systemPrompt, userMsg)
-  return { response: parseDecideResponse(raw), provider }
+  return { response: parseDecideResponse(raw, plannerEnabled), provider }
 }
 
 // ── escalate helper ────────────────────────────────────────────────────────────
@@ -718,12 +748,15 @@ async function processOperation(supabase: SupabaseClient, op: Operation) {
   }
 
   // ── DECIDE ────────────────────────────────────────────────────────────────
-  const { response: decideResp, provider: decideProvider } = await decide(supabase, op, obs)
+  const plannerEnabled = await getPolicy(supabase, op.owner_user_id, 'planner.enabled', false) as boolean
+  const { response: decideResp, provider: decideProvider } = await decide(supabase, op, obs, plannerEnabled)
   await logEvent(supabase, op.id, 'decide', {
     raw_action:    decideResp?.action ?? 'parse_failed',
     next_playbook: decideResp?.next_playbook ?? null,
+    step_spec:     decideResp?.step_spec ?? null,
     reason:        decideResp?.reason ?? 'LLM yanıtı parse edilemedi',
     provider_slug: decideProvider.slug,
+    planner_enabled: plannerEnabled,
   })
 
   if (!decideResp) {
@@ -741,9 +774,98 @@ async function processOperation(supabase: SupabaseClient, op: Operation) {
     return
   }
 
-  const { action, next_playbook, next_topic, reason } = decideResp
+  const { action, next_playbook, next_topic, reason, step_spec } = decideResp
 
   // ── ACT ───────────────────────────────────────────────────────────────────
+
+  if (action === 'plan_step') {
+    if (!plannerEnabled || !step_spec) {
+      await logEvent(supabase, op.id, 'escalate', { reason: 'plan_step_without_planner' })
+      await escalateOp(supabase, op, 'plan_step planner kapalı veya step_spec eksik')
+      return
+    }
+
+    const driftThreshold = await getPolicy(supabase, null, 'oploop.drift_threshold', 40) as number
+    const critic = await callCritic(supabase, op, action, reason)
+    if (critic.score < driftThreshold) {
+      await logEvent(supabase, op.id, 'escalate', {
+        reason: 'goal_drift', score: critic.score, critic_reason: critic.reason, blocked_action: action,
+      })
+      await escalateOp(supabase, op, `Hedef sapması (plan_step skor ${critic.score}): ${critic.reason}`)
+      return
+    }
+
+    const { data: toolRows } = await supabase
+      .from('tools')
+      .select('slug, side_effect, min_risk, compensation')
+      .is('tenant_id', null)
+    const toolMeta = new Map<string, ToolMeta>()
+    for (const t of (toolRows ?? []) as ToolMeta[]) {
+      toolMeta.set(t.slug, t)
+    }
+
+    let sanitized = sanitizePlanStepSpec(step_spec, obs.untrustedTaint, toolMeta, 'R1')
+    if (op.risk) {
+      const rank = (r: string) => ({ R0: 0, R1: 1, R2: 2, R3: 3 }[r] ?? 1)
+      if (rank(sanitized.risk) < rank(op.risk)) sanitized = { ...sanitized, risk: op.risk }
+    }
+
+    const planCtx = (op.context_json?.plan as { steps?: unknown[]; current_index?: number; completed?: string[] } | undefined) ?? {}
+    const planIndex = typeof planCtx.current_index === 'number' ? planCtx.current_index : op.step_count
+
+    const { error: planInsErr } = await supabase.from('run_requests').insert({
+      owner_user_id:   op.owner_user_id,
+      mode:            'run',
+      domain_pack:     'system',
+      request_text:    sanitized.topic,
+      answers_json: {
+        playbookId:   'dynamic-plan-step',
+        topic:        sanitized.topic,
+        persona:      sanitized.agent_slug ?? op.persona,
+        operation_id: op.id,
+        plan_index:   planIndex,
+        step_spec:    sanitized,
+        planner:      true,
+      },
+      model:           op.model,
+      risk:            sanitized.risk,
+      allow_high_risk: sanitized.risk === 'R3',
+      status:          'pending',
+      operation_id:    op.id,
+      tools:           sanitized.tools_spec,
+    })
+
+    if (planInsErr) { log('plan_step run_request insert hatası', { id: op.id, error: planInsErr.message }); return }
+
+    const newPlanCtx = {
+      ...(op.context_json ?? {}),
+      planning_mode: true,
+      plan: {
+        steps:      planCtx.steps ?? [],
+        current_index: planIndex + 1,
+        completed:  [...(planCtx.completed ?? []), `plan-${planIndex}`],
+      },
+      untrusted_taint_at_plan: obs.untrustedTaint,
+    }
+    await supabase
+      .from('operations')
+      .update({ step_count: op.step_count + 1, context_json: newPlanCtx, updated_at: new Date().toISOString() })
+      .eq('id', op.id)
+    op.context_json = newPlanCtx
+
+    await logEvent(supabase, op.id, 'act', {
+      action:       'plan_step',
+      playbook:     'dynamic-plan-step',
+      topic:        sanitized.topic,
+      reason,
+      step_spec:    sanitized,
+      drift_score:  critic.score,
+      plan_index:   planIndex,
+      planner:      true,
+    })
+    log('plan_step run tetiklendi', { id: op.id, risk: sanitized.risk, untrusted: obs.untrustedTaint })
+    return
+  }
 
   // PR9: intent expires_at kontrolü — vade dolmuş operasyon ilk tick'te kapanır
   if (op.intent_json?.expires_at) {

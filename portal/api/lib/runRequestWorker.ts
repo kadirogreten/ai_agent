@@ -420,8 +420,14 @@ function buildDotnetArgs(job: RunRequest) {
   // mode === 'run'
   const payload    = (job.answers_json ?? {}) as Record<string, unknown>
   const playbookId = typeof payload.playbookId === 'string' ? payload.playbookId : ''
-  const topic      = typeof payload.topic === 'string' ? payload.topic : (job.request_text ?? '')
-  const persona    = typeof payload.persona === 'string' ? payload.persona.trim() : ''
+  const stepSpec   = payload.step_spec as Record<string, unknown> | undefined
+  const topic      = typeof stepSpec?.topic === 'string'
+    ? stepSpec.topic
+    : typeof payload.topic === 'string' ? payload.topic : (job.request_text ?? '')
+  const persona    = typeof stepSpec?.agent_slug === 'string'
+    ? stepSpec.agent_slug.trim()
+    : typeof payload.persona === 'string' ? payload.persona.trim() : ''
+  const runRisk    = typeof stepSpec?.risk === 'string' ? stepSpec.risk : risk
   if (!playbookId) throw new Error('mode=run requires answers_json.playbookId')
 
   const args = [
@@ -430,15 +436,18 @@ function buildDotnetArgs(job: RunRequest) {
     '--playbook',   playbookId,
     '--topic',      topic,
     '--model',      model,
-    '--risk',       risk,
-    '--allowHighRisk', allowHighRisk,
+    '--risk',       runRisk,
+    '--allowHighRisk', allowHighRisk || runRisk === 'R3',
     '--web',        web,
     '--contrarian', contrarian,
   ]
   // Persona seçimi opsiyonel; verilirse CLI --persona arg'ı geçilir, böylece
   // Orchestrator persona profile'ı doğru slug'la yükleyip behaviors overlay'i uygular.
   if (persona) args.push('--persona', persona)
-  if (job.tools && job.tools.trim()) args.push('--tools', job.tools.trim())
+  const toolsField = typeof stepSpec?.tools_spec === 'string'
+    ? stepSpec.tools_spec
+    : job.tools?.trim()
+  if (toolsField) args.push('--tools', toolsField)
 
   return base.concat(args)
 }

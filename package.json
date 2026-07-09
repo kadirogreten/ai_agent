@@ -4,7 +4,9 @@
   "type": "module",
   "scripts": {
     "evals": "tsx scripts/run-evals.ts --mode=fake",
-    "evals:live": "tsx scripts/run-evals.ts --mode=live"
+    "evals:live": "tsx scripts/run-evals.ts --mode=live",
+    "ops:check": "tsx scripts/ops-runbook-check.ts",
+    "ops:a3-preflight": "tsx scripts/a3-demo-preflight.ts"
   },
   "devDependencies": {
     "@supabase/supabase-js": "^2.49.8",

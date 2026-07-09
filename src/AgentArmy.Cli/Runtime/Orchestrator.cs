@@ -23,11 +23,13 @@ public sealed class Orchestrator
     private readonly CompensationExecutor? _compensator;
     private readonly OperationMemoryStore? _opMemStore;
     private readonly StepLlmResolver? _stepLlm;
+    private readonly ToolRanker? _toolRanker;
 
     // D1a: Verifier FAIL → frontier upgrade-retry kotası (run başına).
     private int _upgradeCount;
     private bool _verifierFailUpgradeEnabled = true;
     private int _maxUpgradePerRun = 1;
+    private int _semanticTopK = 0;
 
     // Context budget — sliding window. ~16K char ≈ ~4K token (mixed TR/EN).
     private const int MaxContextChars    = 16000;
@@ -52,7 +54,8 @@ public sealed class Orchestrator
         IToolExecutor? toolExecutor = null,
         CompensationExecutor? compensator = null,
         OperationMemoryStore? opMemStore = null,
-        StepLlmResolver? stepLlm = null
+        StepLlmResolver? stepLlm = null,
+        ToolRanker? toolRanker = null
     )
     {
         _llm              = llm;
@@ -72,6 +75,7 @@ public sealed class Orchestrator
         _compensator          = compensator;
         _opMemStore           = opMemStore;
         _stepLlm              = stepLlm;
+        _toolRanker           = toolRanker;
 
         var merged = new Dictionary<string, Agent>(AgentsCatalog.All, StringComparer.OrdinalIgnoreCase);
         if (agentOverrides is not null)
@@ -104,6 +108,7 @@ public sealed class Orchestrator
         _maxOperationMemory = await PolicyReader.GetAsync(ctx.Db, ctx.OwnerId, "memory.max_entries", 30, ct);
         _verifierFailUpgradeEnabled = await PolicyReader.GetAsync(ctx.Db, ctx.OwnerId, "router.verifier_fail_upgrade", true, ct);
         _maxUpgradePerRun = await PolicyReader.GetAsync(ctx.Db, ctx.OwnerId, "router.max_upgrade_per_run", 1, ct);
+        _semanticTopK     = await PolicyReader.GetAsync(ctx.Db, ctx.OwnerId, "tools.semantic_top_k", 0, ct);
 
         var personaText = _personaProfile.ContextMarkdown;
         if (string.IsNullOrWhiteSpace(personaText))
@@ -538,6 +543,17 @@ public sealed class Orchestrator
         var toolset = (_toolExecutor is not null && agent.Behaviors.CanUseTools)
             ? _toolExecutor.AvailableFor(agent, ctx.Contract)
             : (IReadOnlyList<ToolDescriptor>)Array.Empty<ToolDescriptor>();
+
+        // D3b: semantic top-k (compensation + düşük-risk read muaf)
+        if (_semanticTopK > 0 && toolset.Count > _semanticTopK)
+        {
+            var topic = string.IsNullOrWhiteSpace(ctx.Contract.Topic)
+                ? ctx.Contract.Goal
+                : ctx.Contract.Topic;
+            toolset = _toolRanker is not null
+                ? await _toolRanker.RankAsync(toolset, topic, _semanticTopK, ct)
+                : ToolRanker.Rank(toolset, topic, _semanticTopK);
+        }
 
         // primaryTool varsa araç listesi yalnız o araçla kısıtlanır — savuşturma kapanır.
         if (!string.IsNullOrWhiteSpace(primaryTool))
