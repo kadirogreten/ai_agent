@@ -16,10 +16,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
+          cache: npm
+          cache-dependency-path: package-lock.json
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "8.0.x"
+      - name: Install root deps
+        run: npm ci
       - name: Build CLI
         run: dotnet build src/AgentArmy.Cli/AgentArmy.Cli.csproj --configuration Release --nologo
       - name: Run eval harness (fake — no real LLM, no Supabase required)
-        run: npx tsx scripts/run-evals.ts --mode=fake --pack=sosyal-medya
+        run: npm run evals -- --pack=sosyal-medya

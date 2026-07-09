@@ -3,6 +3,7 @@ runs/
 bin/
 obj/
 knowledge/**/facts.jsonl
+node_modules/
 
 # Claude Code worktree internals (never commit)
 .claude/
