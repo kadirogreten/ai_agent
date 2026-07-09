@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentarmy.local/schemas/pack-manifest-v1.json",
+  "title": "pack-manifest-v1",
+  "type": "object",
+  "required": ["manifest_version", "pack", "created_at"],
+  "properties": {
+    "manifest_version": { "const": "pack-manifest-v1" },
+    "pack": {
+      "type": "object",
+      "required": ["id", "name"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "allowed_domains": { "type": "array", "items": { "type": "string" } },
+        "glossary_md": { "type": "string" },
+        "regulatory_notes_md": { "type": "string" },
+        "verifier_rubric_md": { "type": "string" }
+      }
+    },
+    "personas": { "type": "array" },
+    "playbooks": { "type": "array" },
+    "bundles": { "type": "array" },
+    "eval_json": { "type": "object" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "checksum": { "type": "string", "minLength": 8 }
+  },
+  "additionalProperties": false
+}

@@ -5,11 +5,13 @@ import { getSupabaseAdmin } from './supabaseAdmin.js'
 import { assertBundleExists } from './builtinBundles.js'
 import { notifyChannels } from './notifyChannels.js'
 import { getPolicy } from './policyReader.js'
+import { enqueueEvalGeneratorJob, processEvalGeneratorJob } from './evalGenerator.js'
+import { runCanaryD0SmokeAndVerify } from './canaryD0Smoke.js'
 
 type RunRequest = {
   id: string
   owner_user_id: string
-  mode: 'run' | 'bundle' | 'ceo' | 'ceo-iterate'
+  mode: 'run' | 'bundle' | 'ceo' | 'ceo-iterate' | 'eval_generator'
   domain_pack: string | null
   request_text: string | null
   answers_json: unknown | null
@@ -245,7 +247,7 @@ async function writeDraftFromRunOutputs(
     ? payload.sector_prompt
     : (job.request_text ?? '')
 
-  const { error: insertErr } = await supabase.from('domain_pack_drafts').insert({
+  const { data: inserted, error: insertErr } = await supabase.from('domain_pack_drafts').insert({
     tenant_id:        job.owner_user_id,
     run_request_id:   job.id,
     sector_prompt:    sectorPrompt,
@@ -253,12 +255,20 @@ async function writeDraftFromRunOutputs(
     proposed_name:    typeof draftJson.name === 'string' ? draftJson.name : null,
     status:           'pending',
     draft_json:       draftJson,
-  })
+  }).select('id').single()
 
   if (insertErr) {
     log('DomainPackDraft insert hatası', { error: insertErr.message })
   } else {
-    log('DomainPackDraft kaydedildi', { pack_id: draftJson.id, run_id: runId })
+    log('DomainPackDraft kaydedildi', { pack_id: draftJson.id, run_id: runId, draft_id: inserted?.id })
+    if (inserted?.id) {
+      try {
+        await enqueueEvalGeneratorJob(supabase, inserted.id as string, job.owner_user_id)
+        log('EvalGenerator job enqueued', { draft_id: inserted.id })
+      } catch (e) {
+        log('EvalGenerator enqueue failed', { error: e instanceof Error ? e.message : String(e) })
+      }
+    }
   }
 }
 
@@ -460,6 +470,12 @@ async function processOne(supabase: ReturnType<typeof getSupabaseAdmin>, job: Ru
       queue_latency_ms: queueLatencyMs,
     })
 
+    if (job.mode === 'eval_generator') {
+      await processEvalGeneratorJob(supabase, job.id)
+      log('EvalGenerator job success', { id: job.id })
+      return
+    }
+
     if ((job.risk === 'R2' || job.risk === 'R3') && !job.allow_high_risk) {
       log('R2/R3 job requires human approval — gating', { id: job.id, risk: job.risk })
       const actionSummary = [job.mode, job.domain_pack, job.request_text?.slice(0, 120)]
@@ -584,8 +600,10 @@ async function processOne(supabase: ReturnType<typeof getSupabaseAdmin>, job: Ru
       log('runs row upserted (bundle child)', { runId: childRunId })
     }
 
-    // Sector discovery: scaffold adımından domain_pack_drafts'a yaz
-    if (runId && job.mode !== 'bundle') {
+    // Sector discovery: scaffold adımından domain_pack_drafts'a yaz (sector-builder ceo hariç)
+    const payload = (job.answers_json ?? {}) as Record<string, unknown>
+    const isSectorBuilderCeo = job.mode === 'ceo' && payload.source === 'sector-builder'
+    if (runId && job.mode !== 'bundle' && !isSectorBuilderCeo) {
       await writeDraftFromRunOutputs(supabase, job, runId)
     }
 
@@ -615,6 +633,29 @@ async function processOne(supabase: ReturnType<typeof getSupabaseAdmin>, job: Ru
 
     if (updateErr) throw updateErr
     log('Job success', { id: job.id, run_id: runId, total_ms: totalMs, sla_breach: slaBreached })
+
+    // D2c: canary decrement + D0 smoke (eval run'ları hariç)
+    if (job.domain_pack && job.mode === 'run') {
+      const evalMeta = process.env.RUN_EVAL_META
+      const isEval = evalMeta ? (() => { try { return JSON.parse(evalMeta).eval === true } catch { return false } })() : false
+      if (!isEval) {
+        const { data: dec } = await supabase.rpc('decrement_pack_canary', {
+          p_pack_id: job.domain_pack,
+          p_is_eval: false,
+        })
+        log('Canary decrement', { pack: job.domain_pack, result: dec })
+        const { data: packRow } = await supabase
+          .from('domain_packs')
+          .select('meta')
+          .eq('id', job.domain_pack)
+          .maybeSingle()
+        const meta = packRow?.meta as Record<string, unknown> | undefined
+        if (meta?.canary === true && meta?.canary_d0_verified !== true) {
+          await runCanaryD0SmokeAndVerify(supabase, job.domain_pack)
+          log('Canary D0 smoke completed', { pack: job.domain_pack })
+        }
+      }
+    }
 
     // Audit log
     await writeAuditEntry(supabase, job, runId ?? null, true)

@@ -7,6 +7,7 @@
     "evals:live": "tsx scripts/run-evals.ts --mode=live"
   },
   "devDependencies": {
+    "@supabase/supabase-js": "^2.49.8",
     "tsx": "^4.20.3",
     "typescript": "~5.8.3"
   }

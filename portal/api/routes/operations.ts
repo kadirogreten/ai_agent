@@ -36,6 +36,9 @@ router.post('/', async (req: Request, res: Response) => {
     const intent_json      = (body.intent_json != null && typeof body.intent_json === 'object')
       ? body.intent_json as Record<string, unknown>
       : null
+    const context_json     = (body.context_json != null && typeof body.context_json === 'object')
+      ? body.context_json as Record<string, unknown>
+      : null
 
     if (!goal_text)   return res.status(400).json({ error: 'goal_text zorunlu' })
     if (!domain_pack) return res.status(400).json({ error: 'domain_pack zorunlu' })
@@ -68,6 +71,7 @@ router.post('/', async (req: Request, res: Response) => {
         max_steps,
         cooldown_minutes,
         intent_json,
+        ...(context_json ? { context_json } : {}),
         status:     'active',
         step_count: 0,
       })

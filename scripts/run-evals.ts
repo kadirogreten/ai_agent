@@ -8,7 +8,7 @@
  * Kullanım:
  *   npx tsx scripts/run-evals.ts
  *   npx tsx scripts/run-evals.ts --mode=fake --pack=sosyal-medya
- *   npx tsx scripts/run-evals.ts --mode=live --pack=sosyal-medya
+ *   npx tsx scripts/run-evals.ts --from-db --draft-id=UUID
  */
 import { spawnSync } from 'node:child_process'
 import { readFileSync, existsSync } from 'node:fs'
@@ -48,15 +48,34 @@ function parseArgs() {
   const args = process.argv.slice(2)
   let mode = 'fake'
   let pack = 'sosyal-medya'
+  let fromDb = false
+  let draftId = ''
   for (const a of args) {
     if (a.startsWith('--mode=')) mode = a.slice('--mode='.length)
     if (a.startsWith('--pack=')) pack = a.slice('--pack='.length)
+    if (a === '--from-db') fromDb = true
+    if (a.startsWith('--draft-id=')) draftId = a.slice('--draft-id='.length)
   }
   if (!['fake', 'live'].includes(mode)) {
     console.error(`Geçersiz mod: ${mode} (fake|live)`)
     process.exit(2)
   }
-  return { mode, pack }
+  return { mode, pack, fromDb, draftId }
+}
+
+async function loadGoldenFromDb(draftId: string): Promise<GoldenPack> {
+  const url = process.env.SUPABASE_URL
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!url || !key) throw new Error('--from-db için SUPABASE_URL ve SUPABASE_SERVICE_ROLE_KEY gerekli')
+  const { createClient } = await import('@supabase/supabase-js')
+  const supabase = createClient(url, key)
+  const { data, error } = await supabase
+    .from('domain_pack_drafts')
+    .select('eval_json, proposed_pack_id')
+    .eq('id', draftId)
+    .single()
+  if (error || !data?.eval_json) throw new Error(`Draft eval_json bulunamadı: ${draftId}`)
+  return data.eval_json as GoldenPack
 }
 
 function loadGolden(pack: string): GoldenPack {
@@ -153,11 +172,19 @@ function evaluateCase(golden: GoldenPack, c: GoldenCase, runs: CaseRunResult[]):
 }
 
 async function main() {
-  const { mode, pack } = parseArgs()
-  const golden = loadGolden(pack)
+  const { mode, pack, fromDb, draftId } = parseArgs()
+  const golden = fromDb
+    ? await loadGoldenFromDb(draftId)
+    : loadGolden(pack)
   const k = golden.pass_k ?? 3
 
-  console.log(`[evals] pack=${pack} playbook=${golden.playbook} mode=${mode} pass^${k}`)
+  console.log(`[evals] pack=${golden.pack} playbook=${golden.playbook} mode=${mode} pass^${k}${fromDb ? ` draft=${draftId}` : ''}`)
+
+  const mix = (golden as GoldenPack & { source_mix?: { pack_rubric: number; d0_security: number } }).source_mix
+  if (mix) {
+    console.log(`[evals] source_mix: rubric=${mix.pack_rubric} d0_security=${mix.d0_security}`)
+    if (mix.d0_security < 4) console.warn('[evals] WARN: d0_security case sayısı < 4')
+  }
 
   const hasSupabase = Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY)
 
@@ -195,6 +222,17 @@ async function main() {
     console.log(`  ${r.pass ? '✓' : '✗'} ${r.id}${r.reason ? ` — ${r.reason}` : ''}`)
   }
   console.log(`\n[evals] pass rate: ${(rate * 100).toFixed(1)}% (${passed}/${golden.cases.length}), eşik: ${(threshold * 100).toFixed(0)}%`)
+
+  if (fromDb && draftId && rate >= threshold) {
+    const { createClient } = await import('@supabase/supabase-js')
+    const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
+    await supabase.from('domain_pack_drafts').update({ eval_status: 'passed' }).eq('id', draftId)
+    console.log(`[evals] draft ${draftId} eval_status=passed`)
+  } else if (fromDb && draftId) {
+    const { createClient } = await import('@supabase/supabase-js')
+    const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
+    await supabase.from('domain_pack_drafts').update({ eval_status: 'failed' }).eq('id', draftId)
+  }
 
   if (rate < threshold) {
     console.error('[evals] FAIL — eşik altında')

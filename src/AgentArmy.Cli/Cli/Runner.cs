@@ -56,6 +56,14 @@ public static class Runner
             ? riskArg!
             : (!string.IsNullOrWhiteSpace(playbook.DefaultRisk) ? playbook.DefaultRisk.Trim() : "R1");
 
+        // D2c: canary pack — risk tabanı (ilk N production koşum min R2)
+        if (exec.DomainPack is { IsCanary: true, CanaryRemaining: > 0 })
+        {
+            var floor = exec.DomainPack.CanaryRiskFloor;
+            if (LlmProviderResolver.RiskLevel(risk) < LlmProviderResolver.RiskLevel(floor))
+                risk = floor;
+        }
+
         var quality = exec.Args.GetValueOrDefault("quality")
                       ?? "Kaynaksız kritik iddia yok; belirsizlikleri işaretle.";
         if (exec.DomainPack?.Id.Equals("market-intel", StringComparison.OrdinalIgnoreCase) == true)

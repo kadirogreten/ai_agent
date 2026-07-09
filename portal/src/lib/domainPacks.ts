@@ -50,6 +50,9 @@ export type PackDraftRow = {
   reviewed_by: string | null
   reviewed_at: string | null
   merged_pack_id: string | null
+  eval_json: Record<string, unknown> | null
+  eval_status: 'pending' | 'running' | 'passed' | 'failed' | 'skipped'
+  eval_generator_run_id: string | null
   created_at: string
   updated_at: string
 }
@@ -129,7 +132,77 @@ export async function rejectDraft(draftId: string, notes?: string): Promise<void
   if (error) throw error
 }
 
-// ── Sector Discovery run tetikleme ────────────────────────────
+// ── Sector Dialog (D2a) ───────────────────────────────────────
+
+export type SectorDialogPhase = 'prompt' | 'questions' | 'review' | 'operation' | 'done'
+
+/** CEO planner ile senkron soru üretimi — sector_factory'den önce. */
+export async function triggerSectorDialog(
+  sectorPrompt: string,
+  ownerId: string,
+): Promise<string> {
+  const { data, error } = await supabase
+    .from('run_requests')
+    .insert({
+      owner_user_id: ownerId,
+      mode: 'ceo',
+      domain_pack: 'system',
+      request_text: sectorPrompt,
+      status: 'pending',
+      risk: 'R2',
+      web: false,
+      answers_json: {
+        source: 'sector-builder',
+        phase: 'questions',
+        sector_prompt: sectorPrompt,
+      },
+    })
+    .select('id')
+    .single()
+
+  if (error) throw error
+  return data.id as string
+}
+
+export async function getRunRequest(id: string) {
+  const { data, error } = await supabase
+    .from('run_requests')
+    .select('id, status, mode, request_text, answers_json, result_json, error_message')
+    .eq('id', id)
+    .single()
+  if (error) throw error
+  return data
+}
+
+export async function startSectorFactoryOperation(
+  jobId: string,
+  accessToken: string,
+): Promise<string> {
+  const res = await fetch(`/api/sector/jobs/${jobId}/execute`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+  })
+  const json = await res.json() as { success?: boolean; operationId?: string; error?: string }
+  if (!res.ok || !json.operationId) {
+    throw new Error(json.error ?? 'Operasyon başlatılamadı')
+  }
+  return json.operationId
+}
+
+export async function getOperation(id: string) {
+  const { data, error } = await supabase
+    .from('operations')
+    .select('id, status, goal_text, step_count, max_steps, context_json, escalation_reason, updated_at')
+    .eq('id', id)
+    .single()
+  if (error) throw error
+  return data
+}
+
+// ── Sector Discovery run tetikleme (legacy tek atım) ─────────────────────────
 
 export async function triggerSectorDiscovery(
   sectorPrompt: string,

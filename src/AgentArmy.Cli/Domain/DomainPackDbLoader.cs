@@ -31,7 +31,7 @@ public static class DomainPackDbLoader
         var url = $"{supabase.EffectiveUrl}/rest/v1/domain_packs" +
                   $"?id=eq.{Uri.EscapeDataString(packId)}" +
                   $"&status=eq.active" +
-                  $"&select=id,name,description,allowed_domains,glossary_md,regulatory_notes_md,verifier_rubric_md" +
+                  $"&select=id,name,description,allowed_domains,glossary_md,regulatory_notes_md,verifier_rubric_md,meta" +
                   $"&limit=1";
 
         var response = await http.GetAsync(url, ct);
@@ -43,6 +43,7 @@ public static class DomainPackDbLoader
         if (rows is null || rows.Count == 0) return null;
 
         var row = rows[0];
+        var (isCanary, remaining, floor, d0Verified) = ParseCanaryMeta(row.Meta);
         return new DomainPack
         {
             Id                = row.Id,
@@ -51,8 +52,25 @@ public static class DomainPackDbLoader
             VerifierRubric    = row.VerifierRubricMd,
             GlossaryMd        = row.GlossaryMd,
             RegulatoryNotesMd = row.RegulatoryNotesMd,
-            LoadedFromDb      = true
+            LoadedFromDb      = true,
+            IsCanary          = isCanary,
+            CanaryRemaining   = remaining,
+            CanaryRiskFloor   = floor,
+            CanaryD0Verified  = d0Verified,
         };
+    }
+
+    private static (bool IsCanary, int Remaining, string Floor, bool D0Verified) ParseCanaryMeta(JsonElement? meta)
+    {
+        if (meta is null || meta.Value.ValueKind != JsonValueKind.Object)
+            return (false, 0, "R2", false);
+
+        var m = meta.Value;
+        var isCanary = m.TryGetProperty("canary", out var c) && c.ValueKind == JsonValueKind.True;
+        var remaining = m.TryGetProperty("canary_remaining", out var r) && r.TryGetInt32(out var n) ? n : 0;
+        var floor = m.TryGetProperty("canary_risk_floor", out var f) ? f.GetString() ?? "R2" : "R2";
+        var d0 = m.TryGetProperty("canary_d0_verified", out var d) && d.ValueKind == JsonValueKind.True;
+        return (isCanary, remaining, floor, d0);
     }
 
     /// <summary>
@@ -264,6 +282,7 @@ public static class DomainPackDbLoader
         [JsonPropertyName("glossary_md")]          public string? GlossaryMd { get; set; }
         [JsonPropertyName("regulatory_notes_md")]  public string? RegulatoryNotesMd { get; set; }
         [JsonPropertyName("verifier_rubric_md")]   public string? VerifierRubricMd { get; set; }
+        [JsonPropertyName("meta")]                 public JsonElement? Meta { get; set; }
     }
 
     public sealed class DbPlaybookRow

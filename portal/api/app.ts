@@ -16,6 +16,8 @@ import operationsRoutes from './routes/operations.js'
 import notificationsRoutes from './routes/notifications.js'
 import llmProvidersRoutes from './routes/llmProviders.js'
 import socialRoutes from './routes/social.js'
+import sectorRoutes from './routes/sector.js'
+import packsRoutes from './routes/packs.js'
 
 fileURLToPath(import.meta.url)
 
@@ -35,6 +37,8 @@ app.use('/api/operations', operationsRoutes)
 app.use('/api/notifications', notificationsRoutes)
 app.use('/api/llm-providers', llmProvidersRoutes)
 app.use('/api/social', socialRoutes)
+app.use('/api/sector', sectorRoutes)
+app.use('/api/packs', packsRoutes)
 
 /**
  * health

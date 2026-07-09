@@ -14,6 +14,12 @@ public sealed class DomainPack
     /// <summary>DB'den mi yüklendi?</summary>
     public bool LoadedFromDb { get; init; }
 
+    // D2c canary meta (domain_packs.meta JSONB)
+    public bool IsCanary { get; init; }
+    public int CanaryRemaining { get; init; }
+    public string CanaryRiskFloor { get; init; } = "R2";
+    public bool CanaryD0Verified { get; init; }
+
     public string PlaybooksDir => Path.Combine(RootDir, "domain-packs", Id, "playbooks");
 }
 

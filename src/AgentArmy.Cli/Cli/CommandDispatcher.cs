@@ -227,6 +227,14 @@ public static partial class CommandDispatcher
                 Console.WriteLine();
             }
 
+            // D2a CEO gate: sorular varsa ve cevaplar eksikse executor çalışmaz (sector-builder dahil).
+            if (plan.ClarifyingQuestions.Count > 0 && ShouldDeferCeoExecution(answersJson, plan.ClarifyingQuestions))
+            {
+                Console.WriteLine("CEO_QUESTIONS_ONLY=1");
+                Console.WriteLine("OK");
+                return 0;
+            }
+
             var maxRetries  = int.TryParse(parsed.GetValueOrDefault("maxRetries")  ?? Environment.GetEnvironmentVariable("CEO_MAX_RETRIES"),  out var mr) ? mr : 2;
             // Kapı 2: Dinamik paralelleşme — kullanıcı override etmediyse plan.runs.Count'a göre
             // otomatik olarak up to 3 paralel çalış. Tek run'lı planlarda 1 kalır.
@@ -362,5 +370,56 @@ public static partial class CommandDispatcher
         LocalConfigWriter.Write(rootDir, key.Trim(), model);
         Console.WriteLine("Saved to agentarmy.local.json (gitignored).");
         return 0;
+    }
+
+    /// <summary>
+    /// D2a: CEO clarifying questions varsa ve kullanıcı cevapları eksikse CeoExecutor ertelenir.
+    /// </summary>
+    private static bool ShouldDeferCeoExecution(string? answersJson, IReadOnlyList<string> clarifyingQuestions)
+    {
+        if (clarifyingQuestions.Count == 0) return false;
+        if (string.IsNullOrWhiteSpace(answersJson)) return true;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(answersJson);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object) return true;
+
+            var root = doc.RootElement;
+
+            // sector-builder: phase=execute olana kadar defer
+            if (root.TryGetProperty("source", out var src) &&
+                src.GetString() == "sector-builder")
+            {
+                if (root.TryGetProperty("phase", out var phase) &&
+                    phase.GetString() == "execute")
+                    return false;
+
+                var meta = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                    { "source", "phase", "sector_prompt", "playbookId" };
+                foreach (var prop in root.EnumerateObject())
+                {
+                    if (meta.Contains(prop.Name)) continue;
+                    if (prop.Value.ValueKind == JsonValueKind.String &&
+                        !string.IsNullOrWhiteSpace(prop.Value.GetString()))
+                        return false;
+                }
+                return true;
+            }
+
+            // Genel CEO / ceo-iterate: her soruya cevap gerekli
+            foreach (var q in clarifyingQuestions)
+            {
+                if (!root.TryGetProperty(q, out var ans) ||
+                    ans.ValueKind != JsonValueKind.String ||
+                    string.IsNullOrWhiteSpace(ans.GetString()))
+                    return true;
+            }
+            return false;
+        }
+        catch
+        {
+            return true;
+        }
     }
 }

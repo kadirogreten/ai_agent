@@ -3,9 +3,10 @@ import {
   listDrafts, mergeDraft, rejectDraft,
   type PackDraftRow, type DraftStatus,
 } from '@/lib/domainPacks'
+import { useAuthStore } from '@/stores/authStore'
 import {
   CheckCircle, XCircle, Clock, Merge, FileText,
-  ChevronDown, ChevronUp, RefreshCw, AlertCircle,
+  ChevronDown, ChevronUp, RefreshCw, AlertCircle, Download, Upload,
 } from 'lucide-react'
 
 // ── Badge'ler ─────────────────────────────────────────────────
@@ -104,6 +105,7 @@ function DraftCard({
   draft: PackDraftRow
   onRefresh: () => void
 }) {
+  const session = useAuthStore((s) => s.session)
   const [expanded, setExpanded] = useState(false)
   const [rejectNotes, setRejectNotes] = useState('')
   const [showRejectForm, setShowRejectForm] = useState(false)
@@ -113,7 +115,29 @@ function DraftCard({
 
   const isPending = draft.status === 'pending'
 
+  async function handleExport() {
+    if (!session?.access_token) return
+    const res = await fetch(`/api/packs/drafts/${draft.id}/export`, {
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    })
+    if (!res.ok) throw new Error('Export başarısız')
+    const json = await res.json()
+    const blob = new Blob([JSON.stringify(json, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `pack-manifest-${draft.proposed_pack_id ?? draft.id}.json`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const evalBlocked = isPending && draft.eval_status && draft.eval_status !== 'passed' && draft.eval_status !== 'skipped'
+
   async function handleMerge() {
+    if (evalBlocked) {
+      setError('Eval geçmeden merge yapılamaz (eval_status=' + draft.eval_status + ')')
+      return
+    }
     if (!confirm(`"${draft.proposed_name ?? draft.proposed_pack_id}" pack'ini aktif hale getirmek istiyor musunuz?`)) return
     setLoading(true)
     setError(null)
@@ -166,6 +190,21 @@ function DraftCard({
           <p className="text-xs text-white/30 mt-1">
             {new Date(draft.created_at).toLocaleString('tr-TR')}
           </p>
+          {draft.eval_status && (
+            <p className={`text-xs mt-1 font-medium ${
+              draft.eval_status === 'passed' ? 'text-green-400' :
+              draft.eval_status === 'failed' ? 'text-red-400' :
+              'text-amber-400'
+            }`}>
+              Eval: {draft.eval_status}
+              {draft.eval_json && typeof draft.eval_json === 'object' && 'source_mix' in (draft.eval_json as object) && (
+                <span className="text-white/40 font-normal ml-2">
+                  (rubric={(draft.eval_json as { source_mix?: { pack_rubric?: number; d0_security?: number } }).source_mix?.pack_rubric ?? 0}
+                  {' '}/ D0={(draft.eval_json as { source_mix?: { d0_security?: number } }).source_mix?.d0_security ?? 0})
+                </span>
+              )}
+            </p>
+          )}
         </div>
 
         <button
@@ -207,9 +246,21 @@ function DraftCard({
       {/* Aksiyon butonları (sadece pending) */}
       {isPending && !success && (
         <div className="flex flex-wrap gap-2 border-t border-white/10 pt-4">
+          {evalBlocked && (
+            <div className="w-full text-xs text-amber-300 mb-1">
+              Eval başarısız veya bekliyor — merge kapalı (pass³ gerekli)
+            </div>
+          )}
+          <button
+            onClick={() => handleExport().catch((e) => setError(e.message))}
+            className="flex items-center gap-2 rounded-lg border border-white/20 px-3 py-2 text-sm text-white/70 hover:bg-white/10"
+          >
+            <Download className="h-4 w-4" />
+            Manifest İndir
+          </button>
           <button
             onClick={handleMerge}
-            disabled={loading}
+            disabled={loading || evalBlocked}
             className="flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-500 disabled:opacity-50 transition-colors"
           >
             <Merge className="h-4 w-4" />
@@ -263,6 +314,7 @@ function DraftCard({
 // ── Ana Sayfa ─────────────────────────────────────────────────
 
 export default function PackDraftReviewPage() {
+  const session = useAuthStore((s) => s.session)
   const [drafts, setDrafts] = useState<PackDraftRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -306,6 +358,7 @@ export default function PackDraftReviewPage() {
           </p>
         </div>
 
+        <div className="flex items-center gap-2">
         <button
           onClick={load}
           disabled={loading}
@@ -314,6 +367,37 @@ export default function PackDraftReviewPage() {
           <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
           Yenile
         </button>
+        <label className="flex items-center gap-2 rounded-lg border border-white/20 px-3 py-1.5 text-sm text-white/60 hover:border-white/40 cursor-pointer">
+          <Upload className="h-4 w-4" />
+          İçe Aktar
+          <input
+            type="file"
+            accept="application/json"
+            className="hidden"
+            onChange={async (e) => {
+              const file = e.target.files?.[0]
+              if (!file || !session?.access_token) return
+              try {
+                const text = await file.text()
+                const body = JSON.parse(text)
+                const res = await fetch('/api/packs/import', {
+                  method: 'POST',
+                  headers: {
+                    Authorization: `Bearer ${session.access_token}`,
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify(body),
+                })
+                const json = await res.json() as { error?: string }
+                if (!res.ok) throw new Error(json.error ?? 'Import başarısız')
+                load()
+              } catch (err) {
+                setError(err instanceof Error ? err.message : 'Import hatası')
+              }
+            }}
+          />
+        </label>
+        </div>
       </div>
 
       {/* Filtre */}

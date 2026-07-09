@@ -340,10 +340,17 @@ async function saveAnswersJson(
   supabase: ReturnType<typeof getSupabaseAdmin>,
   jobId: string,
   answers: SavedAnswers,
+  existingAnswersJson?: unknown,
 ) {
+  const merged: Record<string, unknown> =
+    existingAnswersJson && typeof existingAnswersJson === 'object' && !Array.isArray(existingAnswersJson)
+      ? { ...(existingAnswersJson as Record<string, unknown>) }
+      : {}
+  for (const [k, v] of Object.entries(answers)) merged[k] = v
+
   const updated = await supabase
     .from('run_requests')
-    .update({ answers_json: answers })
+    .update({ answers_json: merged })
     .eq('id', jobId)
 
   if (updated.error) throw updated.error
@@ -648,7 +655,7 @@ router.post('/jobs/:jobId/review', async (req: Request, res: Response) => {
       return acc
     }, {})
 
-    await saveAnswersJson(supabase, job.id, answers)
+    await saveAnswersJson(supabase, job.id, answers, job.answers_json)
 
     if (tableAvailable && allPayload.length > 0) {
       const upserted = await supabase
