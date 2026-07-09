@@ -4,12 +4,14 @@
  * Tam 9 adımlı UI akışı canlı ortamda manuel koşulur.
  */
 import { createClient } from '@supabase/supabase-js'
+import { loadPortalEnv } from './loadPortalEnv.js'
 
+const envPath = loadPortalEnv()
 const url = process.env.SUPABASE_URL
 const key = process.env.SUPABASE_SERVICE_ROLE_KEY
 
 if (!url || !key) {
-  console.error('SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY gerekli (.env.local)')
+  console.error(`SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY gerekli (${envPath})`)
   process.exit(1)
 }
 

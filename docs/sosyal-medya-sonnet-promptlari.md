@@ -328,6 +328,14 @@ Diyaloglu sektör fabrikası: SectorBuilderPage senkron soru-cevap (kalıcı ans
 
 Sıradaki: **D3 — Genel Planlayıcı** (playbook yoksa hedeften plan-and-execute; gate'ler + D0 güvenlik + eval korunur). Bu, "yürütme dinamikliği"nin — tam dinamik hedefinin son büyük parçası.
 
+## D3 Genel Planlayıcı — Kod tamam (2026-07-09, varsayılan kapalı)
+
+D3a plan-and-execute (playbook yoksa hedeften `plan_step` türetme; `dynamic-plan-step` system playbook; `planStepSanitizer` — untrusted taint altında yan etkili araçlar R3; `planner.enabled` gate + `decidePlannerGate.test.ts` regresyon), D3b semantic tool top-k (`ToolRanker`, compensation + düşük-risk read muaf, `tools.semantic_top_k` policy default 0), D3c planner-scenarios eval + event payload. Migration `20260709190000_d3_planner.sql` + `20260709200000_d3_tool_embedding.sql`. 107 .NET + 34 portal testi. **Her iki özellik varsayılan KAPALI** — canary rollout; açmadan önce A3 uçtan uca demo + kısa gözlem penceresi.
+
+Ops otomasyonu: `npm run ops:check` (push+test+evals), `npm run ops:a3-preflight` (A3 DB ön koşulları). A3 UI demosu (9 adım) canlı portal/worker ile manuel.
+
+Sıradaki: **D4 — Ekosistem** (MCP registry keşfi + A2A Agent Card + public API/webhook + usage metering). D3 sonrası son dalga.
+
 ## Çalışma notları
 
 - Oturum başına tek PR; her prompt'un başındaki bağlam dosyalarını Sonnet'e okutmadan koda başlatma.

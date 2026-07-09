@@ -1,3 +1,4 @@
+import './loadEnv.js'
 import { runOnce } from './runRequestWorker.js'
 
 function sleep(ms: number) {

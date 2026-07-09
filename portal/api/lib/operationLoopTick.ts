@@ -12,6 +12,7 @@
  *
  * Çalıştırma: npx tsx portal/api/lib/operationLoopTick.ts
  */
+import './loadEnv.js'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import {
   DECIDE_SYSTEM_PROMPT,
