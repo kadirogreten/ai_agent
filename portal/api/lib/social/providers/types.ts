@@ -15,18 +15,11 @@ export type OAuthStartResult = {
   authorizeUrl: string
 }
 
-/** PR-S7c: app kimlik bilgileri çözümlenmiş config olarak enjekte edilir (owner > platform > env). */
-export type OAuthAppCredentials = {
-  appId: string
-  appSecret: string
-  redirectUri: string
-}
-
 export interface ISocialOAuthProvider {
   readonly slug: SocialPlatformSlug
   readonly displayName: string
-  buildAuthorizeUrl(state: string, app: OAuthAppCredentials): string
-  exchangeCode(code: string, app: OAuthAppCredentials): Promise<{
+  buildAuthorizeUrl(state: string): string
+  exchangeCode(code: string): Promise<{
     accessToken: string
     refreshToken?: string
     expiresAt?: Date
@@ -38,7 +31,7 @@ export interface ISocialOAuthProvider {
     access_token_ciphertext: string
     refresh_token_ciphertext: string | null
     expires_at: string | null
-  }, app: OAuthAppCredentials): Promise<{
+  }): Promise<{
     accessToken: string
     refreshToken?: string
     expiresAt?: Date

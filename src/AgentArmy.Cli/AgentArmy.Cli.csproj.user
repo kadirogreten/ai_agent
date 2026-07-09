@@ -1,10 +1,10 @@
 <Project>
 	<PropertyGroup>
 		<UnoPlatformIDE>vscode</UnoPlatformIDE>
-		<UnoPlatformIDEVersion>1.107.1</UnoPlatformIDEVersion>
+		<UnoPlatformIDEVersion>1.125.0</UnoPlatformIDEVersion>
 		<UnoPlatformExtension>unoplatform.vscode 0.24.1</UnoPlatformExtension>
 		<UnoRemoteControlPort>0</UnoRemoteControlPort>
-		<UnoVSCodeCSharpExtension>muhammad-sammy.csharp 2.130.6-g84650eb758</UnoVSCodeCSharpExtension>
-		<UnoVSCodeCSharpDevKitExtension>ms-dotnettools.csdevkit 1.7.27</UnoVSCodeCSharpDevKitExtension>
+		<UnoVSCodeCSharpExtension>muhammad-sammy.csharp 2.145.21-g154a82fd27</UnoVSCodeCSharpExtension>
+		<UnoVSCodeCSharpDevKitExtension>ms-dotnettools.csdevkit 1.16.6</UnoVSCodeCSharpDevKitExtension>
 	</PropertyGroup>
 </Project>

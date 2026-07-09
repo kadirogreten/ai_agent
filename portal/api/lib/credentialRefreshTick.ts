@@ -5,10 +5,9 @@
 import { getSupabaseAdmin } from './supabaseAdmin.js'
 import { encryptToken } from './tokenEncryptor.js'
 import { getSocialProvider } from './social/providers/index.js'
-import { resolveOAuthAppConfig } from './social/oauthApps.js'
 
 const SELECT =
-  'id,owner_user_id,platform,access_token_ciphertext,refresh_token_ciphertext,expires_at,status'
+  'id,platform,access_token_ciphertext,refresh_token_ciphertext,expires_at,status'
 
 export async function credentialRefreshTick(): Promise<{ refreshed: number; errors: number }> {
   const supabase = getSupabaseAdmin()
@@ -31,13 +30,7 @@ export async function credentialRefreshTick(): Promise<{ refreshed: number; erro
     if (!provider) continue
 
     try {
-      // PR-S7c: app config satır sahibine göre çözümlenir (owner > platform > env)
-      const app = await resolveOAuthAppConfig(row.platform, row.owner_user_id)
-      if (!app) {
-        console.error(`[credentialRefreshTick] ${row.platform}/${row.id}: app yapılandırması yok — atlandı`)
-        continue
-      }
-      const result = await provider.refreshIfNeeded(row, app)
+      const result = await provider.refreshIfNeeded(row)
       if (!result) continue
 
       const { error: upErr } = await supabase
