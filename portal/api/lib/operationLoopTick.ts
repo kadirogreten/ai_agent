@@ -977,6 +977,9 @@ async function processOperation(supabase: SupabaseClient, op: Operation) {
         : 'tools: _none'
     }
 
+    const childRisk =
+      op.context_json?.kind === 'sector_factory' ? 'R1' : op.risk
+
     const { error: insErr } = await supabase.from('run_requests').insert({
       owner_user_id:   op.owner_user_id,
       mode:            'run',
@@ -990,7 +993,7 @@ async function processOperation(supabase: SupabaseClient, op: Operation) {
         ...stockCtx,
       },
       model:           op.model,
-      risk:            op.risk,
+      risk:            childRisk,
       allow_high_risk: false,
       status:          'pending',
       operation_id:    op.id,

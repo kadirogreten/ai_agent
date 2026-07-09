@@ -517,7 +517,23 @@ async function processOne(supabase: ReturnType<typeof getSupabaseAdmin>, job: Ru
         job.mode === 'ceo' &&
         answers.source === 'sector-builder' &&
         answers.phase === 'questions'
-      if (!isSectorQuestionPhase) {
+
+      // sector_factory ara playbook adımları (araştırma/taslak/test) otonom R1; yalnızca pack.publish R2 onaylı.
+      let isSectorFactoryStep = false
+      const linkedOpId =
+        job.operation_id ??
+        (typeof answers.operation_id === 'string' ? answers.operation_id : null)
+      if (job.mode === 'run' && linkedOpId) {
+        const { data: opRow } = await supabase
+          .from('operations')
+          .select('context_json')
+          .eq('id', linkedOpId)
+          .maybeSingle()
+        isSectorFactoryStep =
+          (opRow?.context_json as Record<string, unknown> | undefined)?.kind === 'sector_factory'
+      }
+
+      if (!isSectorQuestionPhase && !isSectorFactoryStep) {
         log('R2/R3 job requires human approval — gating', { id: job.id, risk: job.risk })
         const actionSummary = [job.mode, job.domain_pack, job.request_text?.slice(0, 120)]
           .filter(Boolean).join(' · ')
