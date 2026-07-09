@@ -83,7 +83,7 @@ public sealed class ToolExecutor : IToolExecutor
             // MCP araç satırlarını oku: enabled ve disabled dahil (bkz. üst not).
             var toolsJson = await db.SelectAsync(
                 "tools",
-                "mcp_server_id=not.is.null&select=slug,name,description,input_schema,side_effect,reversible,min_risk,compensation,mcp_server_id,mcp_tool_name",
+                "mcp_server_id=not.is.null&select=slug,name,description,input_schema,side_effect,reversible,min_risk,compensation,mcp_server_id,mcp_tool_name,untrusted_source",
                 ct);
 
             if (toolsJson.ValueKind != System.Text.Json.JsonValueKind.Array
@@ -124,7 +124,9 @@ public sealed class ToolExecutor : IToolExecutor
                     Reversible:  t.TryGetProperty("reversible", out var rv) && rv.ValueKind == System.Text.Json.JsonValueKind.True,
                     MinRisk:     GetStr(t, "min_risk") ?? "R3",
                     McpToolName: toolName!,
-                    Compensation: GetStr(t, "compensation")
+                    Compensation: GetStr(t, "compensation"),
+                    UntrustedSource: t.TryGetProperty("untrusted_source", out var us)
+                                     && us.ValueKind == System.Text.Json.JsonValueKind.True
                 ), serverId!));
 
                 serverIds.Add(serverId!);
@@ -175,6 +177,8 @@ public sealed class ToolExecutor : IToolExecutor
             foreach (var (row, serverId) in rows)
             {
                 if (!clients.TryGetValue(serverId, out var client)) continue; // sunucu disabled
+                if (row.UntrustedSource)
+                    ToolUntrustedRegistry.Register(row.Slug);
                 mcpTools.Add(new McpProxyTool(row, client));
             }
 
@@ -220,6 +224,7 @@ public sealed class ToolExecutor : IToolExecutor
         var desc       = tool.Descriptor;
         var sideEffect = desc.SideEffect.ToDbString();
         var effRisk    = desc.EffectiveRisk(ctx.Contract.Risk);
+        effRisk        = await ApplyReplyRiskEscalationAsync(slug, args, effRisk, ctx, ct);
 
         // 1b) tools.enabled kontrolü: run başında yüklenen harita; null → tüm araçlar enabled.
         if (ctx.ToolEnabledMap is not null &&
@@ -249,7 +254,7 @@ public sealed class ToolExecutor : IToolExecutor
             }
             return await FinishAsync(ctx, slug, agent.Id, args, sideEffect, effRisk, null,
                 ToolResult.Failure(slug, $"Araç '{slug}' devre dışı (ToolsPage'den etkinleştirilebilir)."),
-                ToolInvocationStatus.Blocked, ct);
+                ToolInvocationStatus.Blocked, ct, desc);
         }
 
         // 1c) PR9 intent forbidden_tools kontrolü.
@@ -278,19 +283,48 @@ public sealed class ToolExecutor : IToolExecutor
             }
             return await FinishAsync(ctx, slug, agent.Id, args, sideEffect, effRisk, null,
                 ToolResult.Failure(slug, $"Araç '{slug}' operasyon intent sözleşmesinde yasak."),
-                ToolInvocationStatus.Blocked, ct);
+                ToolInvocationStatus.Blocked, ct, desc);
         }
 
         // 2) İzin (görev sözleşmesi). agent_tools DB kesişimi sonraki PR'da eklenecek.
         var perms = ToolPermissions.Parse(ctx.Contract.ToolPermissions);
         if (!perms.IsToolAllowed(slug))
             return await FinishAsync(ctx, slug, agent.Id, args, sideEffect, effRisk, null,
-                ToolResult.Failure(slug, $"Araç '{slug}' görev izinlerinde yok."), ToolInvocationStatus.Blocked, ct);
+                ToolResult.Failure(slug, $"Araç '{slug}' görev izinlerinde yok."), ToolInvocationStatus.Blocked, ct, desc);
 
         // 3) Faz A güvenlik kuralı: geri-alınamaz yan etkili araç yasak.
         if (!desc.IsAllowedInPhaseA)
             return await FinishAsync(ctx, slug, agent.Id, args, sideEffect, effRisk, null,
-                ToolResult.Failure(slug, $"'{slug}' geri-alınamaz yan etkili — Faz A'da yasak."), ToolInvocationStatus.Blocked, ct);
+                ToolResult.Failure(slug, $"'{slug}' geri-alınamaz yan etkili — Faz A'da yasak."), ToolInvocationStatus.Blocked, ct, desc);
+
+        // 3c) D0b imtiyaz ayrımı: untrusted taint + R2+ yan etkili araç aynı adımda yasak.
+        if (ctx.HasUntrustedTaint && desc.SideEffect.HasSideEffect() && RiskPolicy.Rank(effRisk) >= 2)
+        {
+            var privMsg = "Untrusted içerik tüketildikten sonra R2+ yan etkili araç aynı adımda yasak.";
+            if (ctx.Db is not null && ctx.OwnerId is not null)
+            {
+                try
+                {
+                    await ctx.Db.CallRpcAsync("append_audit_log", new
+                    {
+                        p_owner_user_id = ctx.OwnerId,
+                        p_actor_type    = "agent",
+                        p_actor_id      = agent.Id,
+                        p_action        = "tool.privilege_denied",
+                        p_resource_type = "tool",
+                        p_risk_level    = effRisk,
+                        p_severity      = "warn",
+                        p_detail        = new { slug, reason = privMsg },
+                    }, ct);
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"[ToolExecutor] tool.privilege_denied audit yazılamadı: {ex.Message}");
+                }
+            }
+            return await FinishAsync(ctx, slug, agent.Id, args, sideEffect, effRisk, null,
+                ToolResult.Failure(slug, privMsg), ToolInvocationStatus.Blocked, ct, desc);
+        }
 
         // 4a) Bütçe kilidi: yan etkili her araç için koşulsuz çağrılır.
         //     Null-DB toleransı BudgetCheckerAdapter içinde kalır (allowed=true döner).
@@ -323,7 +357,7 @@ public sealed class ToolExecutor : IToolExecutor
                     Console.Error.WriteLine($"[ToolExecutor] intent.spend_exceeded audit yazılamadı: {ex.Message}");
                 }
                 return await FinishAsync(ctx, slug, agent.Id, args, sideEffect, effRisk, null,
-                    capFailResult, ToolInvocationStatus.Blocked, ct);
+                    capFailResult, ToolInvocationStatus.Blocked, ct, desc);
             }
 
             var budgetResult = await _budget.ConsumeAsync(ctx.Db, ctx.OwnerId, slug, amount, ct);
@@ -350,7 +384,7 @@ public sealed class ToolExecutor : IToolExecutor
                     Console.Error.WriteLine($"[ToolExecutor] budget.exceeded audit yazılamadı: {ex.Message}");
                 }
                 return await FinishAsync(ctx, slug, agent.Id, args, sideEffect, effRisk, null,
-                    failResult, ToolInvocationStatus.Blocked, ct);
+                    failResult, ToolInvocationStatus.Blocked, ct, desc);
             }
         }
 
@@ -360,7 +394,7 @@ public sealed class ToolExecutor : IToolExecutor
             var preResult = await preGate.ValidateBeforeGateAsync(args, ctx, ct);
             if (preResult is not null)
                 return await FinishAsync(ctx, slug, agent.Id, args, sideEffect, effRisk, null,
-                    preResult, ToolInvocationStatus.Blocked, ct);
+                    preResult, ToolInvocationStatus.Blocked, ct, desc);
         }
 
         // 4b) Yan etkili araç → RiskGate (instance _gate; testler FakeRiskGate enjekte eder).
@@ -375,13 +409,23 @@ public sealed class ToolExecutor : IToolExecutor
             if (!gateResult.Approved || (highRisk && bypassed))
                 return await FinishAsync(ctx, slug, agent.Id, args, sideEffect, effRisk, approvalQueueId,
                     ToolResult.Failure(slug, $"Onay alınamadı ({gateResult.Reason ?? "bilinmiyor"})."),
-                    ToolInvocationStatus.Blocked, ct);
+                    ToolInvocationStatus.Blocked, ct, desc);
         }
 
-        // 5) Argüman temel doğrulaması (tam JSON Schema doğrulaması sonraki PR'da).
-        if (args.ValueKind is not (JsonValueKind.Object or JsonValueKind.Undefined))
+        // 5) JSON Schema doğrulama (D0c — minimal required/type/enum).
+        if (desc.InputSchema.ValueKind == JsonValueKind.Object)
+        {
+            var schemaErr = ToolArgumentValidator.Validate(args, desc.InputSchema);
+            if (schemaErr is not null)
+                return await FinishAsync(ctx, slug, agent.Id, args, sideEffect, effRisk, approvalQueueId,
+                    ToolResult.Failure(slug, $"Argüman şema hatası: {schemaErr}"),
+                    ToolInvocationStatus.Failed, ct, desc);
+        }
+        else if (args.ValueKind is not (JsonValueKind.Object or JsonValueKind.Undefined))
+        {
             return await FinishAsync(ctx, slug, agent.Id, args, sideEffect, effRisk, approvalQueueId,
-                ToolResult.Failure(slug, "Argümanlar bir JSON nesnesi olmalı."), ToolInvocationStatus.Failed, ct);
+                ToolResult.Failure(slug, "Argümanlar bir JSON nesnesi olmalı."), ToolInvocationStatus.Failed, ct, desc);
+        }
 
         // 6) Çalıştır
         ToolResult result;
@@ -399,8 +443,38 @@ public sealed class ToolExecutor : IToolExecutor
         }
 
         var status = result.Ok ? ToolInvocationStatus.Succeeded : ToolInvocationStatus.Failed;
-        return await FinishAsync(ctx, slug, agent.Id, args, sideEffect, effRisk, approvalQueueId, result, status, ct);
+        return await FinishAsync(ctx, slug, agent.Id, args, sideEffect, effRisk, approvalQueueId, result, status, ct, desc);
     }
+
+    private static async Task<string> ApplyReplyRiskEscalationAsync(
+        string slug, JsonElement args, string effRisk, RunContext ctx, CancellationToken ct)
+    {
+        if (!slug.Equals("social_reply_send", StringComparison.OrdinalIgnoreCase))
+            return effRisk;
+        if (args.ValueKind != JsonValueKind.Object
+            || !args.TryGetProperty("text", out var textEl)
+            || textEl.ValueKind != JsonValueKind.String)
+            return effRisk;
+
+        var text = textEl.GetString() ?? string.Empty;
+        if (ContainsUrl(text))
+            return MaxRisk(effRisk, "R3");
+
+        var mentionEsc = await PolicyReader.GetAsync(ctx.Db, ctx.OwnerId, "security.mention_escalation", false, ct);
+        if (mentionEsc && ContainsMention(text))
+            return MaxRisk(effRisk, "R3");
+
+        return effRisk;
+    }
+
+    private static bool ContainsUrl(string text) =>
+        text.Contains("http://", StringComparison.OrdinalIgnoreCase)
+        || text.Contains("https://", StringComparison.OrdinalIgnoreCase);
+
+    private static bool ContainsMention(string text) => text.Contains('@');
+
+    private static string MaxRisk(string a, string b) =>
+        RiskPolicy.Rank(a) >= RiskPolicy.Rank(b) ? a : b;
 
     private static object? ArgsToObject(JsonElement args)
         => args.ValueKind == JsonValueKind.Undefined ? null : args;
@@ -408,9 +482,17 @@ public sealed class ToolExecutor : IToolExecutor
     /// <summary>Sonucu kaydeder (event log + tool_invocations + gerekirse audit_log) ve sonucu döner.</summary>
     private static async Task<ToolResult> FinishAsync(
         RunContext ctx, string slug, string agentId, JsonElement args, string? sideEffect, string? riskLevel,
-        string? approvalQueueId, ToolResult result, ToolInvocationStatus status, CancellationToken ct)
+        string? approvalQueueId, ToolResult result, ToolInvocationStatus status, CancellationToken ct,
+        ToolDescriptor? desc = null)
     {
         var statusStr = status.ToDbString();
+
+        // D0b: başarılı untrusted read → adım-içi taint.
+        if (result.Ok && status == ToolInvocationStatus.Succeeded && desc is not null
+            && desc.UntrustedSource && desc.SideEffect == ToolSideEffect.Read)
+        {
+            ctx.MarkUntrustedConsumed();
+        }
 
         // Teşhis — her araç çağrısının sonucu GitHub Actions / worker logunda görünsün.
         Console.Error.WriteLine(

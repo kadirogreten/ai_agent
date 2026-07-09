@@ -17,6 +17,7 @@ public static class PlatformCredentialMap
     public static string? FallbackEnvForPlatform(string platform) => platform switch
     {
         "meta" => "META_ACCESS_TOKEN",
+        "x"    => "X_ACCESS_TOKEN",
         _      => null,
     };
 }

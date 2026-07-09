@@ -18,8 +18,13 @@ export type OAuthStartResult = {
 export interface ISocialOAuthProvider {
   readonly slug: SocialPlatformSlug
   readonly displayName: string
-  buildAuthorizeUrl(state: string): string
-  exchangeCode(code: string): Promise<{
+  /** Opsiyonel PKCE / platform özel state alanları (X). */
+  createOAuthExtras?(): Record<string, unknown>
+  buildAuthorizeUrl(state: string, extras?: Record<string, unknown>): string
+  exchangeCode(
+    code: string,
+    context?: { oauthState?: Record<string, unknown> },
+  ): Promise<{
     accessToken: string
     refreshToken?: string
     expiresAt?: Date

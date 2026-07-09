@@ -76,9 +76,10 @@ public sealed class LinkCheckTool : ITool
         Category     = "utility",
         SideEffect   = ToolSideEffect.Read,
         Reversible   = true,
-        MinRisk      = "R0",
-        InputSchema  = InputSchemaJson,
-        OutputSchema = OutputSchemaJson,
+        MinRisk          = "R0",
+        UntrustedSource  = true,
+        InputSchema      = InputSchemaJson,
+        OutputSchema     = OutputSchemaJson,
     };
 
     public async Task<ToolResult> InvokeAsync(JsonElement args, RunContext ctx, CancellationToken ct)

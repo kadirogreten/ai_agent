@@ -111,7 +111,7 @@ public sealed class OpenAiResponsesClient : ILlmClient
             {
                 ["type"]    = "function_call_output",
                 ["call_id"] = ex.Call.CallId,
-                ["output"]  = ResultToString(ex.Result),
+                ["output"]  = ResultToString(ex.Result, ex.Call.Slug),
             });
         }
 
@@ -172,7 +172,7 @@ public sealed class OpenAiResponsesClient : ILlmClient
     private static string ArgsToString(JsonElement args)
         => args.ValueKind == JsonValueKind.Undefined ? "{}" : args.GetRawText();
 
-    private static string ResultToString(ToolResult result)
+    private static string ResultToString(ToolResult result, string toolSlug)
     {
         string raw;
         if (!result.Ok)
@@ -181,8 +181,7 @@ public sealed class OpenAiResponsesClient : ILlmClient
             raw = o.GetRawText();
         else
             raw = JsonSerializer.Serialize(new { ok = true });
-        // DIŞ VERİ sarması: araç çıktısındaki injection girişimlerini işaretler
-        return ToolResultDelimiter.Wrap(raw);
+        return ToolResultDelimiter.WrapForTool(toolSlug, raw, ToolUntrustedRegistry.IsUntrusted(toolSlug));
     }
 
     private LlmTurn ExtractTurn(string respText)

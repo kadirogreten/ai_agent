@@ -31,6 +31,10 @@ Kurulum:
 
 ## PR-S7 — Meta OAuth + credential (platform-agnostik)
 
+### Canlı inbox öncesi D0 zorunlu
+
+**D0a + D0b + D0c** merge edilmeden gerçek inbox / `SOCIAL_API_MODE=live` açılmaz. D0b tek başına yeterli değildir — taint adım sınırında temizlendiğinden adımlar-arası injection savunması Verifier rubriği + R2/R3 insan onayına dayanır.
+
 ### Ortam değişkenleri
 
 | Değişken | Nerede | Açıklama |
@@ -42,6 +46,9 @@ Kurulum:
 | `META_ACCESS_TOKEN` | CLI (fallback) | DB kaydı yoksa mock/demo MCP |
 | `SOCIAL_API_MODE=demo` | CLI + meta-social-mcp | Graph çağrısı yok, deterministik demo |
 | `META_PAGE_ID` | meta-social-mcp | Canlı Facebook sayfa yayını (App Review sonrası) |
+| `X_APP_ID` / `X_APP_SECRET` | Portal API | X Developer uygulaması (PR-S8-X) |
+| `X_OAUTH_REDIRECT_URI` | Portal API | `https://<portal>/api/social/x/oauth/callback` |
+| `X_ACCESS_TOKEN` | CLI (fallback) | DB kaydı yoksa X API |
 
 ### Akış
 

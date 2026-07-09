@@ -29,8 +29,11 @@ internal sealed class FakeRiskGate : IRiskGate
         string agentId, string toolSlug, object? args, CancellationToken ct)
     {
         WasCalled = true;
+        LastRisk  = risk;
         return Task.FromResult(new RiskGate.GateOutcome(_approve, _reason, _queueId));
     }
+
+    public string? LastRisk { get; private set; }
 }
 
 /// <summary>Deterministik bütçe test çifti.</summary>
@@ -68,16 +71,18 @@ internal sealed class FakeTool : ITool
         ToolSideEffect sideEffect,
         bool           reversible,
         string         minRisk   = "R0",
-        ToolResult?    result    = null)
+        ToolResult?    result    = null,
+        bool           untrustedSource = false)
     {
         Slug       = slug;
         Descriptor = new ToolDescriptor
         {
-            Slug       = slug,
-            Name       = slug,
-            SideEffect = sideEffect,
-            Reversible = reversible,
-            MinRisk    = minRisk,
+            Slug            = slug,
+            Name            = slug,
+            SideEffect      = sideEffect,
+            Reversible      = reversible,
+            MinRisk         = minRisk,
+            UntrustedSource = untrustedSource,
         };
         _fixedResult = result ?? ToolResult.Success(slug, JsonDocument.Parse("{}").RootElement);
     }

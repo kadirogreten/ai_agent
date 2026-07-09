@@ -142,7 +142,10 @@ public sealed class AnthropicMessagesClient : ILlmClient
             var rawResult = ex.Result.Output is JsonElement outp
                 ? (outp.ValueKind == JsonValueKind.String ? outp.GetString() : outp.GetRawText())
                 : (ex.Result.Error ?? "");
-            var resultText = ToolResultDelimiter.Wrap(rawResult ?? "");
+            var resultText = ToolResultDelimiter.WrapForTool(
+                call.Slug,
+                rawResult ?? "",
+                ToolUntrustedRegistry.IsUntrusted(call.Slug));
             msgs.Add(new
             {
                 role    = "user",

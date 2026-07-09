@@ -78,6 +78,12 @@ public sealed record ToolDescriptor
     public JsonElement OutputSchema { get; init; }
 
     /// <summary>
+    /// Dış/kullanıcı kontrolünde içerik üreten read araçlar (web_scrape, social_inbox_fetch, …).
+    /// LLM istemcileri çıktıyı &lt;untrusted_data&gt; ile sarar.
+    /// </summary>
+    public bool UntrustedSource { get; init; }
+
+    /// <summary>
     /// Faz A güvenlik kuralı (tasarım §8.3): yan etkili + geri-alınamaz araç kullanılamaz.
     /// Yürütücü, bu false dönen aracı reddeder.
     /// </summary>

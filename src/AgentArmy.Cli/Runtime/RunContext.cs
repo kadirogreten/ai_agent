@@ -40,6 +40,17 @@ public sealed class RunContext
     /// </summary>
     public string? OperationId => Environment.GetEnvironmentVariable("RUN_OPERATION_ID");
 
+    // ── D0b: untrusted içerik taint (adım-içi imtiyaz ayrımı) ─────────────────
+    private volatile bool _untrustedContentConsumed;
+
+    /// <summary>Bu adımda untrusted read araç çıktısı başarıyla tüketildi mi?</summary>
+    public bool HasUntrustedTaint => _untrustedContentConsumed;
+
+    public void MarkUntrustedConsumed() => _untrustedContentConsumed = true;
+
+    /// <summary>Yeni playbook adımı başında taint sıfırlanır (s1→s4 akışı).</summary>
+    public void ClearUntrustedTaint() => _untrustedContentConsumed = false;
+
     // ── In-memory accumulators (disk yerine) ──────────────────────────────
     private readonly StringBuilder _work      = new("# Work\n\n");
     private readonly StringBuilder _facts     = new("# Facts\n\n");

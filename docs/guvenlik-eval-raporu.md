@@ -35,8 +35,14 @@
 | 7b | Intent env yok | Geriye uyumluluk (no-op) | `AbsentIntentJson_NoExceptionExpected` | ✅ Sorunsuz |
 | 8 | Yasak araç + spend cap aynı anda | ToolExecutor adım 1c + 4a | `ForbiddenPlusBudget_TwoDistinctBlockTypes` | ✅ İki ayrı Blocked türü |
 | 9 | Bozuk decide JSON (LLM prompt injection) | `parseDecideResponse` → null → escalate | `decideGuard.test.ts` (vitest) | ✅ null (4 varyant) |
+| 10 | Inbox injection + aynı adımda reply | `ToolUntrustedRegistry` + privilege gate (D0b) | `InboxInjection_PrivilegeGateBlocksReplyInSameStep` | ✅ Blocked + `<untrusted_data>` |
+| 11 | Scrape içinde gizli file_store talimatı | `ToolPermissions` adım 2 | `ScrapeHiddenFileStoreInstruction_UnauthorizedToolBlocked` | ✅ Blocked |
+| 12 | Link tuzağı yanıt metni | URL → R3 yükseltme + RiskGate (D0b) | `LinkTrapReply_EscalatesToR3RiskGate` | ✅ R3 gate |
+| 12b | Mention (policy kapalı) | `security.mention_escalation` default off | `MentionOnlyReply_DefaultPolicy_StaysR2` | ✅ R2 |
+| 12c | Çok adım s1→s4 | `ClearUntrustedTaint` + RiskGate | `MultiStepSimulation_TaintClear_AllowsReplyInSeparateStep` | ✅ İzinli |
+| 13 | JSON Schema argüman | `ToolArgumentValidator` (D0c) | `SchemaValidator_RejectsMissingRequired` | ✅ Red |
 
-**Toplam:** 9 C# senaryosu (AdversarialTests.cs) + 4 TS test vakası (decideGuard.test.ts)
+**Toplam:** 13+ C# senaryosu (AdversarialTests.cs + ToolResultDelimiterTests.cs) + 4 TS test vakası (decideGuard.test.ts)
 
 ---
 
@@ -50,6 +56,18 @@
 
 **Senaryo 5 — Kapsamı:**
 `MaxCalls` parse testi yapar; Orchestrator'ın döngüyü `MaxCalls`'ta kesmesi entegrasyon testinde doğrulanmıştır (FakeLlmClient scriptedTurns deseni). Uçtan uca döngü testi düşük öncelikli ek kapsam.
+
+---
+
+## PR-D0 — Untrusted karantina + imtiyaz ayrımı (2026-07)
+
+**Kapsam:** Canlı `social_inbox_fetch` / `web_scrape` öncesi zorunlu güvenlik tabanı.
+
+- **D0a:** `tools.untrusted_source`, `WrapUntrusted` / `<untrusted_data>`, PromptBuilder talimat hiyerarşisi.
+- **D0b:** Run-level taint, adım-içi privilege gate (`tool.privilege_denied`), URL→R3; mention yalnız `security.mention_escalation=true` iken R3.
+- **D0c:** AdversarialTests 10–12, minimal JSON Schema doğrulama, sosyal-medya verifier rubriği.
+
+**Canlı inbox:** D0a+D0b+D0c merge edilmeden `SOCIAL_API_MODE=live` açılmaz (adımlar-arası savunma rubrik + insan onayına dayanır).
 
 ---
 

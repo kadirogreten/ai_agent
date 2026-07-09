@@ -12,7 +12,8 @@ internal sealed record McpToolRow(
     bool        Reversible,
     string      MinRisk,
     string      McpToolName,
-    string?     Compensation = null
+    string?     Compensation = null,
+    bool        UntrustedSource = false
 );
 
 /// <summary>
@@ -135,13 +136,14 @@ public sealed class McpProxyTool : ITool, ICompensable
 
     private static ToolDescriptor BuildDescriptor(McpToolRow row) => new()
     {
-        Slug        = row.Slug,
-        Name        = row.Name,
-        Description = row.Description ?? $"MCP proxy → {row.McpToolName}",
-        Category    = "utility",
-        SideEffect  = ToolSideEffects.Parse(row.SideEffect),
-        Reversible  = row.Reversible,
-        MinRisk     = row.MinRisk,
-        InputSchema = row.InputSchema,
+        Slug            = row.Slug,
+        Name            = row.Name,
+        Description     = row.Description ?? $"MCP proxy → {row.McpToolName}",
+        Category        = "utility",
+        SideEffect      = ToolSideEffects.Parse(row.SideEffect),
+        Reversible      = row.Reversible,
+        MinRisk         = row.MinRisk,
+        InputSchema     = row.InputSchema,
+        UntrustedSource = row.UntrustedSource,
     };
 }

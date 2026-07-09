@@ -1,9 +1,10 @@
 import type { ISocialOAuthProvider, SocialPlatformSlug } from './types.js'
 import { MetaOAuthProvider } from './meta.js'
+import { XOAuthProvider } from './x.js'
 
 const providers: Record<SocialPlatformSlug, ISocialOAuthProvider> = {
   meta:        new MetaOAuthProvider(),
-  x:           stubProvider('x', 'X (Twitter)'),
+  x:           new XOAuthProvider(),
   linkedin:    stubProvider('linkedin', 'LinkedIn'),
   tiktok:      stubProvider('tiktok', 'TikTok'),
   google_ads:  stubProvider('google_ads', 'Google Ads'),
@@ -28,6 +29,6 @@ export function listSocialProviders(): Array<{ slug: SocialPlatformSlug; display
   return (Object.keys(providers) as SocialPlatformSlug[]).map((slug) => ({
     slug,
     displayName: providers[slug].displayName,
-    available: slug === 'meta',
+    available: slug === 'meta' || slug === 'x',
   }))
 }

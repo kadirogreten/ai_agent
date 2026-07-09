@@ -62,14 +62,16 @@ router.get('/:provider/oauth/start', async (req: Request, res: Response) => {
     const provider = getSocialProvider(req.params.provider ?? '')
     if (!provider) return res.status(404).json({ error: 'Bilinmeyen platform' })
 
+    const extras = provider.createOAuthExtras?.() ?? {}
     const state = signOAuthState({
       userId:   user.id,
       provider: provider.slug,
       nonce:    cryptoRandom(),
       exp:      Date.now() + 15 * 60 * 1000,
+      ...extras,
     })
 
-    const authorizeUrl = provider.buildAuthorizeUrl(state)
+    const authorizeUrl = provider.buildAuthorizeUrl(state, extras)
     return res.status(200).json({ authorizeUrl })
   } catch (e) {
     const err = e as Error
@@ -104,7 +106,7 @@ router.get('/:provider/oauth/callback', async (req: Request, res: Response) => {
       return
     }
 
-    const exchanged = await provider.exchangeCode(code)
+    const exchanged = await provider.exchangeCode(code, { oauthState: payload })
     const supabase  = getSupabaseAdmin()
 
     const row = {

@@ -148,6 +148,8 @@ public sealed class Orchestrator
 
         foreach (var step in steps)
         {
+            ctx.ClearUntrustedTaint();
+
             // Güvenlik kilidi 1: blockOnVerifierFail.
             // Bu adım başlamadan önce önceki Verifier sonucu FAIL ise adımı çalıştırma.
             // Blok aksiyonu ÖNLER — adım hiç çalışmaz, bu adıma ait yan etkili çağrı üretilmez.
