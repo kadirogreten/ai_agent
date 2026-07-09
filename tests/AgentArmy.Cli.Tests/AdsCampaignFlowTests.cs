@@ -30,6 +30,7 @@ public sealed class AdsCampaignFlowTests : IDisposable
     {
         RunId    = "ads-campaign-" + Guid.NewGuid().ToString("N")[..8],
         RunDir   = string.Empty,
+        OwnerUserId = TestOwnerId,
         Contract = new TaskContract(
             Persona:         "ads-manager",
             Goal:            "test",

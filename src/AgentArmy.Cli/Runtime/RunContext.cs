@@ -31,8 +31,12 @@ public sealed class RunContext
     /// </summary>
     public decimal? IntentSpendCap { get; init; }
 
-    /// <summary>RUN_OWNER_USER_ID env var'dan okunur; run_outputs ve run_events'e eklenir.</summary>
-    public string? OwnerId => Environment.GetEnvironmentVariable("RUN_OWNER_USER_ID");
+    /// <summary>Test veya explicit caller override; yoksa RUN_OWNER_USER_ID env okunur.</summary>
+    public string? OwnerUserId { get; init; }
+
+    public string? OwnerId => !string.IsNullOrWhiteSpace(OwnerUserId)
+        ? OwnerUserId
+        : Environment.GetEnvironmentVariable("RUN_OWNER_USER_ID");
 
     /// <summary>
     /// RUN_OPERATION_ID env var'dan okunur; worker tarafından set edilir.
