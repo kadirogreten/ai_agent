@@ -462,7 +462,7 @@ function buildDotnetArgs(job: RunRequest) {
     '--topic',      topic,
     '--model',      model,
     '--risk',       runRisk,
-    '--allowHighRisk', allowHighRisk || runRisk === 'R3',
+    '--allowHighRisk', (allowHighRisk === 'true' || runRisk === 'R3') ? 'true' : 'false',
     '--web',        web,
     '--contrarian', contrarian,
   ]
