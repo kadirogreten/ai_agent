@@ -13,6 +13,8 @@
     "dev": "concurrently \"npm run client:dev\" \"npm run server:dev\"",
     "worker:once": "tsx api/lib/runRequestWorker.ts",
     "worker:loop": "tsx api/lib/runRequestWorkerLoop.ts",
+    "evals": "tsx ../scripts/run-evals.ts --mode=fake",
+    "evals:live": "tsx ../scripts/run-evals.ts --mode=live",
     "test": "vitest run"
   },
   "dependencies": {

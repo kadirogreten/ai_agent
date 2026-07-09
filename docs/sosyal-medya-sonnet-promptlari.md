@@ -322,6 +322,12 @@ D0a: `20260709120000_d0_untrusted_source.sql` + `ToolDescriptor.UntrustedSource`
 
 Sıradaki: **D2 — Ajan Fabrikası** (diyaloglu fabrika + otomatik eval üretimi + canary yayın + pack manifest). D1b eval kapısı hazır.
 
+## D2 Ajan Fabrikası — Tamamlandı (2026-07-09)
+
+Diyaloglu sektör fabrikası: SectorBuilderPage senkron soru-cevap (kalıcı answers_json) → mevcut sector_factory operasyonu (yeni yürütme yolu yok); izole EvalGenerator (rubric + D0 güvenlik case karışımı, `eval_generator_run_id` ile taslak-üreten ajandan ayrı) → merge eval kapısı (pass³ eşiği); canary yayın (yeni pack ilk N koşum R2 tabanı + D0 smoke doğrulaması); pack-manifest-v1 export/import. Migration `20260709180000_d2_eval_canary.sql`. 103 .NET + 28 portal testi. Kullanıcı tarafı: `supabase db push`, worker/CI `OPENAI_API_KEY` (eval üretimi).
+
+Sıradaki: **D3 — Genel Planlayıcı** (playbook yoksa hedeften plan-and-execute; gate'ler + D0 güvenlik + eval korunur). Bu, "yürütme dinamikliği"nin — tam dinamik hedefinin son büyük parçası.
+
 ## Çalışma notları
 
 - Oturum başına tek PR; her prompt'un başındaki bağlam dosyalarını Sonnet'e okutmadan koda başlatma.

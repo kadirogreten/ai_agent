@@ -136,7 +136,9 @@ router.post('/import', async (req: Request, res: Response) => {
   try {
     const { supabase, user } = await getAuthedUser(req)
     const validated = validateManifest(req.body)
-    if (!validated.ok) return res.status(400).json({ error: validated.error, schema: readFileSync(schemaPath, 'utf8') })
+    if (validated.ok !== true) {
+      return res.status(400).json({ error: validated.error, schema: readFileSync(schemaPath, 'utf8') })
+    }
 
     const m = validated.data
     const pack = m.pack as Record<string, unknown>

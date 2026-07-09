@@ -54,7 +54,7 @@ type KpiSummary = {
 }
 
 type DomainPack = { id: string; name: string }
-type PlaybookOption = { id: string; title: string }
+type PlaybookOption = { slug: string; name: string }
 type BudgetScope = { id: string; scope: string; period: string }
 
 // ── renk yardımcıları ─────────────────────────────────────────────────────────
@@ -444,7 +444,7 @@ function NewOpForm({ onCreated }: { onCreated: () => void }) {
     supabase.from('domain_packs').select('id, name').order('name').then(({ data }) => {
       if (data) setPacks(data as DomainPack[])
     })
-    supabase.from('playbooks').select('id, title').eq('pack_id', 'sosyal-medya').order('title').then(({ data }) => {
+    supabase.from('playbooks').select('slug, name').eq('pack_id', 'sosyal-medya').order('name').then(({ data }) => {
       if (data) setPlaybooks(data as PlaybookOption[])
     })
     // mevcut bütçe scope'ları
@@ -567,8 +567,8 @@ function NewOpForm({ onCreated }: { onCreated: () => void }) {
                 ...f,
                 template: 'sosyal_medya',
                 ...SOCIAL_MEDIA_DEFAULTS,
-                playbook_slug: f.playbook_slug || playbooks[0]?.id || '',
-                goal_text: f.goal_text || (playbooks[0]?.title ? `${playbooks[0].title} operasyonu` : 'Sosyal medya operasyonu'),
+                playbook_slug: f.playbook_slug || playbooks[0]?.slug || '',
+                goal_text: f.goal_text || (playbooks[0]?.name ? `${playbooks[0].name} operasyonu` : 'Sosyal medya operasyonu'),
               }))}
             >
               Sosyal Medya
@@ -584,18 +584,18 @@ function NewOpForm({ onCreated }: { onCreated: () => void }) {
               value={form.playbook_slug}
               onChange={(e) => {
                 const slug = e.target.value
-                const pb = playbooks.find((p) => p.id === slug)
+                const pb = playbooks.find((p) => p.slug === slug)
                 setForm((f) => ({
                   ...f,
                   playbook_slug: slug,
-                  goal_text: pb ? `${pb.title} operasyonu` : f.goal_text,
+                  goal_text: pb ? `${pb.name} operasyonu` : f.goal_text,
                 }))
               }}
               required
             >
               <option value="" disabled>Seç…</option>
               {playbooks.map((p) => (
-                <option key={p.id} value={p.id}>{p.title || p.id}</option>
+                <option key={p.slug} value={p.slug}>{p.name || p.slug}</option>
               ))}
             </select>
           </div>

@@ -94,7 +94,7 @@ function pickWriteTools(packTools: string[], count: number): string[] {
 function fillTemplate(tpl: string, vars: Record<string, string>): string {
   let out = tpl
   for (const [k, v] of Object.entries(vars)) {
-    out = out.replaceAll(`{{${k}}}`, v)
+    out = out.split(`{{${k}}}`).join(v)
   }
   return out
 }
