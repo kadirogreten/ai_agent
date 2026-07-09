@@ -25,6 +25,11 @@ type RunCost = {
   started_at: string | null
   finished_at: string | null
   created_at: string
+  meta?: { eval?: boolean } | null
+}
+
+function isEvalRun(r: { meta?: { eval?: boolean } | null }) {
+  return r.meta?.eval === true
 }
 
 type Summary = {
@@ -80,14 +85,14 @@ export default function CostLedgerPage() {
     setLoading(true); setErr(null)
     const { data, error } = await supabase
       .from('runs')
-      .select('id,title,external_id,status,model,domain_pack,risk_level,tokens_in,tokens_out,cost_usd,latency_ms,verifier_outcome,started_at,finished_at,created_at')
+      .select('id,title,external_id,status,model,domain_pack,risk_level,tokens_in,tokens_out,cost_usd,latency_ms,verifier_outcome,started_at,finished_at,created_at,meta')
       .eq('owner_user_id', user.id)
       .order('created_at', { ascending: false })
       .limit(200)
 
     if (error) { setErr(error.message); setLoading(false); return }
 
-    const r = (data ?? []) as RunCost[]
+    const r = ((data ?? []) as RunCost[]).filter((x) => !isEvalRun(x))
     setRows(r)
 
     const withCost    = r.filter((x) => x.cost_usd != null)

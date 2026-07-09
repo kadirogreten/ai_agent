@@ -316,6 +316,12 @@ yeşil; panelden girilen App ID/Secret ile OAuth akışı env'siz uçtan uca ça
 
 D0a: `20260709120000_d0_untrusted_source.sql` + `ToolDescriptor.UntrustedSource` + `WrapUntrusted` (`<untrusted_data source="tool:slug">`) + LLM istemcilerinde koşullu sarma + PromptBuilder talimat hiyerarşisi. D0b: RunContext taint (adım başında temizlenir) + privilege gate (untrusted read sonrası aynı adımda R2+ yan etkili araç → Blocked + `tool.privilege_denied` audit) + URL→R3 yükseltme; mention yükseltmesi `security.mention_escalation` policy (default off). D0c: AdversarialTests senaryo 10–12, `ToolArgumentValidator` (minimal JSON Schema, gate öncesi red), `20260709130000_d0_sosyal_verifier_rubric.sql`, guvenlik-eval-raporu güncellendi. PR-S8-X: `providers/x.ts` (OAuth2 PKCE + refresh; interface `createOAuthExtras`/`oauthState` ile genişletildi), env fallback `X_*`. Doğrulama: 85 .NET + 23 portal testi. KURAL: canlı inbox (`SOCIAL_API_MODE=live`) yalnız D0 migration'ları push edildikten sonra açılır; adımlar-arası injection savunması Verifier rubriği + insan onayına dayanır (taint adım-içi).
 
+## D1 Öğrenme Çekirdeği — Tamamlandı (2026-07-09)
+
+4 migration (20260709140000–170000): model router seed + eval meta + pgvector facts + approval feedback. Kod: `StepLlmResolver` (adım-bazlı tier routing), Orchestrator Verifier-FAIL frontier retry (yan etki korumalı — başarılı write/external varsa `model.upgrade_skipped`), `EmbeddingService` + FactsIndex hibrit arama (vector→trgm fallback) + FactsStore supersede, `evals/` + `run-evals.ts` (CI fake, nightly live, `meta.eval=true` KPI dışlama), selfReflectionTick approval_feedback sinyali. 98+25 test. Kullanıcı tarafı: `supabase db push` (4 migration; pgvector extension migration içinde), worker/CI'da `OPENAI_API_KEY`, CI secret'ları (nightly eval için).
+
+Sıradaki: **D2 — Ajan Fabrikası** (diyaloglu fabrika + otomatik eval üretimi + canary yayın + pack manifest). D1b eval kapısı hazır.
+
 ## Çalışma notları
 
 - Oturum başına tek PR; her prompt'un başındaki bağlam dosyalarını Sonnet'e okutmadan koda başlatma.

@@ -95,6 +95,74 @@ public static class LlmProviderResolver
         }
     }
 
+    /// <summary>cost_class → llm_providers.tier eşlemesi (D1a).</summary>
+    public static string CostClassToTier(string? costClass) => costClass?.ToLowerInvariant() switch
+    {
+        "high"   => "frontier",
+        "medium" => "standard",
+        _        => "basic",
+    };
+
+    /// <summary>
+    /// Verilen tier için enabled provider çözer (basic/standard/frontier).
+    /// Kayıt yoksa env-tabanlı <see cref="LlmRouter.ModelForCostClass"/> fallback kullanılır.
+    /// </summary>
+    public static async Task<LlmProviderRecord> ResolveForTierAsync(
+        SupabaseWriter? db, string tier, CancellationToken ct)
+    {
+        var normalizedTier = tier?.ToLowerInvariant() switch
+        {
+            "frontier" or "standard" or "basic" => tier!.ToLowerInvariant(),
+            _ => "standard",
+        };
+
+        if (db is null)
+        {
+            var model = normalizedTier switch
+            {
+                "frontier" => LlmRouter.ModelForCostClass("high"),
+                "basic"    => LlmRouter.ModelForCostClass("low"),
+                _          => LlmRouter.ModelForCostClass("medium"),
+            };
+            Console.Error.WriteLine($"[LlmProvider] tier={normalizedTier}: DB yok → env fallback ({model})");
+            return Fallback with { ModelId = model, Tier = normalizedTier };
+        }
+
+        try
+        {
+            var query = "select=slug,display_name,api_base,api_key_env,model_id,kind,tier,max_decision_risk,enabled,is_default_for" +
+                        $"&enabled=eq.true&tier=eq.{Uri.EscapeDataString(normalizedTier)}&limit=1";
+            var result = await db.SelectAsync("llm_providers", query, ct);
+
+            if (result.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in result.EnumerateArray())
+                {
+                    var record = Parse(item);
+                    if (record is not null)
+                    {
+                        Console.Error.WriteLine($"[LlmProvider] tier={normalizedTier}: {record.Slug} ({record.ModelId})");
+                        return record;
+                    }
+                }
+            }
+
+            var fallbackModel = normalizedTier switch
+            {
+                "frontier" => LlmRouter.ModelForCostClass("high"),
+                "basic"    => LlmRouter.ModelForCostClass("low"),
+                _          => LlmRouter.ModelForCostClass("medium"),
+            };
+            Console.Error.WriteLine($"[LlmProvider] tier={normalizedTier}: DB'de kayıt yok → env fallback ({fallbackModel})");
+            return Fallback with { ModelId = fallbackModel, Tier = normalizedTier };
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[LlmProvider] tier={normalizedTier}: çözümleme hatası ({ex.Message}) → fallback");
+            return Fallback with { Tier = normalizedTier };
+        }
+    }
+
     /// <summary>Risk seviyesini karşılaştırmak için sayısal değer. R0=0 … R3=3.</summary>
     public static int RiskLevel(string r) => r?.ToUpperInvariant() switch
     {

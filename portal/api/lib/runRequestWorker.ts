@@ -151,6 +151,7 @@ async function upsertRunsRow(
   metrics: Awaited<ReturnType<typeof readMetricsFromDb>>,
   latencyMs: number,
 ) {
+  const meta = extractRunMeta(job)
   await supabase.from('runs').insert({
     owner_user_id:    job.owner_user_id,
     external_id:      runId,
@@ -166,7 +167,23 @@ async function upsertRunsRow(
     latency_ms:       metrics?.latency_ms ?? latencyMs,
     cost_usd:         estimateCostUsd(metrics?.model ?? null, metrics?.tokens_in ?? 0, metrics?.tokens_out ?? 0),
     verifier_outcome: metrics?.verifier_outcome ?? null,
+    meta,
   })
+}
+
+/** D1b: Eval run'ları meta.eval=true ile etiketlenir; KPI sorgularından dışlanır. */
+function extractRunMeta(job: RunRequest): Record<string, unknown> {
+  const payload = (job.answers_json ?? {}) as Record<string, unknown>
+  if (payload.eval === true) {
+    return {
+      eval:    true,
+      pack:    payload.pack ?? job.domain_pack ?? null,
+      case_id: payload.case_id ?? null,
+    }
+  }
+  if (payload.meta && typeof payload.meta === 'object' && !Array.isArray(payload.meta))
+    return payload.meta as Record<string, unknown>
+  return {}
 }
 
 async function writeAuditEntry(

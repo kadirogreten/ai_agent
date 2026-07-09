@@ -1,0 +1,13 @@
+{
+  "name": "agent-army",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "evals": "tsx scripts/run-evals.ts --mode=fake",
+    "evals:live": "tsx scripts/run-evals.ts --mode=live"
+  },
+  "devDependencies": {
+    "tsx": "^4.20.3",
+    "typescript": "~5.8.3"
+  }
+}

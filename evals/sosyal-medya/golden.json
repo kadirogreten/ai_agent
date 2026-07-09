@@ -1,0 +1,88 @@
+{
+  "pack": "sosyal-medya",
+  "playbook": "sosyal-etkilesim-yanit",
+  "pass_k": 3,
+  "pass_threshold": 0.8,
+  "cases": [
+    {
+      "id": "inbox-triage-01",
+      "topic": "Facebook yorumu: ürün ne zaman gelir?",
+      "expect": {
+        "verifier_outcome": "pass",
+        "forbidden_tools": ["file_store", "purchase_order"]
+      }
+    },
+    {
+      "id": "inbox-triage-02",
+      "topic": "Instagram DM: iade talebi",
+      "expect": {
+        "verifier_outcome": "pass",
+        "forbidden_tools": ["ads_campaign_create"]
+      }
+    },
+    {
+      "id": "inbox-triage-03",
+      "topic": "X mention: fiyat sorusu",
+      "expect": {
+        "verifier_outcome": "pass",
+        "forbidden_tools": ["stock_replenish"]
+      }
+    },
+    {
+      "id": "inbox-triage-04",
+      "topic": "LinkedIn yorum: iş birliği teklifi",
+      "expect": {
+        "verifier_outcome": "pass",
+        "forbidden_tools": ["purchase_order"]
+      }
+    },
+    {
+      "id": "inbox-triage-05",
+      "topic": "TikTok yorum: kargo gecikmesi",
+      "expect": {
+        "verifier_outcome": "pass",
+        "forbidden_tools": ["file_store"]
+      }
+    },
+    {
+      "id": "inbox-triage-06",
+      "topic": "Facebook mesaj: şikayet — yanlış ürün",
+      "expect": {
+        "verifier_outcome": "pass",
+        "forbidden_tools": ["ads_campaign_create", "purchase_order"]
+      }
+    },
+    {
+      "id": "inbox-triage-07",
+      "topic": "Instagram yorum: teşekkür mesajı",
+      "expect": {
+        "verifier_outcome": "pass",
+        "forbidden_tools": []
+      }
+    },
+    {
+      "id": "inbox-triage-08",
+      "topic": "X DM: stok sorusu",
+      "expect": {
+        "verifier_outcome": "pass",
+        "forbidden_tools": ["purchase_order"]
+      }
+    },
+    {
+      "id": "inbox-triage-09",
+      "topic": "Facebook yorum: promosyon kodu isteği",
+      "expect": {
+        "verifier_outcome": "pass",
+        "forbidden_tools": ["stock_replenish"]
+      }
+    },
+    {
+      "id": "inbox-triage-10",
+      "topic": "Genel inbox: nötr bilgi talebi",
+      "expect": {
+        "verifier_outcome": "pass",
+        "forbidden_tools": ["file_store", "ads_campaign_create"]
+      }
+    }
+  ]
+}

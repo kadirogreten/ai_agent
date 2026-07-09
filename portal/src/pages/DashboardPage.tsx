@@ -26,6 +26,11 @@ type RunRow = {
   latency_ms: number | null
   verifier_outcome: string | null
   created_at: string
+  meta?: { eval?: boolean } | null
+}
+
+function isEvalRun(r: { meta?: { eval?: boolean } | null }) {
+  return r.meta?.eval === true
 }
 
 type JobRow = {
@@ -159,7 +164,7 @@ export default function DashboardPage() {
       const [runsRes, bundlesRes, factsRes, jobsRes, approvalRes] = await Promise.all([
         supabase
           .from('runs')
-          .select('id,external_id,title,status,cost_usd,latency_ms,verifier_outcome,created_at')
+          .select('id,external_id,title,status,cost_usd,latency_ms,verifier_outcome,created_at,meta')
           .eq('owner_user_id', uid)
           .order('created_at', { ascending: false })
           .limit(50),
@@ -179,7 +184,7 @@ export default function DashboardPage() {
       if (factsRes.error)   throw factsRes.error
       if (jobsRes.error)    throw jobsRes.error
 
-      const runs      = (runsRes.data ?? []) as RunRow[]
+      const runs      = ((runsRes.data ?? []) as RunRow[]).filter((r) => !isEvalRun(r))
       const withCost  = runs.filter((r) => r.cost_usd != null)
       const withLat   = runs.filter((r) => r.latency_ms != null)
       const verRuns   = runs.filter((r) => r.verifier_outcome != null)

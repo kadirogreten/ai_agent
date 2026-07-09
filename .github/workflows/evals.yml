@@ -1,0 +1,25 @@
+name: Evals (PR)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  evals-fake:
+    name: Eval harness (FakeLlm / structural)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Build CLI
+        run: dotnet build src/AgentArmy.Cli/AgentArmy.Cli.csproj --configuration Release --nologo
+      - name: Run eval harness (fake — no real LLM, no Supabase required)
+        run: npx tsx scripts/run-evals.ts --mode=fake --pack=sosyal-medya

@@ -22,6 +22,12 @@ public sealed class Orchestrator
     private readonly IToolExecutor? _toolExecutor;
     private readonly CompensationExecutor? _compensator;
     private readonly OperationMemoryStore? _opMemStore;
+    private readonly StepLlmResolver? _stepLlm;
+
+    // D1a: Verifier FAIL → frontier upgrade-retry kotası (run başına).
+    private int _upgradeCount;
+    private bool _verifierFailUpgradeEnabled = true;
+    private int _maxUpgradePerRun = 1;
 
     // Context budget — sliding window. ~16K char ≈ ~4K token (mixed TR/EN).
     private const int MaxContextChars    = 16000;
@@ -45,7 +51,8 @@ public sealed class Orchestrator
         PersonaProfile? personaProfile = null,
         IToolExecutor? toolExecutor = null,
         CompensationExecutor? compensator = null,
-        OperationMemoryStore? opMemStore = null
+        OperationMemoryStore? opMemStore = null,
+        StepLlmResolver? stepLlm = null
     )
     {
         _llm              = llm;
@@ -64,6 +71,7 @@ public sealed class Orchestrator
         _toolExecutor         = toolExecutor;
         _compensator          = compensator;
         _opMemStore           = opMemStore;
+        _stepLlm              = stepLlm;
 
         var merged = new Dictionary<string, Agent>(AgentsCatalog.All, StringComparer.OrdinalIgnoreCase);
         if (agentOverrides is not null)
@@ -94,6 +102,8 @@ public sealed class Orchestrator
 
         // policy_settings'ten yapılandırma yükle (DB yoksa sabit değerler kullanılır)
         _maxOperationMemory = await PolicyReader.GetAsync(ctx.Db, ctx.OwnerId, "memory.max_entries", 30, ct);
+        _verifierFailUpgradeEnabled = await PolicyReader.GetAsync(ctx.Db, ctx.OwnerId, "router.verifier_fail_upgrade", true, ct);
+        _maxUpgradePerRun = await PolicyReader.GetAsync(ctx.Db, ctx.OwnerId, "router.max_upgrade_per_run", 1, ct);
 
         var personaText = _personaProfile.ContextMarkdown;
         if (string.IsNullOrWhiteSpace(personaText))
@@ -146,8 +156,9 @@ public sealed class Orchestrator
             steps = ctx.Playbook.Steps.Where(s => allowed.Contains(s.Agent)).ToList();
         }
 
-        foreach (var step in steps)
+        for (var stepIdx = 0; stepIdx < steps.Count; stepIdx++)
         {
+            var step = steps[stepIdx];
             ctx.ClearUntrustedTaint();
 
             // Güvenlik kilidi 1: blockOnVerifierFail.
@@ -213,7 +224,14 @@ public sealed class Orchestrator
             var context    = TrimContext(rawContext);
             var user       = PromptBuilder.BuildUserPrompt(ctx, step, context, priorFactsText);
 
-            var llm = agent.Behaviors.RequiresWebSearch ? _webLlm ?? _llm : _llm;
+            var llm = _stepLlm is not null
+                ? await _stepLlm.ResolveForAgentAsync(
+                    agent,
+                    ctx,
+                    agent.Behaviors.RequiresWebSearch,
+                    forceFrontier: false,
+                    ct)
+                : (agent.Behaviors.RequiresWebSearch ? _webLlm ?? _llm : _llm);
 
             await ctx.AppendLogAsync(new
             {
@@ -306,6 +324,18 @@ public sealed class Orchestrator
                     ctx.AppendWork($"write.revised ({writer.DisplayName})", revised);
                     priorWork = revised;
                 }
+
+                var upgradeResult = await TryVerifierUpgradeRetryAsync(
+                    ctx, steps, stepIdx, personaText, priorFactsText, priorWork, verifierReport, ct);
+                if (upgradeResult is not null)
+                {
+                    priorWork        = upgradeResult.PriorWork;
+                    verifierReport   = upgradeResult.VerifierReport;
+                    verifierOutcome  = upgradeResult.VerifierOutcome;
+                    totalTokensIn   += upgradeResult.TokensIn;
+                    totalTokensOut  += upgradeResult.TokensOut;
+                    lastModel        = upgradeResult.Model ?? lastModel;
+                }
             }
         }
 
@@ -328,6 +358,170 @@ public sealed class Orchestrator
 
         // Report → DB
         await WriteReportAsync(ctx, lastModel, totalTokensIn, totalTokensOut, latencyMs, verifierOutcome, ct);
+    }
+
+    private sealed record UpgradeRetryResult(
+        string PriorWork,
+        string VerifierReport,
+        string VerifierOutcome,
+        int TokensIn,
+        int TokensOut,
+        string? Model);
+
+    /// <summary>
+    /// D1a: Verifier FAIL sonrası frontier upgrade-retry.
+    /// Yan etki koruması: retry hedef adımda başarılı write/external invocation varsa atlanır.
+    /// </summary>
+    private async Task<UpgradeRetryResult?> TryVerifierUpgradeRetryAsync(
+        RunContext ctx,
+        IReadOnlyList<PlaybookStep> steps,
+        int verifierStepIdx,
+        string personaText,
+        string priorFactsText,
+        string priorWork,
+        string verifierReport,
+        CancellationToken ct)
+    {
+        if (_stepLlm is null || !_verifierFailUpgradeEnabled || _upgradeCount >= _maxUpgradePerRun)
+            return null;
+
+        var retryStep = FindUpgradeRetryStep(steps, verifierStepIdx);
+        if (retryStep is null)
+            return null;
+
+        var hasSideEffect = await SideEffectInvocationGuard.HasSuccessfulWriteOrExternalAsync(
+            ctx.Db, ctx.RunId, retryStep.Id, ct);
+
+        if (hasSideEffect)
+        {
+            Console.Error.WriteLine(
+                $"[Orchestrator] model.upgrade_skipped: step '{retryStep.Id}' başarılı write/external invocation var.");
+            await ctx.AppendLogAsync(new
+            {
+                type     = "model.upgrade_skipped",
+                ts       = DateTimeOffset.UtcNow,
+                runId    = ctx.RunId,
+                playbook = ctx.Playbook.Id,
+                step     = retryStep.Id,
+                reason   = "side_effect_already_committed",
+            }, ct);
+            return null;
+        }
+
+        _upgradeCount++;
+
+        var frontierRetryAgent = AgentBehaviorMerge.Apply(ResolveAgent(retryStep.Agent), _personaProfile);
+        var frontierVerifier   = AgentBehaviorMerge.Apply(ResolveAgent(steps[verifierStepIdx].Agent), _personaProfile);
+        var frontierLlmRetry   = await _stepLlm.ResolveForAgentAsync(frontierRetryAgent, ctx, frontierRetryAgent.Behaviors.RequiresWebSearch, forceFrontier: true, ct);
+        var frontierLlmVerify  = await _stepLlm.ResolveForAgentAsync(frontierVerifier, ctx, frontierVerifier.Behaviors.RequiresWebSearch, forceFrontier: true, ct);
+
+        await ctx.AppendLogAsync(new
+        {
+            type     = "model.upgrade",
+            ts       = DateTimeOffset.UtcNow,
+            runId    = ctx.RunId,
+            playbook = ctx.Playbook.Id,
+            step     = retryStep.Id,
+            verifier = steps[verifierStepIdx].Id,
+            attempt  = _upgradeCount,
+        }, ct);
+
+        var totalIn  = 0;
+        var totalOut = 0;
+        string? lastModel = null;
+        var work = priorWork;
+
+        var (retryOutput, retryIn, retryOut, retryModel) = await ExecuteStepBodyAsync(
+            ctx, retryStep, frontierRetryAgent, personaText, priorFactsText, work, frontierLlmRetry, ct);
+        totalIn  += retryIn;
+        totalOut += retryOut;
+        lastModel = retryModel;
+        work = retryOutput;
+
+        var verifierStep = steps[verifierStepIdx];
+        var (verifyOutput, verifyIn, verifyOut, verifyModel) = await ExecuteStepBodyAsync(
+            ctx, verifierStep, frontierVerifier, personaText, priorFactsText, work, frontierLlmVerify, ct);
+        totalIn  += verifyIn;
+        totalOut += verifyOut;
+        lastModel = verifyModel;
+
+        return new UpgradeRetryResult(
+            work,
+            verifyOutput,
+            IsFail(verifyOutput) ? "fail" : "pass",
+            totalIn,
+            totalOut,
+            lastModel);
+    }
+
+    private static PlaybookStep? FindUpgradeRetryStep(IReadOnlyList<PlaybookStep> steps, int verifierStepIdx)
+    {
+        for (var i = verifierStepIdx - 1; i >= 0; i--)
+        {
+            var s = steps[i];
+            if (s.Agent.Equals("Verifier", StringComparison.OrdinalIgnoreCase)) continue;
+            if (s.Agent.Equals("Contrarian", StringComparison.OrdinalIgnoreCase)) continue;
+            if (s.Id.Equals("contrarian", StringComparison.OrdinalIgnoreCase)) continue;
+            return s;
+        }
+        return null;
+    }
+
+    /// <summary>Tek adımın LLM tamamlaması + DB yazımı (upgrade-retry için).</summary>
+    private async Task<(string Output, int TokensIn, int TokensOut, string Model)> ExecuteStepBodyAsync(
+        RunContext ctx,
+        PlaybookStep step,
+        Agent agent,
+        string personaText,
+        string priorFactsText,
+        string priorWork,
+        ILlmClient llm,
+        CancellationToken ct)
+    {
+        var extraPolicy = BuildExtraPolicy(agent);
+        var opMem       = await BuildOperationMemoryBlockAsync(ct);
+        var system      = PromptBuilder.BuildSystemPrompt(agent, personaText, extraPolicy, opMem);
+        var rawContext  = agent.Behaviors.RequiresFullContext ? ctx.GetWork() : priorWork;
+        var context     = TrimContext(rawContext);
+        var user        = PromptBuilder.BuildUserPrompt(ctx, step, context, priorFactsText);
+
+        await ctx.AppendLogAsync(new
+        {
+            type     = "step_start",
+            ts       = DateTimeOffset.UtcNow,
+            runId    = ctx.RunId,
+            playbook = ctx.Playbook.Id,
+            step     = step.Id,
+            agent    = agent.Id,
+            upgrade  = true,
+        }, ct);
+
+        var (output, tin, tout, model) =
+            await RunStepCompletionAsync(llm, system, user, agent, ctx, step.PrimaryTool, ct);
+
+        await ctx.AppendLogAsync(new
+        {
+            type       = "step_end",
+            ts         = DateTimeOffset.UtcNow,
+            runId      = ctx.RunId,
+            playbook   = ctx.Playbook.Id,
+            step       = step.Id,
+            agent      = agent.Id,
+            tokens_in  = tin,
+            tokens_out = tout,
+            model,
+            upgrade    = true,
+        }, ct);
+
+        await WriteOutputAsync(ctx, "step", step.Id, agent.Id, artifactName: null, output, ct);
+        ctx.AppendWork($"{step.Id} ({agent.DisplayName})", output);
+
+        if (agent.Behaviors.WritesToFacts)
+            ctx.AppendFacts(step.Id, output);
+        if (agent.Behaviors.WritesToDecisions)
+            ctx.AppendDecisions(step.Id, output);
+
+        return (output, tin, tout, model);
     }
 
     // ── Yardımcılar ──────────────────────────────────────────────────────────

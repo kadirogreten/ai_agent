@@ -20,6 +20,8 @@ import { getPolicy } from './policyReader.js'
 const DEFAULT_FAIL_RATE_THRESHOLD = 0.4
 const DEFAULT_MIN_RUNS            = 5
 const DEFAULT_COOLDOWN_HOURS      = 24
+const DEFAULT_REJECTION_MIN       = 3
+const DEFAULT_REJECTION_COOLDOWN  = 24
 
 function log(msg: string, meta?: Record<string, unknown>) {
   const ts = new Date().toISOString()
@@ -32,6 +34,140 @@ function getSupabase() {
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY
   if (!url || !key) throw new Error('SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY eksik')
   return createClient(url, key, { auth: { persistSession: false } })
+}
+
+type RejectionGroup = {
+  persona: string
+  playbook_slug: string
+  domain_pack: string
+  rejection_count: number
+  notes: string[]
+}
+
+async function processApprovalFeedbackSignals(
+  supabase: ReturnType<typeof getSupabase>,
+  rejectionMin: number,
+  cooldownHours: number,
+): Promise<number> {
+  const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+
+  const { data: rejections, error: rejErr } = await supabase
+    .from('approval_queue')
+    .select('id,run_request_id,reviewer_note,agent_code,step_name,created_at')
+    .eq('status', 'rejected')
+    .not('reviewer_note', 'is', null)
+    .gte('created_at', since)
+
+  if (rejErr) throw rejErr
+  if (!rejections?.length) return 0
+
+  const runRequestIds = [...new Set(
+    rejections.map((r) => r.run_request_id).filter((id): id is string => Boolean(id)),
+  )]
+
+  const runMeta: Record<string, { persona: string; playbook: string; pack: string }> = {}
+  if (runRequestIds.length > 0) {
+    const { data: jobs } = await supabase
+      .from('run_requests')
+      .select('id,domain_pack,answers_json')
+      .in('id', runRequestIds)
+
+    for (const j of jobs ?? []) {
+      const a = (j.answers_json ?? {}) as Record<string, unknown>
+      runMeta[j.id] = {
+        persona:  String(a.persona ?? a.agent_code ?? 'default'),
+        playbook: String(a.playbookId ?? a.playbook_slug ?? 'unknown'),
+        pack:     String(j.domain_pack ?? a.domain_pack ?? ''),
+      }
+    }
+  }
+
+  const groups: Record<string, RejectionGroup> = {}
+  for (const r of rejections) {
+    const note = (r.reviewer_note ?? '').trim()
+    if (!note) continue
+
+    const meta = r.run_request_id ? runMeta[r.run_request_id] : null
+    const persona  = meta?.persona  ?? String(r.agent_code ?? 'default')
+    const playbook = meta?.playbook ?? String(r.step_name ?? 'unknown')
+    const pack     = meta?.pack     ?? ''
+    const key      = `${persona}::${playbook}::${pack}`
+
+    if (!groups[key]) {
+      groups[key] = { persona, playbook_slug: playbook, domain_pack: pack, rejection_count: 0, notes: [] }
+    }
+    groups[key].rejection_count++
+    if (groups[key].notes.length < 5) groups[key].notes.push(note.slice(0, 200))
+  }
+
+  const { data: recentApprovalSignals } = await supabase
+    .from('run_requests')
+    .select('answers_json,created_at')
+    .eq('mode', 'ceo')
+    .gte('created_at', new Date(Date.now() - cooldownHours * 60 * 60 * 1000).toISOString())
+    .contains('answers_json', { approval_feedback: true })
+
+  const recentlySignaled = new Set<string>(
+    (recentApprovalSignals ?? []).map((r) => {
+      const a = r.answers_json as Record<string, unknown>
+      return `${a?.persona ?? ''}::${a?.playbook_slug ?? ''}`
+    }).filter((k) => k !== '::'),
+  )
+
+  let signaled = 0
+  for (const g of Object.values(groups)) {
+    if (g.rejection_count < rejectionMin) continue
+    if (!g.domain_pack) {
+      log('approval-feedback skip — domain_pack bilinmiyor', { persona: g.persona, playbook: g.playbook_slug })
+      continue
+    }
+    const signalKey = `${g.persona}::${g.playbook_slug}`
+    if (recentlySignaled.has(signalKey)) continue
+
+    const { data: adminUser } = await supabase.auth.admin.listUsers({ perPage: 1 })
+    const ownerId = adminUser?.users?.[0]?.id
+    if (!ownerId) { log('approval-feedback skip — admin user yok'); continue }
+
+    const notesSummary = g.notes.map((n, i) => `${i + 1}. ${n}`).join('\n')
+    const requestText =
+      `Onay geri beslemesi: persona "${g.persona}" / playbook "${g.playbook_slug}" ` +
+      `son 30 günde ${g.rejection_count} kez reddedildi.\n\n` +
+      `Red gerekçeleri:\n${notesSummary}\n\n` +
+      `Rubrik veya system_prompt iyileştirme önerileri sun.`
+
+    const { error: insErr } = await supabase.from('run_requests').insert({
+      owner_user_id: ownerId,
+      mode:          'ceo',
+      domain_pack:   g.domain_pack,
+      request_text:  requestText,
+      answers_json: {
+        approval_feedback: true,
+        self_reflection:   false,
+        signal_type:       'selfreflect.approval_feedback',
+        persona:           g.persona,
+        playbook_slug:     g.playbook_slug,
+        rejection_count:   g.rejection_count,
+        analysis_window:   '30d',
+      },
+      risk:   'R1',
+      web:    false,
+      status: 'pending',
+    })
+
+    if (insErr) {
+      log('approval-feedback insert failed', { persona: g.persona, error: insErr.message })
+      continue
+    }
+
+    log('approval-feedback signal sent', {
+      persona: g.persona,
+      playbook_slug: g.playbook_slug,
+      rejection_count: g.rejection_count,
+    })
+    signaled++
+  }
+
+  return signaled
 }
 
 type PlaybookStats = {
@@ -50,6 +186,8 @@ export async function selfReflectionTick() {
   const FAIL_RATE_THRESHOLD = await getPolicy<number>(supabase, null, 'selfreflect.fail_rate',    DEFAULT_FAIL_RATE_THRESHOLD)
   const MIN_RUNS            = await getPolicy<number>(supabase, null, 'selfreflect.min_runs',      DEFAULT_MIN_RUNS)
   const COOLDOWN_HOURS      = await getPolicy<number>(supabase, null, 'selfreflect.cooldown_hours', DEFAULT_COOLDOWN_HOURS)
+  const REJECTION_MIN       = await getPolicy<number>(supabase, null, 'selfreflect.rejection_min', DEFAULT_REJECTION_MIN)
+  const REJECTION_COOLDOWN  = await getPolicy<number>(supabase, null, 'selfreflect.rejection_cooldown_hours', DEFAULT_REJECTION_COOLDOWN)
 
   const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
 
@@ -158,7 +296,10 @@ export async function selfReflectionTick() {
     signaled++
   }
 
-  return { evaluated: slugs.length, candidates: candidates.length, signaled }
+  const approvalSignaled = await processApprovalFeedbackSignals(supabase, REJECTION_MIN, REJECTION_COOLDOWN)
+  log(`approval-feedback signaled: ${approvalSignaled}`)
+
+  return { evaluated: slugs.length, candidates: candidates.length, signaled, approvalSignaled }
 }
 
 import { fileURLToPath } from 'url'

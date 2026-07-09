@@ -11,21 +11,23 @@ public sealed class FactsIndex
 {
     private readonly SupabaseWriter _db;
     private readonly string _domainPack;
+    private readonly EmbeddingService? _embeddings;
+    private readonly double _vectorThreshold;
 
-    public FactsIndex(SupabaseWriter db, string domainPack)
+    public FactsIndex(
+        SupabaseWriter db,
+        string domainPack,
+        EmbeddingService? embeddings = null,
+        double vectorThreshold = 0.75)
     {
-        _db         = db;
-        _domainPack = domainPack;
+        _db              = db;
+        _domainPack      = domainPack;
+        _embeddings      = embeddings;
+        _vectorThreshold = vectorThreshold;
     }
 
     /// <summary>
-    /// Verilen sorguyla ilgili facts'leri DB'den çeker, token-overlap skor verir,
-    /// en yüksek skorlu maxFacts kaydı döner. Skor 0 olanlar elenir.
-    ///
-    /// Kapı 5: Çapraz-fonksiyon mod. <paramref name="includeCrossPack"/> true ise
-    /// facts_pack_visibility tablosunda <c>visible_to_pack_id = _domainPack</c> olan
-    /// kaynak pack'lerin facts'leri de aday havuzuna eklenir. Görünür pack listesi
-    /// visible_packs_for() RPC'sinden alınır.
+    /// D1c: Önce vector RPC, sonuç yoksa token-overlap fallback.
     /// </summary>
     public async Task<IReadOnlyList<FactEntry>> SearchAsync(
         string query,
@@ -35,69 +37,120 @@ public sealed class FactsIndex
     {
         if (string.IsNullOrWhiteSpace(query)) return Array.Empty<FactEntry>();
 
-        var tokens = Tokenize(query);
-        if (tokens.Count == 0) return Array.Empty<FactEntry>();
-
-        // Görünür pack'ler: kendi pack'i + (opsiyonel) facts_pack_visibility ile izin verilenler.
-        var packs = new List<string> { _domainPack };
-        if (includeCrossPack)
+        if (_embeddings?.IsConfigured == true)
         {
-            try
+            var vec = await _embeddings.EmbedAsync(query, ct);
+            if (vec is not null)
             {
-                var vis = await _db.SelectAsync(
-                    "rpc/visible_packs_for",
-                    $"p_pack_id={Uri.EscapeDataString(_domainPack)}",
-                    ct);
-                if (vis.ValueKind == JsonValueKind.Array)
+                var vectorHits = await SearchByEmbeddingAsync(vec, maxFacts, ct);
+                if (vectorHits.Count > 0)
+                    return vectorHits;
+            }
+        }
+
+        return await SearchByTokenOverlapAsync(query, maxFacts, ct, includeCrossPack);
+    }
+
+    private async Task<IReadOnlyList<FactEntry>> SearchByEmbeddingAsync(
+        float[] embedding, int maxFacts, CancellationToken ct)
+    {
+        try
+        {
+            var result = await _db.CallRpcReturningAsync("match_facts_by_embedding", new
+            {
+                p_domain_pack = _domainPack,
+                p_embedding   = EmbeddingService.ToPgVectorLiteral(embedding),
+                p_limit       = maxFacts,
+                p_threshold   = _vectorThreshold,
+            }, ct);
+
+            if (result.ValueKind != JsonValueKind.Array || result.GetArrayLength() == 0)
+                return Array.Empty<FactEntry>();
+
+            var list = new List<FactEntry>(result.GetArrayLength());
+            foreach (var el in result.EnumerateArray())
+            {
+                var fact = TryMap(el);
+                if (fact is not null) list.Add(fact);
+            }
+            return list;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[FactsIndex] vector arama hatası, token fallback: {ex.Message}");
+            return Array.Empty<FactEntry>();
+        }
+    }
+
+    private async Task<IReadOnlyList<FactEntry>> SearchByTokenOverlapAsync(
+        string query,
+        int maxFacts,
+        CancellationToken ct,
+        bool includeCrossPack)
+    {
+        var packs = new List<string> { _domainPack };
+            if (includeCrossPack)
+            {
+                try
                 {
-                    foreach (var el in vis.EnumerateArray())
+                    var vis = await _db.SelectAsync(
+                        "rpc/visible_packs_for",
+                        $"p_pack_id={Uri.EscapeDataString(_domainPack)}",
+                        ct);
+                    if (vis.ValueKind == JsonValueKind.Array)
                     {
-                        if (el.TryGetProperty("pack_id", out var p) && p.ValueKind == JsonValueKind.String)
+                        foreach (var el in vis.EnumerateArray())
                         {
-                            var s = p.GetString();
-                            if (!string.IsNullOrWhiteSpace(s) && !packs.Contains(s!))
-                                packs.Add(s!);
+                            if (el.TryGetProperty("pack_id", out var p) && p.ValueKind == JsonValueKind.String)
+                            {
+                                var s = p.GetString();
+                                if (!string.IsNullOrWhiteSpace(s) && !packs.Contains(s!))
+                                    packs.Add(s!);
+                            }
                         }
                     }
                 }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"[FactsIndex] cross-pack visibility RPC hatası, sadece kendi pack: {ex.Message}");
+                }
             }
-            catch (Exception ex)
+
+            // PostgREST: domain_pack=in.(p1,p2,p3)
+            var packList = string.Join(",", packs.Select(Uri.EscapeDataString));
+            var q = $"domain_pack=in.({packList})" +
+                    "&superseded_by=is.null" +
+                    "&order=confidence.desc,extracted_at.desc" +
+                    "&limit=200" +
+                    "&select=id,domain_pack,run_id,playbook_id,topic,claim,evidence_url,evidence_quote,source_title,source_domain,confidence,extracted_at";
+
+            var json = await _db.SelectAsync("facts", q, ct);
+            if (json.ValueKind != JsonValueKind.Array) return Array.Empty<FactEntry>();
+
+            var tokens = Tokenize(query);
+            if (tokens.Count == 0) return Array.Empty<FactEntry>();
+
+            var scored = new List<(int Score, FactEntry Fact)>(json.GetArrayLength());
+            foreach (var el in json.EnumerateArray())
             {
-                Console.Error.WriteLine($"[FactsIndex] cross-pack visibility RPC hatası, sadece kendi pack: {ex.Message}");
+                var fact = TryMap(el);
+                if (fact is null) continue;
+
+                var hay = (fact.Claim + " " + fact.Topic + " " + fact.SourceDomain).ToLowerInvariant();
+                var score = 0;
+                foreach (var t in tokens)
+                    if (hay.Contains(t)) score++;
+
+                if (score == 0) continue;
+                scored.Add((score, fact));
             }
-        }
 
-        // PostgREST: domain_pack=in.(p1,p2,p3)
-        var packList = string.Join(",", packs.Select(Uri.EscapeDataString));
-        var q = $"domain_pack=in.({packList})" +
-                "&order=confidence.desc,extracted_at.desc" +
-                "&limit=200" +
-                "&select=id,domain_pack,run_id,playbook_id,topic,claim,evidence_url,evidence_quote,source_title,source_domain,confidence,extracted_at";
-
-        var json = await _db.SelectAsync("facts", q, ct);
-        if (json.ValueKind != JsonValueKind.Array) return Array.Empty<FactEntry>();
-
-        var scored = new List<(int Score, FactEntry Fact)>(json.GetArrayLength());
-        foreach (var el in json.EnumerateArray())
-        {
-            var fact = TryMap(el);
-            if (fact is null) continue;
-
-            var hay = (fact.Claim + " " + fact.Topic + " " + fact.SourceDomain).ToLowerInvariant();
-            var score = 0;
-            foreach (var t in tokens)
-                if (hay.Contains(t)) score++;
-
-            if (score == 0) continue;
-            scored.Add((score, fact));
-        }
-
-        return scored
-            .OrderByDescending(x => x.Score)
-            .ThenByDescending(x => x.Fact.Confidence)
-            .Take(maxFacts)
-            .Select(x => x.Fact)
-            .ToArray();
+            return scored
+                .OrderByDescending(x => x.Score)
+                .ThenByDescending(x => x.Fact.Confidence)
+                .Take(maxFacts)
+                .Select(x => x.Fact)
+                .ToArray();
     }
 
     private static FactEntry? TryMap(JsonElement el)

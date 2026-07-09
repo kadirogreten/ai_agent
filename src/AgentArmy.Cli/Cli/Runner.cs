@@ -190,18 +190,21 @@ public static class Runner
 
             FactsExtractor? extractor = null;
             FactsStore? store         = null;
+            EmbeddingService? embeddingService = null;
             string? factsTopic        = null;
 
             if (enableFacts && db is not null)
             {
+                if (http is not null)
+                    embeddingService = new EmbeddingService(http);
                 extractor  = new FactsExtractor(llm);
-                store      = new FactsStore(db, exec.DomainPack?.Id ?? "default");
+                store      = new FactsStore(db, exec.DomainPack?.Id ?? "default", embeddingService);
                 factsTopic = exec.Args.GetValueOrDefault("topic") ?? string.Empty;
             }
 
             // Kapı 1: Hafızalı otonomi — facts'leri DB'den oku (tek hakikat kaynağı).
             FactsIndex? factsIndex = (db is not null && exec.DomainPack is not null)
-                ? new FactsIndex(db, exec.DomainPack.Id)
+                ? new FactsIndex(db, exec.DomainPack.Id, embeddingService)
                 : null;
 
             // Operasyon belleği: operationId varsa run'lar arası kalıcı durum.
@@ -213,6 +216,10 @@ public static class Runner
             var personaSlug = exec.Args.GetValueOrDefault("persona") ?? playbook.DefaultPersona;
             var personaProfile = await PersonaLoader.LoadProfileAsync(
                 rootDir, exec.DomainPack, personaSlug, supabase, ct);
+
+            StepLlmResolver? stepLlm = null;
+            if (!exec.DryRun && http is not null)
+                stepLlm = new StepLlmResolver(db, http, llm);
 
             var orchestrator = new Orchestrator(
                 llm, webLlm, rootDir,
@@ -227,7 +234,8 @@ public static class Runner
                     ? await ToolExecutor.CreateWithDbAsync(db, ct)
                     : ToolExecutor.CreateDefault(),
                 compensator: null,
-                opMemStore:  opMemStore
+                opMemStore:  opMemStore,
+                stepLlm:     stepLlm
             );
 
             // tools.enabled haritasını run başında yükle.
