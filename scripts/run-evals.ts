@@ -78,7 +78,7 @@ async function loadGoldenFromDb(draftId: string): Promise<GoldenPack> {
   return data.eval_json as GoldenPack
 }
 
-/** Merge öncesi taslaklar için fake harness: pack DB'de yoksa system proxy kullan. */
+/** Merge öncesi / playbook henüz yoksa fake harness system proxy kullanır. */
 async function resolveHarnessGolden(golden: GoldenPack, mode: string): Promise<GoldenPack> {
   if (mode !== 'fake') return golden
   const url = process.env.SUPABASE_URL
@@ -86,10 +86,18 @@ async function resolveHarnessGolden(golden: GoldenPack, mode: string): Promise<G
   if (!url || !key) return golden
   const { createClient } = await import('@supabase/supabase-js')
   const supabase = createClient(url, key)
-  const { data } = await supabase.from('domain_packs').select('id').eq('id', golden.pack).maybeSingle()
-  if (data?.id) return golden
+  const { data: pack } = await supabase.from('domain_packs').select('id').eq('id', golden.pack).maybeSingle()
+  if (pack?.id) {
+    const { data: pb } = await supabase
+      .from('playbooks')
+      .select('slug')
+      .eq('pack_id', golden.pack)
+      .eq('slug', golden.playbook)
+      .maybeSingle()
+    if (pb?.slug) return golden
+  }
   console.log(
-    `[evals] pack "${golden.pack}" henüz aktif değil — fake harness proxy: system/sector-arastirma`,
+    `[evals] pack/playbook henüz koşulabilir değil (${golden.pack}/${golden.playbook}) — fake harness proxy: system/sector-arastirma`,
   )
   return { ...golden, pack: 'system', playbook: 'sector-arastirma' }
 }

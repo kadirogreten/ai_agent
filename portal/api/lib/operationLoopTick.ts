@@ -738,19 +738,37 @@ async function processOperation(supabase: SupabaseClient, op: Operation) {
     if (!draftCtxErr) {
       op.context_json = newCtx
       log('context_json.draft_id yazıldı', { id: op.id, draft_id: obs.sectorDraftId })
-      if (op.context_json?.kind === 'sector_factory') {
-        try {
-          await enqueueEvalGeneratorJob(supabase, obs.sectorDraftId, op.owner_user_id)
-          log('EvalGenerator enqueued', { draft_id: obs.sectorDraftId })
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : String(e)
-          if (!msg.includes('eval_generator_run_id')) {
-            log('EvalGenerator enqueue hatası', { draft_id: obs.sectorDraftId, error: msg })
-          }
-        }
-      }
     } else {
       log('context_json.draft_id yazma hatası', { id: op.id, error: draftCtxErr.message })
+    }
+  }
+
+  // CLI DomainPackDraftWriter eval_generator tetiklemez; her tick'te eksik eval'i kuyruğa al.
+  if (op.context_json?.kind === 'sector_factory') {
+    const draftId =
+      (op.context_json?.draft_id as string | undefined) ?? obs.sectorDraftId ?? null
+    if (draftId) {
+      const { data: draftRow } = await supabase
+        .from('domain_pack_drafts')
+        .select('id, eval_json, eval_generator_run_id, eval_status')
+        .eq('id', draftId)
+        .maybeSingle()
+      if (
+        draftRow &&
+        !draftRow.eval_generator_run_id &&
+        !draftRow.eval_json &&
+        (draftRow.eval_status === 'pending' || draftRow.eval_status === 'running')
+      ) {
+        try {
+          await enqueueEvalGeneratorJob(supabase, draftId, op.owner_user_id)
+          log('EvalGenerator enqueued (missing eval_json)', { draft_id: draftId })
+        } catch (e) {
+          log('EvalGenerator enqueue hatası', {
+            draft_id: draftId,
+            error: e instanceof Error ? e.message : String(e),
+          })
+        }
+      }
     }
   }
 
