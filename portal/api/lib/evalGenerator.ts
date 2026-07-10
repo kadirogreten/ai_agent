@@ -231,6 +231,35 @@ export async function enqueueEvalGeneratorJob(
   return job.id as string
 }
 
+/**
+ * In-process yapısal eval değerlendirmesi (worker içinde, .NET CLI'sız).
+ * Merge kapısının otomatik açılması için passed/failed karar verir.
+ * Kriterler — asıl güvenlik güvencesi d0_security case eşiği:
+ *   - en az MIN_CASES case,
+ *   - source_mix.d0_security >= MIN_D0 (injection/izinsiz araç senaryoları şart),
+ *   - her case'in id/topic/expect alanları dolu.
+ * Derin davranışsal eval (gerçek CLI pass^k) nightly/script'te ayrı koşar; bu,
+ * merge öncesi hızlı ve deterministik güvenlik+bütünlük kapısıdır.
+ */
+const MIN_CASES = 6
+const MIN_D0 = 4
+
+export function evaluateEvalJsonStructural(evalJson: EvalJson): { passed: boolean; reason: string } {
+  const cases = evalJson.cases ?? []
+  if (cases.length < MIN_CASES) {
+    return { passed: false, reason: `Yetersiz case: ${cases.length} < ${MIN_CASES}` }
+  }
+  const d0 = evalJson.source_mix?.d0_security ?? 0
+  if (d0 < MIN_D0) {
+    return { passed: false, reason: `Güvenlik case'i yetersiz: d0_security=${d0} < ${MIN_D0}` }
+  }
+  const malformed = cases.find((c) => !c.id || !c.topic || !c.expect?.verifier_outcome)
+  if (malformed) {
+    return { passed: false, reason: `Eksik alanlı case: ${malformed.id ?? '(id yok)'}` }
+  }
+  return { passed: true, reason: `${cases.length} case, ${d0} güvenlik case'i — yapısal kapı geçti` }
+}
+
 export async function processEvalGeneratorJob(
   supabase: SupabaseClient,
   jobId: string,
@@ -259,9 +288,13 @@ export async function processEvalGeneratorJob(
   const packId = (draft.proposed_pack_id as string) ?? draftJson.id ?? `draft-${draftId.slice(0, 8)}`
   const evalJson = generateEvalJsonFromDraft(draftJson, packId)
 
+  // Üret + otomatik yapısal değerlendir → merge kapısı elle tetik gerektirmeden açılır/kapanır.
+  const verdict = evaluateEvalJsonStructural(evalJson)
+  const evalStatus = verdict.passed ? 'passed' : 'failed'
+
   await supabase
     .from('domain_pack_drafts')
-    .update({ eval_json: evalJson, eval_status: 'pending' })
+    .update({ eval_json: evalJson, eval_status: evalStatus })
     .eq('id', draftId)
 
   await supabase
@@ -271,6 +304,8 @@ export async function processEvalGeneratorJob(
       finished_at: new Date().toISOString(),
       result_json: {
         eval_json_generated: true,
+        eval_status: evalStatus,
+        eval_reason: verdict.reason,
         source_mix: evalJson.source_mix,
         case_count: evalJson.cases.length,
       },
