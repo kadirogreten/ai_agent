@@ -1,14 +1,69 @@
 import type { ISocialOAuthProvider, OAuthAppCredentials } from './types.js'
 import { defaultRedirectUri } from '../oauthApps.js'
 
-// LinkedIn 3-legged OAuth (OIDC tabanlı). Üye adına paylaşım: w_member_social.
-// Programatik refresh token yalnız onaylı LinkedIn app'lerinde döner; yoksa
-// refreshIfNeeded null döner ve süre bitiminde kullanıcı yeniden bağlar.
+// LinkedIn 3-legged OAuth (OIDC tabanlı).
+// Paylaşım hedefleri (dinamik): kişisel profil (w_member_social) + yönetilen şirket
+// sayfaları (w_organization_social — Community Management API onayı gerektirir).
+// org scope onaysızsa authorize'da reddedilebilir; bu yüzden org scope'lar
+// OPSİYONEL istenir ve organizasyon çekme çağrısı hata verirse sessizce atlanır —
+// kişisel paylaşım her koşulda çalışır. Onay gelince şirket hedefleri otomatik dolar.
 const AUTHORIZE_URL = 'https://www.linkedin.com/oauth/v2/authorization'
 const TOKEN_URL     = 'https://www.linkedin.com/oauth/v2/accessToken'
 const USERINFO_URL  = 'https://api.linkedin.com/v2/userinfo'
+const ORG_ACLS_URL  = 'https://api.linkedin.com/v2/organizationAcls'
+const ORG_LOOKUP    = 'https://api.linkedin.com/v2/organizations'
 
-const SCOPES = ['openid', 'profile', 'w_member_social'].join(' ')
+// Temel scope'lar her zaman; org scope'ları LINKEDIN_ENABLE_ORG=true iken eklenir
+// (Community Management API onayı sonrası). Onaysız istenirse authorize hata verebilir.
+const BASE_SCOPES = ['openid', 'profile', 'w_member_social']
+const ORG_SCOPES  = ['w_organization_social', 'r_organization_social', 'rw_organization_admin']
+
+function scopesForConfig(): string[] {
+  const orgEnabled = process.env.LINKEDIN_ENABLE_ORG?.trim().toLowerCase() === 'true'
+  return orgEnabled ? [...BASE_SCOPES, ...ORG_SCOPES] : BASE_SCOPES
+}
+
+/** Paylaşım hedefi: kişi veya organizasyon. author URN olarak kullanılır. */
+export type ShareTarget = {
+  kind: 'person' | 'organization'
+  urn: string          // urn:li:person:xxx | urn:li:organization:xxx
+  name: string
+}
+
+/**
+ * Kullanıcının ADMIN olduğu organizasyonları çeker. Onay/scope yoksa boş döner
+ * (kişisel paylaşım etkilenmez). Hata fırlatmaz — best-effort.
+ */
+async function fetchOrganizationTargets(accessToken: string): Promise<ShareTarget[]> {
+  try {
+    const url = `${ORG_ACLS_URL}?q=roleAssignee&role=ADMINISTRATOR&state=APPROVED&projection=(elements*(organization~(id,localizedName)))`
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${accessToken}`, 'X-Restli-Protocol-Version': '2.0.0' },
+    })
+    if (!res.ok) return []   // 403 = scope/onay yok → sessizce atla
+    const json = await res.json() as {
+      elements?: Array<{
+        organization?: string
+        'organization~'?: { id?: number | string; localizedName?: string }
+      }>
+    }
+    const targets: ShareTarget[] = []
+    for (const el of json.elements ?? []) {
+      const embedded = el['organization~']
+      const orgUrn = el.organization
+      const id = embedded?.id ?? (typeof orgUrn === 'string' ? orgUrn.split(':').pop() : undefined)
+      if (!id) continue
+      targets.push({
+        kind: 'organization',
+        urn:  `urn:li:organization:${id}`,
+        name: embedded?.localizedName ?? `Organizasyon ${id}`,
+      })
+    }
+    return targets
+  } catch {
+    return []
+  }
+}
 
 function requireEnv(name: string): string {
   const v = process.env[name]?.trim()
@@ -38,7 +93,7 @@ export class LinkedInOAuthProvider implements ISocialOAuthProvider {
       client_id:     clientId,
       redirect_uri:  redirectUri,
       state,
-      scope:         SCOPES,
+      scope:         scopesForConfig().join(' '),
     })
     return `${AUTHORIZE_URL}?${params}`
   }
@@ -75,6 +130,15 @@ export class LinkedInOAuthProvider implements ISocialOAuthProvider {
       throw new Error('LinkedIn userinfo başarısız')
     }
 
+    // Paylaşım hedefleri: kişisel her zaman; org'lar best-effort (onay/scope varsa)
+    const personTarget: ShareTarget = {
+      kind: 'person',
+      urn:  `urn:li:person:${me.sub}`,
+      name: me.name ?? 'Kişisel profil',
+    }
+    const orgTargets = await fetchOrganizationTargets(tokenJson.access_token)
+    const shareTargets = [personTarget, ...orgTargets]
+
     return {
       accessToken:       tokenJson.access_token,
       refreshToken:      tokenJson.refresh_token,
@@ -82,8 +146,12 @@ export class LinkedInOAuthProvider implements ISocialOAuthProvider {
         ? new Date(Date.now() + tokenJson.expires_in * 1000)
         : undefined,
       externalAccountId: me.sub,
-      scopes:            SCOPES.split(' '),
-      metadata:          { name: me.name ?? null },
+      scopes:            scopesForConfig(),
+      metadata:          {
+        name: me.name ?? null,
+        share_targets: shareTargets,
+        default_share_target: personTarget.urn,   // kullanıcı panelden değiştirir
+      },
     }
   }
 

@@ -14,6 +14,8 @@ type ProviderInfo = {
   available: boolean
 }
 
+type ShareTarget = { kind: 'person' | 'organization'; urn: string; name: string }
+
 type AccountRow = {
   id: string
   platform: string
@@ -174,6 +176,23 @@ export default function SocialAccountsPage() {
     }
   }
 
+  async function setShareTarget(slug: string, targetUrn: string) {
+    setBusy(slug); setErr(null)
+    try {
+      const resp = await authedFetch(`/api/social/${slug}/share-target`, {
+        method: 'PATCH',
+        body: JSON.stringify({ target_urn: targetUrn }),
+      })
+      const json = await resp.json() as { error?: string }
+      if (!resp.ok) throw new Error(json.error ?? 'Hedef güncellenemedi')
+      await load()
+    } catch (e) {
+      setErr((e as Error).message)
+    } finally {
+      setBusy(null)
+    }
+  }
+
   async function removeApp(slug: string) {
     setBusy(slug); setErr(null)
     try {
@@ -238,6 +257,28 @@ export default function SocialAccountsPage() {
                       <div>Hesap: {String(acc.metadata?.name ?? acc.external_account_id)}</div>
                       {acc.expires_at && (
                         <div>Token süresi: {new Date(acc.expires_at).toLocaleString('tr-TR')}</div>
+                      )}
+                    </div>
+                  )}
+                  {connected && acc && Array.isArray(acc.metadata?.share_targets) && (acc.metadata.share_targets as ShareTarget[]).length > 0 && (
+                    <div className="mt-3">
+                      <label className="block text-xs text-white/50">Paylaşım hedefi</label>
+                      <select
+                        className="mt-1 w-full rounded-md border border-white/10 bg-black/30 px-2 py-1.5 text-xs text-white outline-none focus:border-white/30"
+                        value={String(acc.metadata.default_share_target ?? (acc.metadata.share_targets as ShareTarget[])[0]?.urn ?? '')}
+                        disabled={busy === p.slug}
+                        onChange={(e) => setShareTarget(p.slug, e.target.value)}
+                      >
+                        {(acc.metadata.share_targets as ShareTarget[]).map((t) => (
+                          <option key={t.urn} value={t.urn}>
+                            {t.name} {t.kind === 'organization' ? '(şirket)' : '(kişisel)'}
+                          </option>
+                        ))}
+                      </select>
+                      {(acc.metadata.share_targets as ShareTarget[]).length === 1 && (
+                        <p className="mt-1 text-[11px] text-white/35">
+                          Şirket sayfası hedefleri için Community Management API onayı gerekir.
+                        </p>
                       )}
                     </div>
                   )}

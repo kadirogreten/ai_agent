@@ -158,6 +158,48 @@ router.get('/:provider/oauth/callback', async (req: Request, res: Response) => {
   }
 })
 
+// PATCH /api/social/:provider/share-target — varsayılan paylaşım hedefini değiştir
+// (LinkedIn: kişisel profil / şirket sayfası). metadata.default_share_target güncellenir.
+router.patch('/:provider/share-target', async (req: Request, res: Response) => {
+  try {
+    const { supabase, user } = await getAuthedUser(req)
+    const provider = getSocialProvider(req.params.provider ?? '')
+    if (!provider) return res.status(404).json({ error: 'Bilinmeyen platform' })
+
+    const targetUrn = (req.body as { target_urn?: string })?.target_urn?.trim()
+    if (!targetUrn) return res.status(400).json({ error: 'target_urn zorunlu' })
+
+    // Aktif hesabı çek, hedefin share_targets içinde olduğunu doğrula (enjeksiyon önlemi)
+    const { data: acc, error: selErr } = await supabase
+      .from('user_social_accounts')
+      .select('id,metadata')
+      .eq('owner_user_id', user.id)
+      .eq('platform', provider.slug)
+      .eq('status', 'active')
+      .maybeSingle()
+    if (selErr) throw selErr
+    if (!acc) return res.status(404).json({ error: 'Aktif hesap yok' })
+
+    const meta = (acc.metadata ?? {}) as Record<string, unknown>
+    const targets = (meta.share_targets ?? []) as Array<{ urn?: string }>
+    if (!targets.some((t) => t.urn === targetUrn)) {
+      return res.status(400).json({ error: 'Geçersiz hedef — bu hesabın yetkili hedefi değil' })
+    }
+
+    const { error: upErr } = await supabase
+      .from('user_social_accounts')
+      .update({ metadata: { ...meta, default_share_target: targetUrn }, updated_at: new Date().toISOString() })
+      .eq('id', acc.id)
+    if (upErr) throw upErr
+    return res.status(200).json({ ok: true })
+  } catch (e) {
+    const err = e as Error
+    if (err.message === 'Missing Authorization header') return res.status(401).json({ error: err.message })
+    if (err.message === 'Invalid token')               return res.status(401).json({ error: err.message })
+    return res.status(500).json({ error: err.message })
+  }
+})
+
 // POST /api/social/:provider/disconnect
 router.post('/:provider/disconnect', async (req: Request, res: Response) => {
   try {
