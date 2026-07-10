@@ -143,6 +143,8 @@ function runCase(
     '--playbook', golden.playbook,
     '--topic', c.topic,
     '--dryRun', mode === 'fake' ? 'true' : 'false',
+    // Harness: playbook risk R2/R3 olsa bile eval koşusu onaylı kabul edilir (CI/fake dry-run).
+    '--allowHighRisk', 'true',
   ]
 
   const env = {
