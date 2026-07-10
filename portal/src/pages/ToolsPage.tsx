@@ -104,6 +104,32 @@ export default function ToolsPage() {
   const [invocations, setInvocations] = useState<ToolInvocation[]>([])
   const [overrides,  setOverrides]  = useState<ToolOverride[]>([])
 
+  // D4a — MCP keşif
+  const [discoverQ, setDiscoverQ] = useState('')
+  const [discovering, setDiscovering] = useState(false)
+  const [discoverResults, setDiscoverResults] = useState<Array<{
+    slug: string
+    name: string
+    description: string | null
+    transport: string
+    endpoint: string | null
+    homepage: string | null
+    auth_env_hint: string | null
+    risk_hint: string
+    bindable?: boolean
+  }>>([])
+  const [pendingServers, setPendingServers] = useState<Array<{
+    id: string
+    slug: string
+    display_name: string
+    status: string
+    risk_hint: string | null
+    transport: string
+    endpoint: string
+  }>>([])
+  const [mcpBusy, setMcpBusy] = useState<string | null>(null)
+  const [mcpMsg, setMcpMsg] = useState<string | null>(null)
+
   useEffect(() => { init() }, [init])
 
   const load = useCallback(async () => {
@@ -135,6 +161,103 @@ export default function ToolsPage() {
   }, [initialized, user])
 
   useEffect(() => { load() }, [load])
+
+  async function authHeaders(): Promise<HeadersInit | null> {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session?.access_token) return null
+    return {
+      Authorization: `Bearer ${session.access_token}`,
+      'Content-Type': 'application/json',
+    }
+  }
+
+  async function loadPendingMcp() {
+    const headers = await authHeaders()
+    if (!headers) return
+    const res = await fetch('/api/mcp/servers?status=pending_approval', { headers })
+    if (!res.ok) return
+    const body = await res.json() as { servers?: typeof pendingServers }
+    setPendingServers(body.servers ?? [])
+  }
+
+  useEffect(() => {
+    if (initialized && user) void loadPendingMcp()
+  }, [initialized, user])
+
+  async function searchRegistry() {
+    const headers = await authHeaders()
+    if (!headers) { setErr('Oturum gerekli'); return }
+    if (!discoverQ.trim()) return
+    setDiscovering(true); setErr(null); setMcpMsg(null)
+    try {
+      const res = await fetch(
+        `/api/mcp/registry/search?q=${encodeURIComponent(discoverQ.trim())}&refresh=1`,
+        { headers },
+      )
+      const body = await res.json() as { results?: typeof discoverResults; error?: string }
+      if (!res.ok) throw new Error(body.error ?? res.statusText)
+      setDiscoverResults(body.results ?? [])
+      if ((body.results ?? []).length === 0) setMcpMsg('Sonuç yok — başka bir anahtar kelime deneyin.')
+    } catch (e) {
+      setErr((e as Error).message)
+    } finally {
+      setDiscovering(false)
+    }
+  }
+
+  async function proposeEntry(entry: (typeof discoverResults)[0]) {
+    const headers = await authHeaders()
+    if (!headers) return
+    setMcpBusy(entry.slug); setErr(null); setMcpMsg(null)
+    try {
+      const res = await fetch('/api/mcp/propose', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(entry),
+      })
+      const body = await res.json() as { error?: string; slug?: string }
+      if (!res.ok) throw new Error(body.error ?? res.statusText)
+      setMcpMsg(`Önerildi: ${body.slug} (onay bekliyor)`)
+      await loadPendingMcp()
+    } catch (e) {
+      setErr((e as Error).message)
+    } finally {
+      setMcpBusy(null)
+    }
+  }
+
+  async function approveServer(id: string) {
+    const headers = await authHeaders()
+    if (!headers) return
+    setMcpBusy(id); setErr(null)
+    try {
+      const res = await fetch(`/api/mcp/servers/${id}/approve`, { method: 'POST', headers })
+      const body = await res.json() as { error?: string; hint?: string; slug?: string }
+      if (!res.ok) throw new Error(body.error ?? res.statusText)
+      setMcpMsg(body.hint ?? `Onaylandı: ${body.slug}`)
+      await loadPendingMcp()
+    } catch (e) {
+      setErr((e as Error).message)
+    } finally {
+      setMcpBusy(null)
+    }
+  }
+
+  async function rejectServer(id: string) {
+    const headers = await authHeaders()
+    if (!headers) return
+    setMcpBusy(id); setErr(null)
+    try {
+      const res = await fetch(`/api/mcp/servers/${id}/reject`, { method: 'POST', headers })
+      const body = await res.json() as { error?: string }
+      if (!res.ok) throw new Error(body.error ?? res.statusText)
+      await loadPendingMcp()
+    } catch (e) {
+      setErr((e as Error).message)
+    } finally {
+      setMcpBusy(null)
+    }
+  }
 
   async function toggleEnabled(tool: Tool) {
     setToggling(tool.id)
@@ -226,6 +349,79 @@ export default function ToolsPage() {
       {err && (
         <div className="rounded-lg border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">{err}</div>
       )}
+      {mcpMsg && (
+        <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">{mcpMsg}</div>
+      )}
+
+      <Card className="space-y-3 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <div className="text-sm font-semibold text-white/90">MCP keşfet (D4a)</div>
+            <p className="text-xs text-white/40">
+              Resmi registry’de ara → öner → onayla. Yalnız HTTPS remote’lu sunucular bağlanır.
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <input
+            type="text"
+            value={discoverQ}
+            onChange={(e) => setDiscoverQ(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') void searchRegistry() }}
+            placeholder="örn. github, filesystem, slack…"
+            className="min-w-[200px] flex-1 rounded-lg border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-sm text-white outline-none focus:border-blue-500/60"
+          />
+          <Button size="sm" onClick={() => void searchRegistry()} disabled={discovering || !discoverQ.trim()}>
+            {discovering ? 'Aranıyor…' : 'Ara'}
+          </Button>
+        </div>
+        {discoverResults.length > 0 && (
+          <div className="divide-y divide-white/[0.06] rounded-lg border border-white/[0.06]">
+            {discoverResults.map((r) => (
+              <div key={r.slug} className="flex flex-wrap items-start justify-between gap-3 px-3 py-2.5">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm text-white/90">{r.name}</span>
+                    <span className="font-mono text-xs text-white/30">{r.slug}</span>
+                    <Badge tone={riskTone(r.risk_hint)}>{r.risk_hint}</Badge>
+                    <Badge tone={r.bindable ? 'green' : 'gray'}>{r.transport}</Badge>
+                  </div>
+                  {r.description && (
+                    <p className="mt-1 line-clamp-2 text-xs text-white/45">{r.description}</p>
+                  )}
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={!r.bindable || mcpBusy === r.slug}
+                  onClick={() => void proposeEntry(r)}
+                  title={r.bindable ? 'Onay kuyruğuna öner' : 'HTTPS remote yok'}
+                >
+                  {mcpBusy === r.slug ? '…' : 'Öner'}
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+        {pendingServers.length > 0 && (
+          <div className="space-y-2">
+            <div className="text-xs font-semibold uppercase tracking-widest text-white/30">Onay bekleyen</div>
+            {pendingServers.map((s) => (
+              <div key={s.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2">
+                <div>
+                  <span className="text-sm text-white/90">{s.display_name}</span>
+                  <span className="ml-2 font-mono text-xs text-white/35">{s.slug}</span>
+                  {s.risk_hint && <Badge tone={riskTone(s.risk_hint)}>{s.risk_hint}</Badge>}
+                </div>
+                <div className="flex gap-2">
+                  <Button size="sm" disabled={mcpBusy === s.id} onClick={() => void approveServer(s.id)}>Onayla</Button>
+                  <Button size="sm" variant="outline" disabled={mcpBusy === s.id} onClick={() => void rejectServer(s.id)}>Reddet</Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
 
       <input
         type="text"

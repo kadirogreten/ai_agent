@@ -205,6 +205,16 @@ function DraftCard({
               )}
             </p>
           )}
+          {Array.isArray((draft.draft_json as { suggested_mcp?: unknown })?.suggested_mcp) &&
+            ((draft.draft_json as { suggested_mcp: unknown[] }).suggested_mcp.length > 0) && (
+            <p className="text-xs text-violet-300/90 mt-1">
+              MCP önerisi: {(draft.draft_json as { suggested_mcp: Array<{ name?: string; slug?: string }> }).suggested_mcp
+                .slice(0, 3)
+                .map((s) => s.name ?? s.slug)
+                .join(', ')}
+              {' '}— Araçlar → MCP keşfet
+            </p>
+          )}
         </div>
 
         <button

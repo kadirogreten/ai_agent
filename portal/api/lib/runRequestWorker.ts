@@ -8,6 +8,10 @@ import { notifyChannels } from './notifyChannels.js'
 import { getPolicy } from './policyReader.js'
 import { enqueueEvalGeneratorJob, processEvalGeneratorJob } from './evalGenerator.js'
 import { runCanaryD0SmokeAndVerify } from './canaryD0Smoke.js'
+import {
+  collectMissingToolSlugs,
+  suggestMcpForMissingTools,
+} from './mcpRegistry.js'
 
 type RunRequest = {
   id: string
@@ -248,14 +252,41 @@ async function writeDraftFromRunOutputs(
     ? payload.sector_prompt
     : (job.request_text ?? '')
 
+  // D4a: eksik araç → MCP registry önerileri (draft_json.suggested_mcp)
+  let draftWithSuggestions = { ...draftJson } as Record<string, unknown>
+  try {
+    const missing = await collectMissingToolSlugs(supabase, draftWithSuggestions)
+    if (missing.length > 0) {
+      const suggestions = await suggestMcpForMissingTools(supabase, missing)
+      draftWithSuggestions = {
+        ...draftWithSuggestions,
+        missing_tools: missing,
+        suggested_mcp: suggestions.map((s) => ({
+          slug: s.slug,
+          name: s.name,
+          description: s.description,
+          transport: s.transport,
+          endpoint: s.endpoint,
+          homepage: s.homepage,
+          auth_env_hint: s.auth_env_hint,
+          risk_hint: s.risk_hint,
+          bindable: typeof s.endpoint === 'string' && s.endpoint.startsWith('https://'),
+        })),
+      }
+      log('DomainPackDraft suggested_mcp', { missing: missing.length, suggestions: suggestions.length })
+    }
+  } catch (e) {
+    log('DomainPackDraft MCP suggest atlandı', { error: e instanceof Error ? e.message : String(e) })
+  }
+
   const { data: inserted, error: insertErr } = await supabase.from('domain_pack_drafts').insert({
     tenant_id:        job.owner_user_id,
     run_request_id:   job.id,
     sector_prompt:    sectorPrompt,
-    proposed_pack_id: typeof draftJson.id   === 'string' ? draftJson.id   : null,
-    proposed_name:    typeof draftJson.name === 'string' ? draftJson.name : null,
+    proposed_pack_id: typeof draftWithSuggestions.id   === 'string' ? draftWithSuggestions.id   : null,
+    proposed_name:    typeof draftWithSuggestions.name === 'string' ? draftWithSuggestions.name : null,
     status:           'pending',
-    draft_json:       draftJson,
+    draft_json:       draftWithSuggestions,
   }).select('id').single()
 
   if (insertErr) {

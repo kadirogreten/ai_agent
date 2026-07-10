@@ -18,6 +18,7 @@ import llmProvidersRoutes from './routes/llmProviders.js'
 import socialRoutes from './routes/social.js'
 import sectorRoutes from './routes/sector.js'
 import packsRoutes from './routes/packs.js'
+import mcpRoutes from './routes/mcp.js'
 
 fileURLToPath(import.meta.url)
 
@@ -39,6 +40,7 @@ app.use('/api/llm-providers', llmProvidersRoutes)
 app.use('/api/social', socialRoutes)
 app.use('/api/sector', sectorRoutes)
 app.use('/api/packs', packsRoutes)
+app.use('/api/mcp', mcpRoutes)
 
 /**
  * health

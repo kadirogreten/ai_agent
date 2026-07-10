@@ -117,3 +117,15 @@ Cost ledger → tenant görünümü; marketplace/SaaS öncesi faturalama temeli.
 | D4d | D4c (API çağrıları ölçülür) | Orta |
 
 **İlk uygulama adımı:** D4a için `mcp.registry_urls` seed + `mcpRegistry.ts` iskeleti + ToolsPage keşif paneli PR’ı.
+
+---
+
+## D4a uygulama notu (2026-07-10)
+
+Teslim:
+- Migration [`20260710190000_d4a_mcp_registry.sql`](../supabase/migrations/20260710190000_d4a_mcp_registry.sql)
+- [`portal/api/lib/mcpRegistry.ts`](../portal/api/lib/mcpRegistry.ts) + [`portal/api/routes/mcp.ts`](../portal/api/routes/mcp.ts)
+- ToolsPage “MCP keşfet” paneli; PackDraftReview `suggested_mcp` satırı
+- Factory: `runRequestWorker` draft insert’te `missing_tools` + `suggested_mcp`
+- Onay: owner `pending_approval` → `active` + `enabled=true`; ardından `mcp-sync --server <slug>`
+- Yalnız HTTPS remote bağlanır (stdio sonraki PR)
