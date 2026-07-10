@@ -6,7 +6,9 @@
     "evals": "tsx scripts/run-evals.ts --mode=fake",
     "evals:live": "tsx scripts/run-evals.ts --mode=live",
     "ops:check": "tsx scripts/ops-runbook-check.ts",
-    "ops:a3-preflight": "tsx scripts/a3-demo-preflight.ts"
+    "ops:a3-preflight": "tsx scripts/a3-demo-preflight.ts",
+    "ops:a3-verify": "tsx scripts/a3-demo-verify.ts",
+    "ops:d3-canary": "tsx scripts/d3-canary.ts"
   },
   "devDependencies": {
     "@supabase/supabase-js": "^2.49.8",
