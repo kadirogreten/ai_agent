@@ -7,6 +7,8 @@ import {
   getRunRequest,
   startSectorFactoryOperation,
   getOperation,
+  cooldownRemainingSeconds,
+  formatCooldown,
   type DomainPackRow,
 } from '@/lib/domainPacks'
 import { parseApiResponse } from '@/lib/parseApiResponse'
@@ -64,6 +66,11 @@ export default function SectorBuilderPage() {
   const [existingPacks, setExistingPacks] = useState<DomainPackRow[]>([])
   const [reviewItems, setReviewItems] = useState<ReviewItem[]>([])
   const [operationStatus, setOperationStatus] = useState<string | null>(null)
+  const [stepCount, setStepCount] = useState<number | null>(null)
+  const [maxSteps, setMaxSteps] = useState<number | null>(null)
+  const [cooldownSec, setCooldownSec] = useState(0)
+  const [lastTickAt, setLastTickAt] = useState<string | null>(null)
+  const [cooldownMinutes, setCooldownMinutes] = useState<number | null>(null)
   const [draftId, setDraftId] = useState<string | null>(null)
   const [saveMessage, setSaveMessage] = useState<string | null>(null)
 
@@ -134,14 +141,30 @@ export default function SectorBuilderPage() {
     const poll = async () => {
       const op = await getOperation(operationId)
       setOperationStatus(op.status)
+      setStepCount(op.step_count)
+      setMaxSteps(op.max_steps)
+      setLastTickAt(op.last_tick_at)
+      setCooldownMinutes(op.cooldown_minutes)
+      setCooldownSec(cooldownRemainingSeconds(op.last_tick_at, op.cooldown_minutes))
       const ctx = op.context_json as Record<string, unknown> | null
       if (typeof ctx?.draft_id === 'string') setDraftId(ctx.draft_id)
-      if (op.status === 'done' || op.status === 'failed' || op.status === 'completed') setPhase('done')
+      if (op.status === 'done' || op.status === 'failed' || op.status === 'completed' || op.status === 'escalated') {
+        setPhase('done')
+      }
     }
     const t = setInterval(() => { poll().catch(console.error) }, 5000)
     poll().catch(console.error)
     return () => clearInterval(t)
   }, [phase, operationId])
+
+  // Cooldown geri sayımı (1 sn) — poll aralığından bağımsız
+  useEffect(() => {
+    if (phase !== 'operation' || !lastTickAt) return
+    const tick = () => setCooldownSec(cooldownRemainingSeconds(lastTickAt, cooldownMinutes))
+    tick()
+    const t = setInterval(tick, 1000)
+    return () => clearInterval(t)
+  }, [phase, lastTickAt, cooldownMinutes])
 
   async function handleStartDialog(e: React.FormEvent) {
     e.preventDefault()
@@ -220,6 +243,12 @@ export default function SectorBuilderPage() {
     setPrompt('')
     setReviewItems([])
     setDraftId(null)
+    setStepCount(null)
+    setMaxSteps(null)
+    setCooldownSec(0)
+    setLastTickAt(null)
+    setCooldownMinutes(null)
+    setOperationStatus(null)
     localStorage.removeItem(STORAGE_KEY)
   }
 
@@ -346,10 +375,24 @@ export default function SectorBuilderPage() {
             <div className="rounded-xl border border-blue-500/30 bg-blue-500/10 p-6 space-y-3">
               <div className="flex items-center gap-2 text-blue-300">
                 <Loader2 className="h-5 w-5 animate-spin" />
-                <span className="font-medium">Sektör fabrikası çalışıyor…</span>
+                <span className="font-medium">
+                  {cooldownSec > 0
+                    ? 'Sonraki adım için bekleniyor…'
+                    : 'Sektör fabrikası çalışıyor…'}
+                </span>
               </div>
               <p className="text-sm text-white/60">Operasyon: <code className="font-mono">{operationId}</code></p>
               <p className="text-sm text-white/60">Durum: {operationStatus ?? 'yükleniyor'}</p>
+              {stepCount != null && maxSteps != null && (
+                <p className="text-sm text-white/60">Adım: {stepCount} / {maxSteps}</p>
+              )}
+              {cooldownSec > 0 ? (
+                <p className="text-sm text-amber-200/90">
+                  Cooldown: sonraki tick’e <span className="font-mono font-medium">{formatCooldown(cooldownSec)}</span>
+                </p>
+              ) : (
+                <p className="text-sm text-white/50">Cooldown bitti — bir sonraki tick adımı tetikleyebilir.</p>
+              )}
               {draftId && (
                 <button
                   onClick={() => navigate(`/app/pack-drafts`)}

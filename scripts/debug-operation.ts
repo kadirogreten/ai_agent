@@ -44,11 +44,21 @@ if (cmd === 'unblock' && opId) {
 
 const { data: op } = await sb
   .from('operations')
-  .select('id, status, step_count, max_steps, context_json, updated_at')
+  .select('id, status, step_count, max_steps, cooldown_minutes, last_tick_at, context_json, updated_at, escalation_reason')
   .eq('id', opId)
   .maybeSingle()
 
-console.log('operation:', op)
+const last = op?.last_tick_at ? new Date(op.last_tick_at).getTime() : null
+const elapsedMin = last != null ? (Date.now() - last) / 60_000 : null
+const remaining =
+  elapsedMin != null && typeof op?.cooldown_minutes === 'number'
+    ? Math.max(0, Math.ceil(op.cooldown_minutes - elapsedMin))
+    : null
+
+console.log('operation:', {
+  ...op,
+  cooldown_remaining_min: remaining,
+})
 
 const { data: runs } = await sb
   .from('run_requests')

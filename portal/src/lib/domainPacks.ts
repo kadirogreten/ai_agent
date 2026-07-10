@@ -205,11 +205,30 @@ export async function startSectorFactoryOperation(
 export async function getOperation(id: string) {
   const { data, error } = await supabase
     .from('operations')
-    .select('id, status, goal_text, step_count, max_steps, context_json, escalation_reason, updated_at')
+    .select('id, status, goal_text, step_count, max_steps, cooldown_minutes, last_tick_at, context_json, escalation_reason, updated_at')
     .eq('id', id)
     .single()
   if (error) throw error
   return data
+}
+
+/** Adımlar arası cooldown kalan saniye; 0 = tick hazır. */
+export function cooldownRemainingSeconds(
+  lastTickAt: string | null | undefined,
+  cooldownMinutes: number | null | undefined,
+  nowMs: number = Date.now(),
+): number {
+  if (!lastTickAt || !cooldownMinutes || cooldownMinutes <= 0) return 0
+  const elapsedMs = nowMs - new Date(lastTickAt).getTime()
+  const remainingMs = cooldownMinutes * 60_000 - elapsedMs
+  return remainingMs > 0 ? Math.ceil(remainingMs / 1000) : 0
+}
+
+export function formatCooldown(seconds: number): string {
+  const m = Math.floor(seconds / 60)
+  const s = seconds % 60
+  if (m <= 0) return `${s} sn`
+  return `${m} dk ${s.toString().padStart(2, '0')} sn`
 }
 
 // ── Sector Discovery run tetikleme (legacy tek atım) ─────────────────────────
