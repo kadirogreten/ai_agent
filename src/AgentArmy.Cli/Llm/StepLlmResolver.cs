@@ -7,15 +7,13 @@ namespace AgentArmy.Cli;
 public sealed class StepLlmResolver
 {
     private readonly SupabaseWriter? _db;
-    private readonly HttpClient _http;
     private readonly ILlmClient _runDefaultLlm;
     private readonly Dictionary<string, ILlmClient> _cache = new(StringComparer.OrdinalIgnoreCase);
 
-    public StepLlmResolver(SupabaseWriter? db, HttpClient http, ILlmClient runDefaultLlm)
+    public StepLlmResolver(SupabaseWriter? db, ILlmClient runDefaultLlm)
     {
-        _db             = db;
-        _http           = http;
-        _runDefaultLlm  = runDefaultLlm;
+        _db            = db;
+        _runDefaultLlm = runDefaultLlm;
     }
 
     /// <summary>
@@ -45,18 +43,24 @@ public sealed class StepLlmResolver
             provider = await LlmProviderResolver.ResolveAsync(_db, "run", ct);
         }
 
-        var baseLlm = LlmClientFactory.Create(_http, provider, enableWebSearch: requiresWebSearch);
+        // Her provider için ayrı HttpClient: OpenAiResponsesClient/AnthropicMessagesClient
+        // ctor'da BaseAddress set eder; paylaşılan client ilk istekten sonra immutable olur
+        // (InvalidOperationException: "Properties can only be modified before sending the first request").
+        var baseLlm = LlmClientFactory.Create(NewLlmHttp(), provider, enableWebSearch: requiresWebSearch);
 
         ILlmClient? fallback = null;
         if (!string.Equals(tier, "basic", StringComparison.OrdinalIgnoreCase))
         {
             var basic = await LlmProviderResolver.ResolveForTierAsync(_db, "basic", ct);
             if (!string.Equals(basic.Slug, provider.Slug, StringComparison.OrdinalIgnoreCase))
-                fallback = LlmClientFactory.Create(_http, basic, enableWebSearch: requiresWebSearch);
+                fallback = LlmClientFactory.Create(NewLlmHttp(), basic, enableWebSearch: requiresWebSearch);
         }
 
         var router = new LlmRouter(baseLlm, provider.ModelId, fallback);
         _cache[cacheKey] = router;
         return router;
     }
+
+    private static HttpClient NewLlmHttp() =>
+        new(HttpClientPool.SharedHandler, disposeHandler: false) { Timeout = TimeSpan.FromMinutes(5) };
 }

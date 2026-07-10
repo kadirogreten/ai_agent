@@ -227,7 +227,7 @@ public static class Runner
 
             StepLlmResolver? stepLlm = null;
             if (!exec.DryRun && http is not null)
-                stepLlm = new StepLlmResolver(db, http, llm);
+                stepLlm = new StepLlmResolver(db, llm);
 
             var orchestrator = new Orchestrator(
                 llm, webLlm, rootDir,
