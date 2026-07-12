@@ -298,7 +298,16 @@ async function writeDraftFromRunOutputs(
         await enqueueEvalGeneratorJob(supabase, inserted.id as string, job.owner_user_id)
         log('EvalGenerator job enqueued', { draft_id: inserted.id })
       } catch (e) {
-        log('EvalGenerator enqueue failed', { error: e instanceof Error ? e.message : String(e) })
+        // Supabase/PostgrestError bir Error instance'ı DEĞİL; String(e) "[object Object]"
+        // verip gerçek mesajı maskeler. message/code/details alanlarını ayıkla.
+        const err = e as { message?: string; code?: string; details?: string; hint?: string } | Error
+        const detail = e instanceof Error
+          ? e.message
+          : (err?.message ?? '') +
+            (('code' in err && err.code) ? ` [${err.code}]` : '') +
+            (('details' in err && err.details) ? ` — ${err.details}` : '') ||
+            JSON.stringify(e)
+        log('EvalGenerator enqueue failed', { error: detail })
       }
     }
   }

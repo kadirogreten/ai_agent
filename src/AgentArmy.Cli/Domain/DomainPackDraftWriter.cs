@@ -144,9 +144,20 @@ public static class DomainPackDraftWriter
         var key     = Environment.GetEnvironmentVariable("SUPABASE_SERVICE_ROLE_KEY");
         if (string.IsNullOrWhiteSpace(baseUrl) || string.IsNullOrWhiteSpace(key)) return null;
 
+        // tenant_id zorunlu (NOT NULL); RiskGate ile aynı kaynaktan (RUN_OWNER_USER_ID) al.
+        // Yoksa taslak sahipsiz olur — yazmak yerine temiz atla (fail-closed), çünkü
+        // owner olmadan insert 23502 NOT NULL ihlaliyle sessizce düşerdi.
+        var ownerId = Environment.GetEnvironmentVariable("RUN_OWNER_USER_ID");
+        if (string.IsNullOrWhiteSpace(ownerId))
+        {
+            Console.Error.WriteLine("[DraftWriter] RUN_OWNER_USER_ID yok — taslak yazılamıyor (tenant_id zorunlu).");
+            return null;
+        }
+
         using var http = new HttpClient(HttpClientPool.SharedHandler, disposeHandler: false);
         var row = new
         {
+            tenant_id        = ownerId,
             sector_prompt    = sectorPrompt,
             proposed_pack_id = proposedPackId,
             proposed_name    = proposedName,
