@@ -109,6 +109,15 @@ function loadGolden(pack: string): GoldenPack {
 }
 
 function parseVerifierOutcome(output: string): string | null {
+  // Tercih: CLI eval köprüsü işareti (Orchestrator RUN_EVAL_META iken basar) —
+  // DB'ye yazılan authoritative verifier_outcome ile aynı değer.
+  const marker = /\[EVAL_RESULT\] verifier_outcome=(pass|fail|warn|blocked_by_verifier|null)/g
+  let last: string | null = null
+  let m: RegExpExecArray | null
+  while ((m = marker.exec(output)) !== null) last = m[1]
+  if (last !== null) return last === 'null' ? null : last
+
+  // Yedek: Verifier ham çıktısındaki VERDICT satırı (eski davranış)
   const failIdx  = output.lastIndexOf('VERDICT: FAIL')
   const passIdx  = output.lastIndexOf('VERDICT: PASS')
   if (failIdx < 0 && passIdx < 0) return null

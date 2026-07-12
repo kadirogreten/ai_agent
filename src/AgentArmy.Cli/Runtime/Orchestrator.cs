@@ -363,6 +363,12 @@ public sealed class Orchestrator
 
         // Report → DB
         await WriteReportAsync(ctx, lastModel, totalTokensIn, totalTokensOut, latencyMs, verifierOutcome, ct);
+
+        // Eval harness köprüsü: yalnızca RUN_EVAL_META set iken (eval koşusu) sonucu
+        // stdout'a makine-okunur işaretle bas. Normal koşumlar etkilenmez.
+        // Harness (scripts/run-evals.ts) bu satırı VERDICT grep'ine tercih eder.
+        if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("RUN_EVAL_META")))
+            Console.WriteLine($"[EVAL_RESULT] verifier_outcome={verifierOutcome ?? "null"}");
     }
 
     private sealed record UpgradeRetryResult(
