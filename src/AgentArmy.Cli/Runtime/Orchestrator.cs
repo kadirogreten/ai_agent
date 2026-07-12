@@ -882,11 +882,54 @@ public sealed class Orchestrator
         return null;
     }
 
+    // Dinamik üretilen paketlerde (Sektör Fabrikası → DomainPackArchitect) LLM,
+    // katalogda olmayan ajan adları uydurabilir (örn. "Planner", "Strategist").
+    // Bu durumda tüm operasyonu "Unknown agent" ile öldürmek yerine, anlamca en
+    // yakın katalog ajanına eşle; eşleşme yoksa güvenli genel yedek (Analyst) kullan.
+    private static readonly Dictionary<string, string> AgentAliases = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["planner"]      = "Coordinator",
+        ["plan"]         = "Coordinator",
+        ["strategist"]   = "Analyst",
+        ["strategy"]     = "Analyst",
+        ["reviewer"]     = "Editor",
+        ["review"]       = "Editor",
+        ["reporter"]     = "Writer",
+        ["report"]       = "Writer",
+        ["summarizer"]   = "Writer",
+        ["synthesizer"]  = "Writer",
+        ["critic"]       = "Contrarian",
+        ["validator"]    = "Verifier",
+        ["checker"]      = "Verifier",
+        ["qa"]           = "Verifier",
+        ["scout"]        = "Researcher",
+        ["investigator"] = "Researcher",
+        ["designer"]     = "GraphicDesigner",
+        ["developer"]    = "WebDeveloper",
+    };
+
     private Agent ResolveAgent(string agentId)
     {
-        if (!_agents.TryGetValue(agentId, out var agent))
-            throw new InvalidOperationException($"Unknown agent: {agentId}");
-        return agent;
+        if (_agents.TryGetValue(agentId, out var agent))
+            return agent;
+
+        // 1) Alias eşlemesi
+        if (AgentAliases.TryGetValue(agentId?.Trim() ?? string.Empty, out var aliasTarget)
+            && _agents.TryGetValue(aliasTarget, out var aliased))
+        {
+            Console.Error.WriteLine($"[Orchestrator] Bilinmeyen ajan '{agentId}' → alias '{aliasTarget}' olarak çözüldü.");
+            return aliased;
+        }
+
+        // 2) Güvenli genel yedek — operasyonu öldürme, akıl-yürüten bir ajana düş.
+        const string fallback = "Analyst";
+        if (_agents.TryGetValue(fallback, out var fb))
+        {
+            Console.Error.WriteLine($"[Orchestrator] Bilinmeyen ajan '{agentId}' → yedek '{fallback}' kullanılıyor (katalogda yok).");
+            return fb;
+        }
+
+        throw new InvalidOperationException($"Unknown agent: {agentId}");
     }
 
     private string LoadPersonaText(string personaFromArgs, string defaultPersona)
