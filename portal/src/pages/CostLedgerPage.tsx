@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 import { useAuthStore } from '@/stores/authStore'
 import { Card } from '@/components/ui/Card'
@@ -8,6 +8,18 @@ import { DataTable, type Column } from '@/components/DataTable'
 import { EmptyState } from '@/components/EmptyState'
 import { DollarSign, RefreshCw } from 'lucide-react'
 import { motion } from 'framer-motion'
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  Title,
+  Tooltip,
+  Legend,
+} from 'chart.js'
+import { Bar } from 'react-chartjs-2'
+
+ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend)
 
 type RunCost = {
   id: string
@@ -42,6 +54,37 @@ type Summary = {
   runsWithCost: number
 }
 
+type UsageCurrent = {
+  period_month: string
+  llm_cost_usd: number
+  tokens_in: number
+  tokens_out: number
+  run_count: number
+  unlimited: boolean
+  budget_usd: number | null
+  used_pct: number | null
+  remaining_usd: number | null
+  tone: 'ok' | 'amber' | 'red' | 'unlimited'
+  alert_threshold_pct: number
+}
+
+type LlmMonthRow = {
+  period_month: string
+  domain_pack: string | null
+  run_count: number
+  llm_cost_usd: number
+  tokens_in: number
+  tokens_out: number
+}
+
+type AdsMonthRow = {
+  period_month: string
+  platform: string
+  currency: string
+  spent: number
+  campaign_count: number
+}
+
 const TARGET_COST_USD   = 0.40
 const TARGET_LATENCY_MS = 8 * 60 * 1000
 
@@ -68,6 +111,12 @@ function fmtCost(usd: number | null) {
   return `$${usd.toFixed(4)}`
 }
 
+function budgetBannerClass(tone: UsageCurrent['tone']) {
+  if (tone === 'red') return 'border-red-500/30 bg-red-500/10 text-red-200'
+  if (tone === 'amber') return 'border-amber-500/30 bg-amber-500/10 text-amber-100'
+  return 'border-white/10 bg-white/[0.03] text-white/70'
+}
+
 export default function CostLedgerPage() {
   const init        = useAuthStore((s) => s.init)
   const user        = useAuthStore((s) => s.user)
@@ -75,6 +124,9 @@ export default function CostLedgerPage() {
 
   const [rows,    setRows]    = useState<RunCost[]>([])
   const [summary, setSummary] = useState<Summary | null>(null)
+  const [usageCurrent, setUsageCurrent] = useState<UsageCurrent | null>(null)
+  const [llmMonths, setLlmMonths] = useState<LlmMonthRow[]>([])
+  const [adsMonths, setAdsMonths] = useState<AdsMonthRow[]>([])
   const [loading, setLoading] = useState(false)
   const [err,     setErr]     = useState<string | null>(null)
 
@@ -83,12 +135,37 @@ export default function CostLedgerPage() {
   const load = useCallback(async () => {
     if (!initialized || !user) return
     setLoading(true); setErr(null)
-    const { data, error } = await supabase
+
+    const { data: { session } } = await supabase.auth.getSession()
+    const token = session?.access_token
+
+    const runsP = supabase
       .from('runs')
       .select('id,title,external_id,status,model,domain_pack,risk_level,tokens_in,tokens_out,cost_usd,latency_ms,verifier_outcome,started_at,finished_at,created_at,meta')
       .eq('owner_user_id', user.id)
       .order('created_at', { ascending: false })
       .limit(200)
+
+    const usageP = token
+      ? Promise.all([
+          fetch('/api/usage/current', {
+            headers: { Authorization: `Bearer ${token}` },
+          }).then(async (r) => {
+            const j = await r.json()
+            if (!r.ok) throw new Error(j.error ?? 'usage/current failed')
+            return j as UsageCurrent
+          }),
+          fetch('/api/usage/summary?months=6', {
+            headers: { Authorization: `Bearer ${token}` },
+          }).then(async (r) => {
+            const j = await r.json()
+            if (!r.ok) throw new Error(j.error ?? 'usage/summary failed')
+            return j as { llm: LlmMonthRow[]; ads: AdsMonthRow[] }
+          }),
+        ])
+      : Promise.resolve(null)
+
+    const [{ data, error }, usage] = await Promise.all([runsP, usageP])
 
     if (error) { setErr(error.message); setLoading(false); return }
 
@@ -111,10 +188,46 @@ export default function CostLedgerPage() {
         : null,
       verifierFailRate: verifierRuns.length ? failCount / verifierRuns.length : null,
     })
+
+    if (usage) {
+      setUsageCurrent(usage[0])
+      setLlmMonths(usage[1].llm ?? [])
+      setAdsMonths(usage[1].ads ?? [])
+    }
+
     setLoading(false)
   }, [initialized, user])
 
   useEffect(() => { load() }, [load])
+
+  const monthlyChart = useMemo(() => {
+    const byMonth = new Map<string, number>()
+    for (const row of llmMonths) {
+      const k = row.period_month.slice(0, 7)
+      byMonth.set(k, (byMonth.get(k) ?? 0) + Number(row.llm_cost_usd ?? 0))
+    }
+    const labels = [...byMonth.keys()].sort()
+    return {
+      labels,
+      datasets: [{
+        label: 'LLM maliyet (USD)',
+        data: labels.map((l) => byMonth.get(l) ?? 0),
+        backgroundColor: 'rgba(33, 150, 243, 0.65)',
+        borderColor: 'rgba(33, 150, 243, 1)',
+        borderWidth: 1,
+        borderRadius: 4,
+      }],
+    }
+  }, [llmMonths])
+
+  const packBreakdown = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const row of llmMonths) {
+      const k = row.domain_pack ?? '(pack yok)'
+      map.set(k, (map.get(k) ?? 0) + Number(row.llm_cost_usd ?? 0))
+    }
+    return [...map.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8)
+  }, [llmMonths])
 
   const kpiCards = summary ? [
     {
@@ -212,6 +325,94 @@ export default function CostLedgerPage() {
           </button>
         }
       />
+
+      {/* D4d — Aylık kullanım */}
+      <Card className="p-4 space-y-4">
+        <div className="text-xs font-semibold uppercase tracking-widest text-white/30">Aylık Kullanım</div>
+
+        {usageCurrent && (
+          <div className={`rounded-lg border px-4 py-3 text-sm ${budgetBannerClass(usageCurrent.tone)}`}>
+            <div className="font-medium">Bu ay (LLM, USD)</div>
+            <div className="mt-1 flex flex-wrap gap-4 font-mono text-xs">
+              <span>Harcanan: ${usageCurrent.llm_cost_usd.toFixed(4)}</span>
+              <span>
+                Bütçe:{' '}
+                {usageCurrent.unlimited
+                  ? 'limitsiz'
+                  : `$${(usageCurrent.budget_usd ?? 0).toFixed(2)}`}
+              </span>
+              {!usageCurrent.unlimited && (
+                <>
+                  <span>Kalan: ${(usageCurrent.remaining_usd ?? 0).toFixed(4)}</span>
+                  <span>%{(usageCurrent.used_pct ?? 0).toFixed(0)} kullanıldı</span>
+                </>
+              )}
+              <span>{usageCurrent.run_count} run · {usageCurrent.tokens_in + usageCurrent.tokens_out} token</span>
+            </div>
+            <div className="mt-1 text-[11px] opacity-70">
+              Eval koşumları özete dahil edilmez. Soft uyarı eşiği %{usageCurrent.alert_threshold_pct}.
+            </div>
+          </div>
+        )}
+
+        <div className="grid gap-4 lg:grid-cols-2">
+          <div className="min-h-[220px]">
+            <div className="mb-2 text-xs text-white/40">Son 6 ay LLM maliyeti (USD)</div>
+            {monthlyChart.labels.length > 0 ? (
+              <Bar
+                data={monthlyChart}
+                options={{
+                  responsive: true,
+                  plugins: {
+                    legend: { display: false },
+                    title: { display: false },
+                  },
+                  scales: {
+                    x: { ticks: { color: 'rgba(255,255,255,0.45)', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.04)' } },
+                    y: { ticks: { color: 'rgba(255,255,255,0.45)', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.06)' }, beginAtZero: true },
+                  },
+                }}
+              />
+            ) : (
+              <p className="text-xs text-white/35">Henüz aylık LLM verisi yok.</p>
+            )}
+          </div>
+          <div>
+            <div className="mb-2 text-xs text-white/40">Pack kırılımı (USD)</div>
+            <ul className="space-y-1.5">
+              {packBreakdown.map(([pack, cost]) => (
+                <li key={pack} className="flex justify-between text-xs border-b border-white/[0.05] py-1">
+                  <span className="text-white/70 truncate mr-2">{pack}</span>
+                  <span className="font-mono text-white/50">${cost.toFixed(4)}</span>
+                </li>
+              ))}
+              {packBreakdown.length === 0 && (
+                <li className="text-xs text-white/35">Pack kırılımı yok.</li>
+              )}
+            </ul>
+          </div>
+        </div>
+
+        <div>
+          <div className="mb-2 text-xs text-white/40">Reklam harcaması (LLM ile toplanmaz)</div>
+          {adsMonths.length === 0 ? (
+            <p className="text-xs text-white/35">Reklam kaydı yok.</p>
+          ) : (
+            <ul className="space-y-1.5">
+              {adsMonths.map((a, i) => (
+                <li key={`${a.period_month}-${a.platform}-${a.currency}-${i}`} className="flex justify-between text-xs border-b border-white/[0.05] py-1">
+                  <span className="text-white/70">
+                    {a.period_month.slice(0, 7)} · {a.platform}
+                  </span>
+                  <span className="font-mono text-white/50">
+                    {a.spent.toFixed(2)} {a.currency}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </Card>
 
       {kpiCards.length > 0 && (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

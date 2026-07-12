@@ -10,7 +10,8 @@
     "ops:a3-verify": "tsx scripts/a3-demo-verify.ts",
     "ops:d3-canary": "tsx scripts/d3-canary.ts",
     "ops:d4b-preflight": "tsx scripts/d4b-a2a-preflight.ts",
-    "ops:d4c-preflight": "tsx scripts/d4c-public-api-preflight.ts"
+    "ops:d4c-preflight": "tsx scripts/d4c-public-api-preflight.ts",
+    "ops:d4d-preflight": "tsx scripts/d4d-usage-preflight.ts"
   },
   "devDependencies": {
     "@supabase/supabase-js": "^2.49.8",
