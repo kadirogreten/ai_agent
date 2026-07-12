@@ -289,14 +289,36 @@ async function writeDraftFromRunOutputs(
     draft_json:       draftWithSuggestions,
   }).select('id').single()
 
+  // Dedup: C# DraftWriter (Runner post-hook) aynı taslağı önce yazmış olabilir →
+  // partial unique index (tenant_id, proposed_pack_id WHERE pending) ihlali (23505).
+  // Bu durumda YENİ insert başarısız olur ama mevcut pending taslak C# yolundan
+  // gelmiş olabilir ve eval enqueue edilmemiştir. O yüzden çakışmada mevcut
+  // pending taslağı bulup eval'i ONUN için tetikle — hayatta kalan taslak her
+  // koşulda eval alır, kullanıcı "pending"de takılı kalmaz.
+  let draftIdForEval: string | null = inserted?.id ?? null
   if (insertErr) {
-    log('DomainPackDraft insert hatası', { error: insertErr.message })
+    if ((insertErr as { code?: string }).code === '23505') {
+      const { data: existing } = await supabase
+        .from('domain_pack_drafts')
+        .select('id')
+        .eq('tenant_id', job.owner_user_id)
+        .eq('proposed_pack_id', typeof draftWithSuggestions.id === 'string' ? draftWithSuggestions.id : '')
+        .eq('status', 'pending')
+        .maybeSingle()
+      draftIdForEval = (existing?.id as string | undefined) ?? null
+      log('DomainPackDraft zaten var (dedup) — mevcut pending için eval tetiklenecek', { draft_id: draftIdForEval })
+    } else {
+      log('DomainPackDraft insert hatası', { error: insertErr.message })
+    }
   } else {
     log('DomainPackDraft kaydedildi', { pack_id: draftJson.id, run_id: runId, draft_id: inserted?.id })
-    if (inserted?.id) {
+  }
+
+  {
+    if (draftIdForEval) {
       try {
-        await enqueueEvalGeneratorJob(supabase, inserted.id as string, job.owner_user_id)
-        log('EvalGenerator job enqueued', { draft_id: inserted.id })
+        await enqueueEvalGeneratorJob(supabase, draftIdForEval, job.owner_user_id)
+        log('EvalGenerator job enqueued', { draft_id: draftIdForEval })
       } catch (e) {
         // Supabase/PostgrestError bir Error instance'ı DEĞİL; String(e) "[object Object]"
         // verip gerçek mesajı maskeler. message/code/details alanlarını ayıkla.

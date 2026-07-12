@@ -170,11 +170,18 @@ async function observe(supabase: SupabaseClient, op: Operation) {
   // Mevcut playbook slug'larını DB'den al — LLM'e gerçek listeyi ver, slug uydurmasın.
   // Şema gerçeği (0019): playbooks kolonları pack_id + tenant_id'dir;
   // owner_user_id / is_public KOLONLARI YOK (canlı testte boş liste → yanlış eskalasyon bulundu).
-  // Kapsam: operasyonun paketi + system paketi; platform (tenant NULL) + kullanıcının tenant satırları.
+  // Kapsam: operasyonun paketi. 'system' paketi (sektör-fabrikası iç playbook'ları:
+  // sector-discovery-and-scaffold, sector-arastirma, sector-paket-taslak/-test) YALNIZCA
+  // sector_factory operasyonlarına açılır. Aksi halde normal bir domain-pack operasyonunda
+  // DECIDE bu keşif playbook'larını görüp yanlışlıkla seçer ve "Playbook not found
+  // (pack=...)" ile fail olur (canlı turda TechMora paketinde yakalandı).
+  const packScope = op.context_json?.kind === 'sector_factory'
+    ? [op.domain_pack, 'system']
+    : [op.domain_pack]
   const { data: pbRows, error: pbErr } = await supabase
     .from('playbooks')
     .select('slug')
-    .in('pack_id', [op.domain_pack, 'system'])
+    .in('pack_id', packScope)
     .or(`tenant_id.is.null,tenant_id.eq.${op.owner_user_id}`)
     .order('slug')
   if (pbErr) log('playbooks sorgu hatası', { error: pbErr.message })
