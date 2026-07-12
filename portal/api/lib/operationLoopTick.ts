@@ -24,6 +24,7 @@ import {
 import { notifyChannels } from './notifyChannels.js'
 import { getPolicy } from './policyReader.js'
 import { enqueueEvalGeneratorJob } from './evalGenerator.js'
+import { dispatchOperationWebhooks } from './webhookDispatcher.js'
 import {
   sanitizePlanStepSpec,
   type PlanStepSpec,
@@ -417,6 +418,17 @@ async function escalateOp(supabase: SupabaseClient, op: Operation, reason: strin
     subject: `[AgentArmy] Operasyon eskalasyon: ${op.goal_text.slice(0, 60)}`,
     message: [`Operasyon eskalasyona alındı.`, `Hedef: ${op.goal_text}`, `Sebep: ${reason}`, `ID: ${op.id}`].join('\n'),
   })
+
+  // D4c — yalnız context_json.source === 'public_api'
+  try {
+    await dispatchOperationWebhooks(
+      supabase,
+      { ...op, status: 'escalated' },
+      'operation.escalated',
+    )
+  } catch (whErr) {
+    log('webhook escalate hatası', { id: op.id, error: (whErr as Error).message })
+  }
 }
 
 // ── Görev A: bellek terfisi ────────────────────────────────────────────────────
@@ -920,6 +932,15 @@ async function processOperation(supabase: SupabaseClient, op: Operation) {
           `ID: ${op.id}`,
         ].join('\n'),
       })
+      try {
+        await dispatchOperationWebhooks(
+          supabase,
+          { ...op, status: 'done' },
+          'operation.done',
+        )
+      } catch (whErr) {
+        log('webhook intent_expired hatası', { id: op.id, error: (whErr as Error).message })
+      }
       log('operasyon intent_expired ile kapatıldı', { id: op.id, expires_at: op.intent_json.expires_at })
       return
     }
@@ -1185,6 +1206,17 @@ async function processOperation(supabase: SupabaseClient, op: Operation) {
       log('KPI özeti kaydedildi', { id: op.id, total_duration_min: kpi.total_duration_min, tick_count: kpi.tick_count })
     } catch (kpiErr) {
       log('KPI hesaplama hatası', { id: op.id, error: (kpiErr as Error).message })
+    }
+
+    // D4c — yalnız context_json.source === 'public_api'
+    try {
+      await dispatchOperationWebhooks(
+        supabase,
+        { ...op, status: 'done' },
+        'operation.done',
+      )
+    } catch (whErr) {
+      log('webhook done hatası', { id: op.id, error: (whErr as Error).message })
     }
 
     log('operasyon tamamlandı', { id: op.id })

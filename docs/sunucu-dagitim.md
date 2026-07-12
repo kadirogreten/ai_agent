@@ -63,7 +63,7 @@ GitHub repo → Settings → Secrets and variables → Actions:
 | `DEPLOY_SSH_KEY` | O kullanıcının **private** SSH anahtarı |
 | `DEPLOY_SSH_PORT` | (opsiyonel) 22 dışıysa |
 
-Push → main: `deploy.yml` önce testleri koşar, geçerse SSH ile `deploy.sh`'i çalıştırır, `/api/health` doğrular.
+Push → main: `deploy.yml` önce testleri koşar, geçerse SSH ile `deploy.sh`'i çalıştırır, `/api/health` + `/.well-known/agent-card.json` smoke doğrular.
 
 ## 3. Eski cron workflow'ları
 

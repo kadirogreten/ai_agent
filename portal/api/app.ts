@@ -23,6 +23,8 @@ import a2aRoutes, {
   wellKnownAgentCard,
   wellKnownAgentJsonAlias,
 } from './routes/a2a.js'
+import v1Routes from './routes/v1.js'
+import publicApiRoutes from './routes/publicApi.js'
 
 fileURLToPath(import.meta.url)
 
@@ -46,6 +48,8 @@ app.use('/api/sector', sectorRoutes)
 app.use('/api/packs', packsRoutes)
 app.use('/api/mcp', mcpRoutes)
 app.use('/api/a2a', a2aRoutes)
+app.use('/api/v1', v1Routes)
+app.use('/api/public-api', publicApiRoutes)
 
 // D4b — A2A discovery (nginx /.well-known/ → bu process)
 app.get('/.well-known/agent-card.json', wellKnownAgentCard)

@@ -43,6 +43,7 @@ import LlmProvidersPage from '@/pages/LlmProvidersPage'
 import OfficePage from '@/pages/OfficePage'
 import OperationsPage from '@/pages/OperationsPage'
 import SocialAccountsPage from '@/pages/SocialAccountsPage'
+import PublicApiPage from '@/pages/PublicApiPage'
 
 export default function App() {
   const init = useAuthStore((s) => s.init)
@@ -115,6 +116,7 @@ export default function App() {
           <Route path="llm-providers" element={<LlmProvidersPage />} />
           <Route path="social-accounts" element={<SocialAccountsPage />} />
           <Route path="operations" element={<OperationsPage />} />
+          <Route path="public-api" element={<PublicApiPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/app" replace />} />
       </Routes>
