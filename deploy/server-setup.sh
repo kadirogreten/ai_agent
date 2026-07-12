@@ -56,6 +56,8 @@ systemctl enable --now \
   agentarmy-tick@selfReflectionTick.timer
 
 echo "== nginx =="
+mkdir -p /etc/nginx/snippets
+cp "$APP_DIR/deploy/nginx-snippets/agentarmy-well-known.conf" /etc/nginx/snippets/agentarmy-well-known.conf
 cp "$APP_DIR/deploy/nginx-agentarmy.conf" /etc/nginx/sites-available/agentarmy
 ln -sf /etc/nginx/sites-available/agentarmy /etc/nginx/sites-enabled/agentarmy
 rm -f /etc/nginx/sites-enabled/default

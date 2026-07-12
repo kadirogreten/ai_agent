@@ -50,9 +50,31 @@ jobs:
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           port: ${{ secrets.DEPLOY_SSH_PORT || 22 }}
           command_timeout: 20m
-          script: sudo /opt/agentarmy/deploy.sh
+          # Önce repo'daki deploy.sh'i yerleştir (eski kopya nginx sync'i kaçırmasın), sonra çalıştır
+          script: |
+            set -euo pipefail
+            sudo -u agentarmy bash -c 'cd /opt/agentarmy/app && git fetch origin main && git reset --hard origin/main'
+            sudo cp /opt/agentarmy/app/deploy/deploy.sh /opt/agentarmy/deploy.sh
+            sudo chmod +x /opt/agentarmy/deploy.sh
+            sudo /opt/agentarmy/deploy.sh
 
       - name: Health check
         run: |
           sleep 5
           curl -fsS "https://agentarmy.techmorainvest.com/api/health"
+
+      - name: Agent Card smoke (D4b)
+        run: |
+          # SPA HTML değil JSON dönmeli (nginx /.well-known/ → API)
+          code=$(curl -sS -o /tmp/agent-card.json -w "%{http_code}" \
+            "https://agentarmy.techmorainvest.com/.well-known/agent-card.json")
+          echo "HTTP $code"
+          head -c 200 /tmp/agent-card.json; echo
+          test "$code" = "200"
+          grep -q '"skills"' /tmp/agent-card.json
+          grep -q '"name"' /tmp/agent-card.json
+          # SPA shell gelmesin
+          if grep -qi '<html\|Agent Portal' /tmp/agent-card.json; then
+            echo "FAIL: SPA HTML returned instead of Agent Card JSON"
+            exit 1
+          fi
