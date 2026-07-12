@@ -17,7 +17,10 @@ GitHub push (main)
        └─ git pull → npm ci + vite build → dotnet build → systemctl restart → health check
 
 Sunucu (Ubuntu):
-  nginx :80 ── /            → portal/dist (SPA fallback)
+  nginx :80/:443
+        ├─ /api/           → 127.0.0.1:3006 (agentarmy-api)
+        ├─ /.well-known/   → 127.0.0.1:3006 (D4b Agent Card; snippet her deploy’da sync)
+        └─ /               → portal/dist (SPA fallback)
             └─ /api/        → 127.0.0.1:3001 (agentarmy-api.service)
   agentarmy-worker.service   → runRequestWorkerLoop (10 sn aralık, DOTNET_NO_BUILD)
   agentarmy-tick@*.timer     → schedulerTick + operationLoopTick (5dk),
