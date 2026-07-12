@@ -35,11 +35,18 @@ type ReviewItem = {
   status: string
 }
 
-const STORAGE_KEY = 'sector-builder-state'
+// Durum tarayıcıda değil, KULLANICIYA göre saklanır: aynı tarayıcıda farklı hesapla
+// girince başka hesabın operasyonu görünmesin (RLS zaten veriyi korur, ama görüntü
+// de doğru hesaba ait olmalı). Anahtar user id ile scope'lanır.
+const STORAGE_PREFIX = 'sector-builder-state'
+const storageKeyFor = (userId: string | null | undefined) =>
+  userId ? `${STORAGE_PREFIX}:${userId}` : null
 
-function loadPersistedState(): { jobId: string | null; operationId: string | null; phase: Phase } {
+function loadPersistedState(userId: string | null | undefined): { jobId: string | null; operationId: string | null; phase: Phase } {
+  const key = storageKeyFor(userId)
+  if (!key) return { jobId: null, operationId: null, phase: 'prompt' }
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
+    const raw = localStorage.getItem(key)
     if (!raw) return { jobId: null, operationId: null, phase: 'prompt' }
     return JSON.parse(raw) as { jobId: string | null; operationId: string | null; phase: Phase }
   } catch {
@@ -47,8 +54,10 @@ function loadPersistedState(): { jobId: string | null; operationId: string | nul
   }
 }
 
-function persistState(jobId: string | null, operationId: string | null, phase: Phase) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify({ jobId, operationId, phase }))
+function persistState(userId: string | null | undefined, jobId: string | null, operationId: string | null, phase: Phase) {
+  const key = storageKeyFor(userId)
+  if (!key) return
+  localStorage.setItem(key, JSON.stringify({ jobId, operationId, phase }))
 }
 
 export default function SectorBuilderPage() {
@@ -56,7 +65,7 @@ export default function SectorBuilderPage() {
   const session = useAuthStore((s) => s.session)
   const navigate = useNavigate()
 
-  const persisted = loadPersistedState()
+  const persisted = loadPersistedState(user?.id)
   const [prompt, setPrompt] = useState('')
   const [phase, setPhase] = useState<Phase>(persisted.phase)
   const [jobId, setJobId] = useState<string | null>(persisted.jobId)
@@ -86,9 +95,23 @@ export default function SectorBuilderPage() {
     listDomainPacks().then(setExistingPacks).catch(console.error)
   }, [])
 
+  // user async yüklendiyse ve bu oturumda henüz bir şey başlatılmadıysa,
+  // KULLANICININ KENDİ kayıtlı durumunu geri yükle (sayfa yenileme desteği).
   useEffect(() => {
-    persistState(jobId, operationId, phase)
-  }, [jobId, operationId, phase])
+    if (!user?.id) return
+    if (jobId || phase !== 'prompt') return
+    const restored = loadPersistedState(user.id)
+    if (restored.jobId || restored.operationId) {
+      setJobId(restored.jobId)
+      setOperationId(restored.operationId)
+      setPhase(restored.phase)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id])
+
+  useEffect(() => {
+    persistState(user?.id, jobId, operationId, phase)
+  }, [user?.id, jobId, operationId, phase])
 
   const loadReview = useCallback(async () => {
     if (!jobId || !authHeaders) return
@@ -249,7 +272,10 @@ export default function SectorBuilderPage() {
     setLastTickAt(null)
     setCooldownMinutes(null)
     setOperationStatus(null)
-    localStorage.removeItem(STORAGE_KEY)
+    const key = storageKeyFor(user?.id)
+    if (key) localStorage.removeItem(key)
+    // Eski global anahtar kalıntısını da temizle (geçiş)
+    localStorage.removeItem(STORAGE_PREFIX)
   }
 
   return (
