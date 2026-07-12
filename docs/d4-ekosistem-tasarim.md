@@ -129,3 +129,15 @@ Teslim:
 - Factory: `runRequestWorker` draft insert’te `missing_tools` + `suggested_mcp`
 - Onay: owner `pending_approval` → `active` + `enabled=true`; ardından `mcp-sync --server <slug>`
 - Yalnız HTTPS remote bağlanır (stdio sonraki PR)
+
+---
+
+## D4b uygulama notu (2026-07-12)
+
+Teslim:
+- Migration [`20260712190000_d4b_a2a_card.sql`](../supabase/migrations/20260712190000_d4b_a2a_card.sql)
+- [`portal/api/lib/agentCard.ts`](../portal/api/lib/agentCard.ts) + [`portal/api/routes/a2a.ts`](../portal/api/routes/a2a.ts)
+- `GET /.well-known/agent-card.json` (+ `agent.json` alias); `Cache-Control: public, max-age=300`
+- Kapı: global `a2a.card_enabled=false` + canary pack `meta.a2a_public`
+- `POST /api/a2a` → 501; nginx `/.well-known/` proxy
+- `npm run ops:d4b-preflight`

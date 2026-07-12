@@ -20,6 +20,7 @@ type DomainPackRow = {
   glossary_md: string | null
   regulatory_notes_md: string | null
   verifier_rubric_md: string | null
+  meta: Record<string, unknown> | null
   created_at: string
   updated_at: string
 }
@@ -38,6 +39,8 @@ export default function DomainPacksPage() {
   const [q,        setQ]        = useState('')
   const [err,      setErr]      = useState<string | null>(null)
   const [selected, setSelected] = useState<DomainPackRow | null>(null)
+  const [togglingA2a, setTogglingA2a] = useState(false)
+  const [copied, setCopied] = useState(false)
 
   useEffect(() => { init() }, [init])
   const canQuery = initialized && !!user
@@ -47,7 +50,7 @@ export default function DomainPacksPage() {
     setLoading(true); setErr(null)
     let query = supabase
       .from('domain_packs')
-      .select('id,name,description,tenant_id,status,allowed_domains,glossary_md,regulatory_notes_md,verifier_rubric_md,created_at,updated_at')
+      .select('id,name,description,tenant_id,status,allowed_domains,glossary_md,regulatory_notes_md,verifier_rubric_md,meta,created_at,updated_at')
       .order('name')
     if (q.trim()) {
       const term = `%${q.trim()}%`
@@ -60,6 +63,38 @@ export default function DomainPacksPage() {
   }, [canQuery, q])
 
   useEffect(() => { load() }, [load])
+
+  async function toggleA2aPublic(pack: DomainPackRow) {
+    setTogglingA2a(true); setErr(null)
+    const next = !(pack.meta?.a2a_public === true)
+    const meta = { ...(pack.meta ?? {}), a2a_public: next }
+    const { error } = await supabase
+      .from('domain_packs')
+      .update({ meta, updated_at: new Date().toISOString() })
+      .eq('id', pack.id)
+    if (error) setErr(error.message)
+    else {
+      const updated = { ...pack, meta }
+      setSelected(updated)
+      setRows((prev) => prev.map((r) => (r.id === pack.id ? updated : r)))
+    }
+    setTogglingA2a(false)
+  }
+
+  function cardUrl(packId: string) {
+    const origin = typeof window !== 'undefined' ? window.location.origin : ''
+    return `${origin}/.well-known/agent-card.json?pack=${encodeURIComponent(packId)}`
+  }
+
+  async function copyCardUrl(packId: string) {
+    try {
+      await navigator.clipboard.writeText(cardUrl(packId))
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      setErr('Panoya kopyalanamadı')
+    }
+  }
 
   const columns: Column<DomainPackRow>[] = [
     {
@@ -127,6 +162,32 @@ export default function DomainPacksPage() {
                     <p className="text-white/65 leading-relaxed">{selected.description}</p>
                   </div>
                 )}
+
+                <div className="rounded-lg border border-white/[0.08] bg-white/[0.03] p-3 space-y-2">
+                  <div className="text-xs font-medium text-white/50">A2A Agent Card (D4b)</div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge tone={selected.meta?.a2a_public === true ? 'green' : 'gray'}>
+                      {selected.meta?.a2a_public === true ? 'a2a_public' : 'gizli'}
+                    </Badge>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={togglingA2a || selected.status !== 'active'}
+                      onClick={() => void toggleA2aPublic(selected)}
+                    >
+                      {selected.meta?.a2a_public === true ? 'Kartı kapat' : 'Kartı yayınla'}
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => void copyCardUrl(selected.id)}>
+                      {copied ? 'Kopyalandı' : 'Card URL'}
+                    </Button>
+                  </div>
+                  <p className="font-mono text-[11px] text-white/35 break-all">
+                    {cardUrl(selected.id)}
+                  </p>
+                  <p className="text-[11px] text-white/35">
+                    Keşif-only — POST /api/a2a şimdilik 501 (D4c).
+                  </p>
+                </div>
 
                 <div>
                   <div className="mb-1 text-xs font-medium text-white/40">

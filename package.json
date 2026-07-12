@@ -8,7 +8,8 @@
     "ops:check": "tsx scripts/ops-runbook-check.ts",
     "ops:a3-preflight": "tsx scripts/a3-demo-preflight.ts",
     "ops:a3-verify": "tsx scripts/a3-demo-verify.ts",
-    "ops:d3-canary": "tsx scripts/d3-canary.ts"
+    "ops:d3-canary": "tsx scripts/d3-canary.ts",
+    "ops:d4b-preflight": "tsx scripts/d4b-a2a-preflight.ts"
   },
   "devDependencies": {
     "@supabase/supabase-js": "^2.49.8",

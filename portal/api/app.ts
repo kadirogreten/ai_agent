@@ -19,6 +19,10 @@ import socialRoutes from './routes/social.js'
 import sectorRoutes from './routes/sector.js'
 import packsRoutes from './routes/packs.js'
 import mcpRoutes from './routes/mcp.js'
+import a2aRoutes, {
+  wellKnownAgentCard,
+  wellKnownAgentJsonAlias,
+} from './routes/a2a.js'
 
 fileURLToPath(import.meta.url)
 
@@ -41,6 +45,11 @@ app.use('/api/social', socialRoutes)
 app.use('/api/sector', sectorRoutes)
 app.use('/api/packs', packsRoutes)
 app.use('/api/mcp', mcpRoutes)
+app.use('/api/a2a', a2aRoutes)
+
+// D4b — A2A discovery (nginx /.well-known/ → bu process)
+app.get('/.well-known/agent-card.json', wellKnownAgentCard)
+app.get('/.well-known/agent.json', wellKnownAgentJsonAlias)
 
 /**
  * health
