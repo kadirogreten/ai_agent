@@ -132,16 +132,35 @@ async function patchStatus(id: string, status: OpStatus) {
 
 /** Escalated operasyonu active'e döndürür ve event yazar. */
 async function resumeFromEscalated(opId: string) {
+  // Mevcut ilerlemeyi oku — max_steps eskalasyonunu kırmak için taze bütçe ver.
+  const { data: cur } = await supabase
+    .from('operations')
+    .select('step_count, max_steps')
+    .eq('id', opId)
+    .maybeSingle()
+
+  const stepCount = (cur as { step_count?: number } | null)?.step_count ?? 0
+  const curMax    = (cur as { max_steps?: number } | null)?.max_steps ?? 10
+  // Devam için en az 10 adımlık taze bütçe: step_count + 10 (mevcut max'tan küçükse yükseltmez).
+  const newMax = Math.max(curMax, stepCount + 10)
+
   const { error } = await supabase
     .from('operations')
-    .update({ status: 'active', escalation_reason: null, updated_at: new Date().toISOString() })
+    .update({
+      status:            'active',
+      escalation_reason: null,
+      max_steps:         newMax,
+      updated_at:        new Date().toISOString(),
+    })
     .eq('id', opId)
   if (error) throw error
 
+  // Bu event, tick tarafında "ard arda başarısız" sayacının sıfırlanma noktası olarak da kullanılır:
+  // buradan ÖNCEKI başarısızlıklar (örn. eski Planner hataları) yeni streak'e dahil edilmez.
   await supabase.from('operation_events').insert({
     operation_id: opId,
     kind:         'act',
-    payload:      { action: 'resumed_by_user' },
+    payload:      { action: 'resumed_by_user', new_max_steps: newMax },
   })
 }
 

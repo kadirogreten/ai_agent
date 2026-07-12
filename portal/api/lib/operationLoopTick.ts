@@ -133,13 +133,30 @@ async function observe(supabase: SupabaseClient, op: Operation) {
     }
   }
 
-  // Ard arda başarısız sayısı
-  const { data: recentRuns } = await supabase
+  // Ard arda başarısız sayısı.
+  // Kullanıcı "Düzelt ve devam et" ile devam ettiyse, o andan ÖNCEKI başarısızlıkları
+  // SAYMA — aksi halde eski hata serisi (örn. çözülmüş Planner hataları) operasyonu
+  // devam ettirir ettirmez tekrar consecutive_failures ile eskalasyona sokar.
+  const { data: lastResumeEvent } = await supabase
+    .from('operation_events')
+    .select('created_at')
+    .eq('operation_id', op.id)
+    .eq('kind', 'act')
+    .contains('payload', { action: 'resumed_by_user' })
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  const resumeCutoff = (lastResumeEvent as { created_at: string } | null)?.created_at ?? null
+
+  let recentRunsQuery = supabase
     .from('run_requests')
-    .select('status')
+    .select('status, created_at')
     .eq('operation_id', op.id)
     .order('created_at', { ascending: false })
     .limit(10)
+  if (resumeCutoff) recentRunsQuery = recentRunsQuery.gte('created_at', resumeCutoff)
+  const { data: recentRuns } = await recentRunsQuery
 
   let consecutiveFails = 0
   for (const r of (recentRuns ?? []) as { status: string }[]) {
