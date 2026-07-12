@@ -50,13 +50,9 @@ jobs:
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           port: ${{ secrets.DEPLOY_SSH_PORT || 22 }}
           command_timeout: 20m
-          # Önce repo'daki deploy.sh'i yerleştir (eski kopya nginx sync'i kaçırmasın), sonra çalıştır
-          script: |
-            set -euo pipefail
-            sudo -u agentarmy bash -c 'cd /opt/agentarmy/app && git fetch origin main && git reset --hard origin/main'
-            sudo cp /opt/agentarmy/app/deploy/deploy.sh /opt/agentarmy/deploy.sh
-            sudo chmod +x /opt/agentarmy/deploy.sh
-            sudo /opt/agentarmy/deploy.sh
+          # deployuser sudoers: yalnız NOPASSWD /opt/agentarmy/deploy.sh
+          # git pull + nginx sync + self-update deploy.sh içinde
+          script: sudo -n /opt/agentarmy/deploy.sh
 
       - name: Health check
         run: |
