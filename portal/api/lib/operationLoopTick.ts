@@ -979,7 +979,21 @@ async function processOperation(supabase: SupabaseClient, op: Operation) {
       quantity?: number | null
     } | null | undefined
 
-    const baseTopicForOrder = next_topic ?? op.goal_text
+    // sector_factory: DECIDE'ın ürettiği next_topic genel olabilir ("pazar araştırması
+    // başlat") ve op.goal_text'i (asıl sektör bağlamı) ezerse araştırma/taslak ajanı
+    // bağlamsız kalıp yaygın bir sektöre (ör. e-ticaret) savrulur. Bu yüzden sektör
+    // fabrikasında op.goal_text her adım topic'ine ZORUNLU eklenir.
+    let baseTopicForOrder = next_topic ?? op.goal_text
+    if (op.context_json?.kind === 'sector_factory') {
+      const sectorCtx = op.goal_text?.trim() ?? ''
+      const hasSectorCtx = sectorCtx.length > 0 &&
+        baseTopicForOrder.includes(sectorCtx.slice(0, Math.min(40, sectorCtx.length)))
+      if (sectorCtx && !hasSectorCtx) {
+        baseTopicForOrder = next_topic
+          ? `Sektör bağlamı: ${sectorCtx}\n\nGörev: ${next_topic}`
+          : sectorCtx
+      }
+    }
     const trackingNumber = orderCtx?.tracking_number
     const topic = trackingNumber && !baseTopicForOrder.includes(trackingNumber)
       ? `${baseTopicForOrder} (takip: ${trackingNumber})`
