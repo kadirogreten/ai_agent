@@ -123,6 +123,8 @@ public sealed class CeoPlanner
             ? "- clarifyingQuestions: BOŞ dizi [] (yanıtlar verildi, artık soru sorulmaz)."
             : "- clarifyingQuestions: Kullanıcıya sorulacak sorular (max 5). Gerçekten gerekli değilse boş bırak.");
         sb.AppendLine("- runs: max 5 run üret; gerekirse bundle kullan." );
+        sb.AppendLine("- runs[].mode='bundle' YALNIZ aşağıdaki 'Mevcut bundle'lar' listesindeki slug için.");
+        sb.AppendLine("- Playbook slug'ları için mode='playbook' kullan (ör. sosyal-post-uret). Listede olmayan id UYDURMA.");
         sb.AppendLine();
         // Primary pack bundle'larını DB'den yükle — dosyaya bakılmaz.
         sb.AppendLine("Mevcut bundle'lar:");

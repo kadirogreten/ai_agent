@@ -217,12 +217,16 @@ public sealed class CeoExecutor
                 var bundleResult = await Runner.RunBundleAsync(_rootDir, runExec, bundle, planned.Topic, _supabase, ct);
                 return (bundleResult.BundleRunId, bundleResult.PlaybookRunIds);
             }
-            catch (FileNotFoundException)
+            catch (Exception ex) when (
+                ex is FileNotFoundException ||
+                (ex is InvalidOperationException &&
+                 ex.Message.Contains("Bundle not found", StringComparison.OrdinalIgnoreCase)))
             {
                 // CeoPlanner bazen mode'u yanlış işaretliyor — aynı slug genelde playbook olarak da
-                // var (ör. root 'market-research' bir playbook ama LLM bundle diye etiketliyor).
-                // Sessizce playbook'a düş; başaramazsa orijinal playbook yükleme hatası bubble eder.
-                Console.Error.WriteLine($"[CeoExecutor] '{planned.Id}' bundle bulunamadı; playbook olarak deneniyor.");
+                // var (ör. 'sosyal-post-uret' playbook ama LLM bundle diye etiketliyor).
+                // BundleLoader InvalidOperationException fırlatır (eski FileNotFoundException catch ölüydü).
+                Console.Error.WriteLine(
+                    $"[CeoExecutor] '{planned.Id}' bundle bulunamadı; playbook olarak deneniyor. ({ex.Message})");
             }
         }
 
