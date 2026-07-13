@@ -45,16 +45,22 @@ public sealed class CeoPlanner
         }
         catch
         {
+            // Yanıtlar verildiyse (iterate) fallback'te DE soru sorma — doğrudan çalıştır.
+            var iterating = !string.IsNullOrWhiteSpace(answersJson);
             return new Plan(
                 DomainPack: domainPack.Id,
                 PrimaryTopic: request.Trim(),
                 Subtopics: new List<string>(),
-                ClarifyingQuestions: new List<string> { "Hedef kitle kim? (PM/Sales/Exec)" },
+                ClarifyingQuestions: iterating
+                    ? new List<string>()
+                    : new List<string> { "Hedef kitle kim? (PM/Sales/Exec)" },
                 Runs: new List<PlannedRun>
                 {
                     new PlannedRun("bundle", "weekly", request.Trim(), "R1", true, false)
                 },
-                Rationale: "Fallback plan (dry-run veya parse hatası)."
+                Rationale: iterating
+                    ? "Fallback plan (parse hatası) — yanıtlar verildiği için soru sorulmadan çalıştırılıyor."
+                    : "Fallback plan (dry-run veya parse hatası)."
             );
         }
     }
@@ -67,11 +73,17 @@ public sealed class CeoPlanner
         sb.AppendLine("Kullanıcı isteği:");
         sb.AppendLine(request.Trim());
 
-        if (!string.IsNullOrWhiteSpace(answersJson))
+        var hasAnswers = !string.IsNullOrWhiteSpace(answersJson);
+        if (hasAnswers)
         {
             sb.AppendLine();
             sb.AppendLine("Kullanıcı yanıtları (JSON):");
-            sb.AppendLine(answersJson.Trim());
+            sb.AppendLine(answersJson!.Trim());
+            sb.AppendLine();
+            sb.AppendLine("ÇOK ÖNEMLİ — Kullanıcı yukarıdaki yanıtları ZATEN verdi. Bu bir ITERATE adımı:");
+            sb.AppendLine("- clarifyingQuestions KESİNLİKLE BOŞ dizi [] olmalı. Aynı veya yeni soru SORMA.");
+            sb.AppendLine("- Yanıtlar eksik/kısmi olsa bile makul varsayımlarla İLERLE; tekrar soru sorma.");
+            sb.AppendLine("- Amacın: planı kesinleştirip çalıştırılacak 'runs' üretmek — soru sormak DEĞİL.");
         }
 
         sb.AppendLine();
@@ -92,7 +104,9 @@ public sealed class CeoPlanner
         sb.AppendLine("- web true, market/competitive intel türü işler için önerilir.");
         sb.AppendLine("- primaryTopic kısa ve net olmalı.");
         sb.AppendLine("- subtopics: CEO'nun kendi inisiyatifiyle takip soruları/alt başlıklar (max 5)." );
-        sb.AppendLine("- clarifyingQuestions: Kullanıcıya sorulacak sorular (max 5)." );
+        sb.AppendLine(hasAnswers
+            ? "- clarifyingQuestions: BOŞ dizi [] (yanıtlar verildi, artık soru sorulmaz)."
+            : "- clarifyingQuestions: Kullanıcıya sorulacak sorular (max 5). Gerçekten gerekli değilse boş bırak.");
         sb.AppendLine("- runs: max 5 run üret; gerekirse bundle kullan." );
         sb.AppendLine();
         // Primary pack bundle'larını DB'den yükle — dosyaya bakılmaz.
