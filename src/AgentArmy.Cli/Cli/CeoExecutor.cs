@@ -237,7 +237,7 @@ public sealed class CeoExecutor
             try
             {
                 var bundle = await BundleLoader.LoadAsync(_rootDir, targetPack, planned.Id, _supabase, ct);
-                var bundleResult = await Runner.RunBundleAsync(_rootDir, runExec, bundle, planned.Topic, _supabase, ct);
+                var bundleResult = await Runner.RunBundleAsync(_rootDir, runExec, bundle, runTopic, _supabase, ct);
                 return (bundleResult.BundleRunId, bundleResult.PlaybookRunIds);
             }
             catch (Exception ex) when (
