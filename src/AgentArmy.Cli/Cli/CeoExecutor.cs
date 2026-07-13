@@ -197,10 +197,33 @@ public sealed class CeoExecutor
             else Console.Error.WriteLine($"[CeoExecutor] cross-pack '{planned.Pack}' yüklenemedi, primary kullanılacak.");
         }
 
+        // İÇERİK KAYBI FIX: Planner, kullanıcının uzun isteğini (ör. yapıştırılan 12 içerik)
+        // kısa bir "topic"e sıkıştırıyor; Writer gerçek içeriği hiç görmüyor ve UYDURUYOR
+        // (canlı gözlem: 12 içerik yerine jenerik başlıklar üretti, "kalan 9'u ver" dedi).
+        // Çözüm: orijinal tam isteği kaynak materyal olarak topic'e enjekte et; böylece
+        // yürütme ajanları (Writer vb.) gerçek içeriğin TAMAMINI görür.
+        var runTopic     = planned.Topic ?? string.Empty;
+        var fullRequest  = baseArgs.GetValueOrDefault("request");
+        if (!string.IsNullOrWhiteSpace(fullRequest))
+        {
+            var probe = fullRequest.Substring(0, Math.Min(80, fullRequest.Length));
+            var alreadyHasIt = runTopic.Contains(probe, StringComparison.Ordinal);
+            if (!alreadyHasIt && fullRequest.Length > runTopic.Length + 120)
+            {
+                runTopic =
+                    $"{planned.Topic}\n\n" +
+                    "=== KAYNAK MATERYAL (kullanıcının tam isteği/içeriği) ===\n" +
+                    "Aşağıdaki içeriğin TAMAMINI birebir kullan. Yeni/uydurma başlık veya konu TÜRETME; " +
+                    "yalnızca burada verilen içerikleri işle. Birden çok içerik varsa HEPSİNİ eksiksiz üret — " +
+                    "\"aynı formatta devam edilecektir\" gibi kısaltma/atlama YAPMA.\n\n" +
+                    fullRequest;
+            }
+        }
+
         var runArgs = new Dictionary<string, string>(baseArgs, StringComparer.OrdinalIgnoreCase)
         {
             ["domainPack"] = targetPack.Id,
-            ["topic"]      = planned.Topic,
+            ["topic"]      = runTopic,
             ["risk"]       = planned.Risk,
             ["web"]        = planned.Web       ? "true" : "false",
             ["contrarian"] = planned.Contrarian ? "true" : "false",

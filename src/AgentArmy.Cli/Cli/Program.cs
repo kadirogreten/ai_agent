@@ -12,7 +12,7 @@ public static class Program
 
         // Sürüm damgası — worker logunda hangi binary'nin koştuğunu gözle doğrulamak için.
         // Yeni kod deploy olduysa bu satırı görmeli; görmüyorsan eski binary çalışıyordur.
-        Console.Error.WriteLine("[AgentArmy] build-marker: tedarik-tools v17 (ceo bundle→playbook fallback: InvalidOperationException Bundle not found)");
+        Console.Error.WriteLine("[AgentArmy] build-marker: tedarik-tools v18 (içerik kaybı fix: kullanıcının tam isteği kaynak materyal olarak Writer'a enjekte — uydurma/kısaltma engeli)");
 
         var rootDir = RepoRootFinder.Find(AppContext.BaseDirectory);
 
