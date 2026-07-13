@@ -79,7 +79,8 @@ export default function JobsPage() {
   const [bundleId,     setBundleId]     = useState('weekly')
   const [availableAgents, setAvailableAgents] = useState<AgentRow[]>([])
   const [selectedAgents, setSelectedAgents] = useState<string[]>([])
-  const [modelText,    setModelText]    = useState('gpt-4.1')
+  // Boş = "Otomatik": worker --model geçmez, CLI ajan-bazlı ucuz yönlendirmeyi kullanır (~%60-70 tasarruf).
+  const [modelText,    setModelText]    = useState('')
   const [web,         setWeb]          = useState(true)
   const [contrarian,   setContrarian]   = useState(false)
   const [risk,        setRisk]         = useState<'R0' | 'R1' | 'R2' | 'R3'>('R1')
@@ -456,8 +457,11 @@ export default function JobsPage() {
             )}
 
             <div>
-              <label className="mb-1.5 block text-xs font-medium text-white/50">Model</label>
-              <Input value={modelText} onChange={(e) => setModelText(e.target.value)} />
+              <Select label="Model" value={modelText} onChange={(e) => setModelText(e.target.value)}>
+                <option value="">Otomatik (ucuz — önerilen)</option>
+                <option value="gpt-4.1-mini">gpt-4.1-mini</option>
+                <option value="gpt-4.1">gpt-4.1</option>
+              </Select>
             </div>
             <div>
               <Select
