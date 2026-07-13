@@ -786,9 +786,32 @@ async function processOperation(supabase: SupabaseClient, op: Operation) {
     if (draftId) {
       const { data: draftRow } = await supabase
         .from('domain_pack_drafts')
-        .select('id, eval_json, eval_generator_run_id, eval_status')
+        .select('id, eval_json, eval_generator_run_id, eval_status, status')
         .eq('id', draftId)
         .maybeSingle()
+
+      // ── TERMINAL KOŞUL ──────────────────────────────────────────────────────
+      // Taslak merge edildiyse operasyon TAMAMLANMALI. Aksi halde döngü durmayıp
+      // her tick'te (canlı gözlem: ~1 saat arayla) sıfırdan yeni bir paket üretip
+      // tekrar merge ediyor — aynı paketten 2-3 kopya + boşa token. Burada kapat.
+      if ((draftRow as { status?: string } | null)?.status === 'merged') {
+        await supabase
+          .from('operations')
+          .update({ status: 'done', updated_at: new Date().toISOString() })
+          .eq('id', op.id)
+        await logEvent(supabase, op.id, 'act', {
+          action: 'done',
+          reason: 'sector_factory: paket birleştirildi (merged) — operasyon tamamlandı, tekrar üretim durduruldu',
+        })
+        try {
+          await dispatchOperationWebhooks(supabase, { ...op, status: 'done' }, 'operation.done')
+        } catch (whErr) {
+          log('webhook sector_factory done hatası', { id: op.id, error: (whErr as Error).message })
+        }
+        log('sector_factory merged → done', { id: op.id, draft_id: draftId })
+        return
+      }
+
       if (
         draftRow &&
         !draftRow.eval_generator_run_id &&

@@ -113,7 +113,9 @@ export default function RunWizardPage() {
   const [playbooks,  setPlaybooks]  = useState<PlaybookRow[]>([])
   const [playbookId, setPlaybookId] = useState('')
   const [topic,      setTopic]      = useState('')
-  const [model,      setModel]      = useState('gpt-4.1')
+  // Boş = "Otomatik": worker --model geçmez, CLI ajan-bazlı ucuz yönlendirmeyi kullanır
+  // (Researcher/Analyst/Writer → gpt-4.1-mini, sadece gerektiğinde frontier). Maliyet ~%60-70 düşer.
+  const [model,      setModel]      = useState('')
   const [web,        setWeb]        = useState(true)
   const [contrarian, setContrarian] = useState(false)
   const [availableTools, setAvailableTools] = useState<{ slug: string; name: string }[]>([])
@@ -280,7 +282,11 @@ export default function RunWizardPage() {
             />
 
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
-              <Input label="Model" value={model} onChange={(e) => setModel(e.target.value)} placeholder="gpt-4.1" />
+              <Select label="Model" value={model} onChange={(e) => setModel(e.target.value)}>
+                <option value="">Otomatik (ucuz — önerilen)</option>
+                <option value="gpt-4.1-mini">gpt-4.1-mini</option>
+                <option value="gpt-4.1">gpt-4.1</option>
+              </Select>
               <div className="flex items-end">
                 <Toggle checked={web} onChange={setWeb} label="Web araması" />
               </div>
@@ -415,7 +421,11 @@ export default function RunWizardPage() {
                   placeholder="Örn: Üçüncü çeyrek için rakip fiyat takip raporu"
                 />
                 <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
-                  <Input label="Model" value={model} onChange={(e) => setModel(e.target.value)} placeholder="gpt-4.1" />
+                  <Select label="Model" value={model} onChange={(e) => setModel(e.target.value)}>
+                <option value="">Otomatik (ucuz — önerilen)</option>
+                <option value="gpt-4.1-mini">gpt-4.1-mini</option>
+                <option value="gpt-4.1">gpt-4.1</option>
+              </Select>
                   <div className="flex items-end">
                     <Toggle checked={web} onChange={setWeb} label="Web araması" />
                   </div>

@@ -446,7 +446,10 @@ function buildDotnetArgs(job: RunRequest) {
     : ['run', '--project', cliProjectPath, '--']
 
   const domainPack    = job.domain_pack ?? 'market-intel'
-  const model         = job.model ?? 'gpt-4.1'
+  // "Otomatik" (model boş): --model HİÇ geçme → CLI ajan-bazlı ucuz yönlendirmeyi kullanır
+  // (Researcher/Analyst/Writer → gpt-4.1-mini, sadece gerektiğinde frontier). Eskiden burada
+  // '?? gpt-4.1' vardı ve her run'ı pahalı frontier'a zorluyordu (canlı maliyet gözlemi).
+  const modelArgs     = job.model && job.model.trim() ? ['--model', job.model.trim()] : []
   const web           = job.web ? 'true' : 'false'
   const contrarian    = job.contrarian ? 'true' : 'false'
   const risk          = job.risk ?? 'R1'
@@ -457,7 +460,7 @@ function buildDotnetArgs(job: RunRequest) {
       'ceo',
       '--domainPack', domainPack,
       '--request',    job.request_text ?? '',
-      '--model',      model,
+      ...modelArgs,
       '--risk',       risk,
       '--allowHighRisk', allowHighRisk,
       '--web',        web,
@@ -472,7 +475,7 @@ function buildDotnetArgs(job: RunRequest) {
       '--domainPack', domainPack,
       '--request',    job.request_text ?? '',
       '--answers',    job.answers_json ? JSON.stringify(job.answers_json) : '{}',
-      '--model',      model,
+      ...modelArgs,
       '--risk',       risk,
       '--allowHighRisk', allowHighRisk,
       '--web',        web,
@@ -495,7 +498,7 @@ function buildDotnetArgs(job: RunRequest) {
       '--domainPack', domainPack,
       '--id',         bundleId,
       '--topic',      topic,
-      '--model',      model,
+      ...modelArgs,
       '--risk',       risk,
       '--allowHighRisk', allowHighRisk,
       '--web',        web,
@@ -522,7 +525,7 @@ function buildDotnetArgs(job: RunRequest) {
     '--domainPack', domainPack,
     '--playbook',   playbookId,
     '--topic',      topic,
-    '--model',      model,
+    ...modelArgs,
     '--risk',       runRisk,
     '--allowHighRisk', (allowHighRisk === 'true' || runRisk === 'R3') ? 'true' : 'false',
     '--web',        web,
