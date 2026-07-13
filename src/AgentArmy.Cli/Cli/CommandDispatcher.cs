@@ -451,15 +451,18 @@ public static partial class CommandDispatcher
                 return true;
             }
 
-            // Genel CEO / ceo-iterate: her soruya cevap gerekli
-            foreach (var q in clarifyingQuestions)
+            // Genel CEO / ceo-iterate: kullanıcı EN AZ BİR gerçek cevap verdiyse ÇALIŞTIR.
+            // Eski davranış her soruyu exact-text eşleştiriyordu; planner iterate'te yeni/farklı
+            // sorular ürettiğinde (cevaplananlardan farklı metin) eşleşme tutmuyor ve execution
+            // sonsuza dek erteleniyordu → CEO_QUESTIONS_ONLY=1, run_id null, çıktı yok (canlı kök-neden).
+            // ceo-iterate'in tüm amacı "kullanıcı cevapladı, artık çalıştır" — o yüzden cevap varsa geç.
+            foreach (var prop in root.EnumerateObject())
             {
-                if (!root.TryGetProperty(q, out var ans) ||
-                    ans.ValueKind != JsonValueKind.String ||
-                    string.IsNullOrWhiteSpace(ans.GetString()))
-                    return true;
+                if (prop.Value.ValueKind == JsonValueKind.String &&
+                    !string.IsNullOrWhiteSpace(prop.Value.GetString()))
+                    return false; // en az bir gerçek cevap var → executor çalışsın
             }
-            return false;
+            return true; // hiç gerçek cevap yok → hâlâ ertele
         }
         catch
         {
