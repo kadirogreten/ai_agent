@@ -607,13 +607,17 @@ router.post('/jobs/:jobId/review/generate', async (req: Request, res: Response) 
     const { supabase, user } = await getAuthedUser(req)
     const job = await getOwnedJob(supabase, user.id, req.params.jobId)
     const { questions, planText } = await readQuestionsFromJob(supabase, user.id, job)
-    if (questions.length === 0) {
+
+    // Araştırma-bilgili: işin ürettiği gerçek araştırmayı çıkar ve üretime besle.
+    const researchText = await extractResearchText(supabase, job)
+
+    // Temel soru YOKSA (ör. başarılı ceo-iterate — sorular üretmez) ama üretilen çıktı
+    // varsa, yine de o çıktıdan keskin TAKİP soruları üret. Böylece Review boş kalmaz.
+    if (questions.length === 0 && !researchText.trim()) {
       res.status(200).json({ success: true, reviews: [] })
       return
     }
 
-    // Araştırma-bilgili: işin ürettiği gerçek araştırmayı çıkar ve üretime besle.
-    const researchText = await extractResearchText(supabase, job)
     const { answers: suggested, followUps } = await generateSuggestedAnswers(job, questions, planText, researchText)
     const savedAnswers = readSavedAnswers(job.answers_json)
     const { reviews: existing, tableAvailable } = await tryLoadReviews(supabase, user.id, job.id)

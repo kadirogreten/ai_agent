@@ -215,7 +215,12 @@ public sealed class CeoExecutor
                     "=== KAYNAK MATERYAL (kullanıcının tam isteği/içeriği) ===\n" +
                     "Aşağıdaki içeriğin TAMAMINI birebir kullan. Yeni/uydurma başlık veya konu TÜRETME; " +
                     "yalnızca burada verilen içerikleri işle. Birden çok içerik varsa HEPSİNİ eksiksiz üret — " +
-                    "\"aynı formatta devam edilecektir\" gibi kısaltma/atlama YAPMA.\n\n" +
+                    "\"aynı formatta devam edilecektir\" gibi kısaltma/atlama YAPMA.\n" +
+                    "DERİNLİK: Her çıktıyı orijinal içeriğin DOLGUNLUĞUNDA yaz; içeriği fakirleştirip " +
+                    "aşırı özetleme. Uzun-form platformlarda (ör. LinkedIn) tam metin ver; yalnızca doğası " +
+                    "gereği kısa olan yerlerde (ör. X) kısalt.\n" +
+                    "ÖNCELİK: Kullanıcının verdiği cevaplardaki talimatlar (dil, format, uzunluk vb.) marka " +
+                    "tonundaki genel kurallarla ÇELİŞİRSE, KULLANICI CEVAPLARI önceliklidir — onları uygula.\n\n" +
                     fullRequest;
             }
         }
