@@ -184,6 +184,42 @@ public static partial class CommandDispatcher
         return (llm, http);
     }
 
+    // Araştır-sonra-sor: CEO ilk soruları üretmeden önce hafif bir web ön-taraması.
+    // Ucuz model (mini) + web araması açık. Başarısız olursa null döner (akış bozulmaz).
+    private static async Task<string?> RunCeoPreResearchAsync(
+        Runner.Execution exec, string request, DomainPack pack, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(exec.ApiKey)) return null;
+        try
+        {
+            using var http = new HttpClient(HttpClientPool.SharedHandler, disposeHandler: false)
+            {
+                Timeout = TimeSpan.FromMinutes(3)
+            };
+            var researchModel = Environment.GetEnvironmentVariable("AGENTARMY_MODEL_LOW") is { Length: > 0 } m
+                ? m : "gpt-4.1-mini";
+            var llm = new OpenAiResponsesClient(http, exec.ApiKey, researchModel, enableWebSearch: true);
+
+            var system = "Sen hızlı bir ön-araştırmacısın. Web'den kısa, güncel, kaynaklı bulgular çıkarırsın. Uzun yazma, jenerik konuşma.";
+            var user =
+                $"Sektör/domain: {pack.Id}\n" +
+                $"Kullanıcı isteği: {request.Trim()}\n\n" +
+                "Bu istek için 4-6 maddelik ÖN-TARAMA yap. Çıktı formatı:\n" +
+                "Bulgular:\n- ...\n- ...\n\n" +
+                "Karar gerektiren belirsizlikler (2-3):\n- ...\n";
+
+            var text = (await llm.CompleteAsync(system, user, ct)).Text?.Trim();
+            if (string.IsNullOrWhiteSpace(text)) return null;
+            Console.Error.WriteLine("[CeoPreResearch] ön-tarama tamamlandı, sorular araştırmaya dayandırılacak.");
+            return text;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[CeoPreResearch] hata (atlanıyor): {ex.Message}");
+            return null;
+        }
+    }
+
     private static async Task<int> RunCeoFlowAsync(
         string rootDir,
         string request,
@@ -201,7 +237,15 @@ public static partial class CommandDispatcher
             // DB önce inşa ediliyor; planner facts'leri DB'den okusun.
             using var db = SupabaseWriter.TryCreate(supabase);
             var planner = new CeoPlanner(llm, db);
-            var plan    = await planner.PlanAsync(request, answersJson, pack, ct);
+
+            // Araştır-sonra-sor: ilk turda (cevap yok) VE web açıksa, sorular üretilmeden
+            // önce hafif bir web ön-taraması yap; sorular araştırmaya dayalı üretilsin.
+            // Web kapalıysa atlanır (ucuz kalır). Araştırma başarısızsa akış bozulmaz.
+            string? priorResearch = null;
+            if (string.IsNullOrWhiteSpace(answersJson) && exec.Web && !exec.DryRun)
+                priorResearch = await RunCeoPreResearchAsync(exec, request, pack, ct);
+
+            var plan    = await planner.PlanAsync(request, answersJson, pack, priorResearch, ct);
 
             // CEO planını DB'ye yaz
             if (db is not null)

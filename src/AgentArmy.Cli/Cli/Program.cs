@@ -12,7 +12,7 @@ public static class Program
 
         // Sürüm damgası — worker logunda hangi binary'nin koştuğunu gözle doğrulamak için.
         // Yeni kod deploy olduysa bu satırı görmeli; görmüyorsan eski binary çalışıyordur.
-        Console.Error.WriteLine("[AgentArmy] build-marker: tedarik-tools v14 (ceo-iterate soru tekrarını durdur + Planner alias)");
+        Console.Error.WriteLine("[AgentArmy] build-marker: tedarik-tools v15 (araştır-sonra-sor: CEO ön-tarama ile bilgili sorular)");
 
         var rootDir = RepoRootFinder.Find(AppContext.BaseDirectory);
 

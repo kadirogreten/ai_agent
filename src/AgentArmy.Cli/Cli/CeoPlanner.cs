@@ -34,10 +34,13 @@ public sealed class CeoPlanner
     );
 
     public async Task<Plan> PlanAsync(string request, string? answersJson, DomainPack domainPack, CancellationToken ct)
+        => await PlanAsync(request, answersJson, domainPack, priorResearch: null, ct);
+
+    public async Task<Plan> PlanAsync(string request, string? answersJson, DomainPack domainPack, string? priorResearch, CancellationToken ct)
     {
         var system = "Sen bir CEO/Chief of Staff ajansın. Kullanıcı isteğini doğru playbook/bundle'a yönlendirirsin. Sadece JSON döndürürsün.";
 
-        var user = await BuildPromptAsync(request, answersJson, domainPack, ct);
+        var user = await BuildPromptAsync(request, answersJson, domainPack, priorResearch, ct);
         var json = (await _llm.CompleteAsync(system, user, ct)).Text;
         try
         {
@@ -65,13 +68,25 @@ public sealed class CeoPlanner
         }
     }
 
-    private async Task<string> BuildPromptAsync(string request, string? answersJson, DomainPack domainPack, CancellationToken ct)
+    private async Task<string> BuildPromptAsync(string request, string? answersJson, DomainPack domainPack, string? priorResearch, CancellationToken ct)
     {
         var sb = new StringBuilder();
         sb.AppendLine("Bugünün tarihi (UTC): " + DateTimeOffset.UtcNow.ToString("yyyy-MM-dd"));
         sb.AppendLine();
         sb.AppendLine("Kullanıcı isteği:");
         sb.AppendLine(request.Trim());
+
+        // Araştırma-bilgili soru üretimi: ön-tarama bulguları varsa enjekte et ve
+        // soruları BUNLARA dayandır (jenerik soru yerine araştırmanın açık bıraktığı noktalar).
+        if (!string.IsNullOrWhiteSpace(priorResearch))
+        {
+            sb.AppendLine();
+            sb.AppendLine("Ön-araştırma bulguları (web ön-taraması):");
+            sb.AppendLine(priorResearch!.Trim());
+            sb.AppendLine();
+            sb.AppendLine("ÖNEMLİ — clarifyingQuestions'ı bu bulgulara DAYANDIR: jenerik sorular (örn. 'hedef kitle kim?') sorma;");
+            sb.AppendLine("araştırmanın ortaya çıkardığı, kullanıcının karar vermesi gereken SPESİFİK belirsizlikleri sor.");
+        }
 
         var hasAnswers = !string.IsNullOrWhiteSpace(answersJson);
         if (hasAnswers)

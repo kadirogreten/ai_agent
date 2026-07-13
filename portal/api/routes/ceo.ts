@@ -227,6 +227,38 @@ function parseQuestions(text: string) {
     .filter(Boolean)
 }
 
+// Araştırma-bilgili review: işin ÜRETTİĞİ gerçek araştırma/içeriği (run_outputs) toplayıp
+// özetlenebilir bir metin blok döndürür. Bu, soru/cevap üretimini "kör prompt" yerine
+// gerçek bulgulara dayandırmak için kullanılır. ~6k karakterle sınırlı (maliyet/context).
+async function extractResearchText(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  job: JobRow,
+): Promise<string> {
+  const runIds = extractRunIdsFromResult(job.result_json)
+  if (runIds.length === 0) return ''
+  const res = await supabase
+    .from('run_outputs')
+    .select('content_md,output_type,created_at')
+    .in('run_id', runIds)
+    .in('output_type', ['report', 'work', 'step'])
+    .order('created_at', { ascending: false })
+    .limit(12)
+  if (res.error) return ''
+
+  const MAX = 6000
+  const parts: string[] = []
+  let total = 0
+  for (const row of (res.data ?? []) as Array<{ content_md?: unknown }>) {
+    const md = typeof row.content_md === 'string' ? row.content_md.trim() : ''
+    if (!md) continue
+    const chunk = md.slice(0, 2500)
+    parts.push(chunk)
+    total += chunk.length
+    if (total >= MAX) break
+  }
+  return parts.join('\n\n---\n\n').slice(0, MAX)
+}
+
 function extractPlanText(text: string) {
   const marker = '\nPlan: '
   const index = text.indexOf(marker)
@@ -422,13 +454,22 @@ async function loadReviews(supabase: ReturnType<typeof getSupabaseAdmin>, ownerU
   return (res.data ?? []) as unknown as ReviewRow[]
 }
 
-async function generateSuggestedAnswers(job: JobRow, questions: string[], planText: string) {
+type SuggestedAnswer = { position: number; suggested_answer: string | null; confidence: number | null }
+type FollowUpQuestion = { question: string; suggested_answer: string | null; confidence: number | null }
+
+async function generateSuggestedAnswers(
+  job: JobRow,
+  questions: string[],
+  planText: string,
+  researchText = '',
+): Promise<{ answers: SuggestedAnswer[]; followUps: FollowUpQuestion[] }> {
   const apiKey = process.env.OPENAI_API_KEY
   if (!apiKey) {
     throw new Error('Missing OPENAI_API_KEY')
   }
 
   const model = process.env.OPENAI_MODEL || job.model || 'gpt-4.1'
+  const hasResearch = researchText.trim().length > 0
 
   // Her soru için position listesi; model bu listeyi birebir doldurmalı
   const questionLines = questions.map((q, i) => `${i + 1}. ${q}`).join('\n')
@@ -439,14 +480,23 @@ async function generateSuggestedAnswers(job: JobRow, questions: string[], planTe
       suggestedAnswer: '...',
       confidence: 0.85,
     })),
+    followUpQuestions: [
+      { question: 'Araştırmanın açık bıraktığı, karar gerektiren yeni soru', suggestedAnswer: '...', confidence: 0.7 },
+    ],
   }, null, 2)
 
   const prompt = [
     `Kullanıcının CEO sorularına taslak cevaplar üret. Toplam ${questions.length} soru var.`,
     `Her soru için kesinlikle bir cevap üretmelisin — answers dizisinde tam olarak ${questions.length} eleman olmalı.`,
     'Kısa, net, iş odaklı ve uygulanabilir cevaplar yaz. Sadece JSON döndür.',
+    hasResearch
+      ? 'ÖNEMLİ: Aşağıda işin ürettiği GERÇEK araştırma var. Cevapları BU araştırmaya dayandır — araştırmada net karşılığı olan soruları uydurmadan araştırmaya göre doldur, belirsizse düşük confidence ver.'
+      : '',
+    hasResearch
+      ? 'Ayrıca araştırmanın ORTAYA ÇIKARDIĞI, kullanıcının karar vermesi gereken 2-4 KESKİN takip sorusu üret (followUpQuestions). Jenerik değil; araştırma bulgusuna özgü olsun (örn. bulunan rakiplerden hangisine öncelik). Her birine önerilen kısa bir cevap da yaz.'
+      : 'followUpQuestions boş dizi [] olsun (araştırma yok).',
     '',
-    'Beklenen JSON formatı (her position için bir eleman):',
+    'Beklenen JSON formatı:',
     schemaExample,
     '',
     'Kullanıcı isteği:',
@@ -456,6 +506,8 @@ async function generateSuggestedAnswers(job: JobRow, questions: string[], planTe
     job.answers_json ? JSON.stringify(job.answers_json) : '{}',
     '',
     planText ? `Plan/rationale:\n${planText}` : '',
+    '',
+    hasResearch ? `İşin ürettiği araştırma (bulgular):\n${researchText}` : '',
     '',
     `Sorular (${questions.length} adet — hepsine cevap ver):`,
     questionLines,
@@ -496,9 +548,10 @@ async function generateSuggestedAnswers(job: JobRow, questions: string[], planTe
 
   const parsed = JSON.parse(content) as {
     answers?: Array<{ position?: number; suggestedAnswer?: string; suggested_answer?: string; confidence?: number }>
+    followUpQuestions?: Array<{ question?: string; suggestedAnswer?: string; suggested_answer?: string; confidence?: number }>
   }
 
-  return (parsed.answers ?? []).map((a, idx) => {
+  const answers: SuggestedAnswer[] = (parsed.answers ?? []).map((a, idx) => {
     // Model camelCase veya snake_case döndürebilir — ikisini de kabul et.
     const raw = a.suggestedAnswer ?? (a as Record<string, unknown>)['suggested_answer'] as string | undefined
     const text = typeof raw === 'string' && raw.trim() ? raw.trim() : null
@@ -508,6 +561,18 @@ async function generateSuggestedAnswers(job: JobRow, questions: string[], planTe
       confidence: typeof a.confidence === 'number' ? a.confidence : null,
     }
   })
+
+  const followUps: FollowUpQuestion[] = (parsed.followUpQuestions ?? [])
+    .map((f) => {
+      const q = typeof f.question === 'string' ? f.question.trim() : ''
+      const raw = f.suggestedAnswer ?? (f as Record<string, unknown>)['suggested_answer'] as string | undefined
+      const text = typeof raw === 'string' && raw.trim() ? raw.trim() : null
+      return { question: q, suggested_answer: text, confidence: typeof f.confidence === 'number' ? f.confidence : null }
+    })
+    .filter((f) => f.question.length > 0)
+    .slice(0, 4)
+
+  return { answers, followUps }
 }
 
 router.get('/jobs/:jobId/review', async (req: Request, res: Response) => {
@@ -547,10 +612,12 @@ router.post('/jobs/:jobId/review/generate', async (req: Request, res: Response) 
       return
     }
 
-    const suggested = await generateSuggestedAnswers(job, questions, planText)
+    // Araştırma-bilgili: işin ürettiği gerçek araştırmayı çıkar ve üretime besle.
+    const researchText = await extractResearchText(supabase, job)
+    const { answers: suggested, followUps } = await generateSuggestedAnswers(job, questions, planText, researchText)
     const savedAnswers = readSavedAnswers(job.answers_json)
     const { reviews: existing, tableAvailable } = await tryLoadReviews(supabase, user.id, job.id)
-    const payload = questions.map((question, index) => {
+    const basePayload = questions.map((question, index) => {
       const match = suggested.find((x) => x.position === index + 1)
       const current = existing.find((x) => x.position === index + 1)
       return {
@@ -565,6 +632,29 @@ router.post('/jobs/:jobId/review/generate', async (req: Request, res: Response) 
         source: 'ceo' as const,
       }
     })
+
+    // Araştırmadan türeyen keskin takip sorularını, mevcut soruların ARDINA ekle.
+    // (Aynı soru zaten varsa tekrar ekleme — metin eşleşmesiyle dedup.)
+    const existingQ = new Set(questions.map((q) => q.trim().toLowerCase()))
+    const followPayload = followUps
+      .filter((f) => !existingQ.has(f.question.trim().toLowerCase()))
+      .map((f, i) => {
+        const position = questions.length + 1 + i
+        const current = existing.find((x) => x.position === position)
+        return {
+          owner_user_id: user.id,
+          job_id: job.id,
+          position,
+          question: f.question,
+          suggested_answer: f.suggested_answer,
+          user_answer: current?.user_answer ?? null,
+          status: current?.status ?? 'suggested',
+          confidence: f.confidence,
+          source: 'ceo' as const,
+        }
+      })
+
+    const payload = [...basePayload, ...followPayload]
 
     if (!tableAvailable) {
       res.status(200).json({
